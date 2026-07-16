@@ -1,0 +1,191 @@
+{
+  "JavaNpeTest.shouldHandleNull": {
+    "signature_text": "TEST: JavaNpeTest.shouldHandleNull should Handle Null\nEXC: java.lang.NullPointerException\nMSG: c.e.Svc - Request SPECIALUUID failed java.lang.NullPointerException: value was null\nFRAMES: com.example.Service.handle com.example.Worker.run\nTEMPLATES: 9a11382acca4d265 ad1f249ef63d1b0f",
+    "exception_fp": 947876623136221027,
+    "error_hash": 2892793757352668108,
+    "exc_classes": [
+      "java.lang.NullPointerException"
+    ],
+    "frames": [
+      "com.example.Service.handle",
+      "com.example.Worker.run"
+    ],
+    "template_hashes": [
+      "9a11382acca4d265",
+      "ad1f249ef63d1b0f"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": true
+  },
+  "JavaCausedByTest.nested": {
+    "signature_text": "TEST: JavaCausedByTest.nested nested\nEXC: java.lang.IllegalStateException com.example.ServiceException\nMSG: com.example.ServiceException: wrapper failure Caused by: java.lang.IllegalStateException: bad state\nFRAMES: com.example.Core.process com.example.Api.call\nTEMPLATES: ab85d7d83755bd22 9204d1206d0a78bc",
+    "exception_fp": -8327334481296251109,
+    "error_hash": 9195342543684135843,
+    "exc_classes": [
+      "java.lang.IllegalStateException",
+      "com.example.ServiceException"
+    ],
+    "frames": [
+      "com.example.Core.process",
+      "com.example.Api.call"
+    ],
+    "template_hashes": [
+      "ab85d7d83755bd22",
+      "9204d1206d0a78bc"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": true
+  },
+  "PythonValueErrorTest.test_parse": {
+    "signature_text": "TEST: PythonValueErrorTest.test test parse\nEXC: ValueError\nMSG: ValueError: invalid literal for int() with base <NUM>: 'abc'\nFRAMES: parser.parse\nTEMPLATES: 6279938e6082b363 13a100238e06fb68 d2ec616ff976aded",
+    "exception_fp": -2515187189631221067,
+    "error_hash": 2144423825804675465,
+    "exc_classes": [
+      "ValueError"
+    ],
+    "frames": [
+      "parser.parse"
+    ],
+    "template_hashes": [
+      "6279938e6082b363",
+      "13a100238e06fb68",
+      "d2ec616ff976aded"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": true
+  },
+  "SeleniumStaleTest.clickSubmit": {
+    "signature_text": "TEST: SeleniumStaleTest.clickSubmit click Submit\nEXC: org.openqa.selenium.StaleElementReferenceException\nMSG: org.openqa.selenium.StaleElementReferenceException: stale element\nFRAMES: com.example.pages.LoginPage.submit\nTEMPLATES: 6416f2735f444374",
+    "exception_fp": 8774338289380153453,
+    "error_hash": 5544503534864790720,
+    "exc_classes": [
+      "org.openqa.selenium.StaleElementReferenceException"
+    ],
+    "frames": [
+      "com.example.pages.LoginPage.submit"
+    ],
+    "template_hashes": [
+      "6416f2735f444374"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": true
+  },
+  "JsAssertTest.shouldEqual": {
+    "signature_text": "TEST: JsAssertTest.shouldEqual should Equal\nEXC: AssertionError\nMSG: AssertionError [ERR_ASSERTION]: expected <VAL>     at Object.<anonymous> (<PATH>:<NUM>:<NUM>)\nTEMPLATES: 0c4dc6134b9f00ca",
+    "exception_fp": -3395063307933854075,
+    "error_hash": -197795997088305224,
+    "exc_classes": [
+      "AssertionError"
+    ],
+    "frames": [],
+    "template_hashes": [
+      "0c4dc6134b9f00ca"
+    ],
+    "status_codes": [],
+    "is_assertion": true,
+    "has_stacktrace": false
+  },
+  "HttpTest.serverError": {
+    "signature_text": "TEST: HttpTest.serverError server Error\nMSG: Response status code: <NUM> Service Unavailable from gateway\nTEMPLATES: 67def626874e20bc\nCODES: HTTP_503",
+    "exception_fp": 0,
+    "error_hash": -8949923914709231871,
+    "exc_classes": [],
+    "frames": [],
+    "template_hashes": [
+      "67def626874e20bc"
+    ],
+    "status_codes": [
+      "503"
+    ],
+    "is_assertion": false,
+    "has_stacktrace": false
+  },
+  "TimeoutTest.slowResponse": {
+    "signature_text": "TEST: TimeoutTest.slowResponse slow Response\nMSG: Test timed out after <NUM> ms waiting for element to appear\nTEMPLATES: b751741df718d530",
+    "exception_fp": 0,
+    "error_hash": -5371717862046074484,
+    "exc_classes": [],
+    "frames": [],
+    "template_hashes": [
+      "b751741df718d530"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": false
+  },
+  "DbConnTest.pool": {
+    "signature_text": "TEST: DbConnTest.pool pool\nEXC: org.postgresql.util.PSQLException\nMSG: org.postgresql.util.PSQLException: connection pool exhausted at com.example.db.Pool.acquire(Pool.java:<NUM>)\nTEMPLATES: 7827ebbef7ab5879",
+    "exception_fp": -892040520056145049,
+    "error_hash": 7960527872346730338,
+    "exc_classes": [
+      "org.postgresql.util.PSQLException"
+    ],
+    "frames": [],
+    "template_hashes": [
+      "7827ebbef7ab5879"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": false
+  },
+  "MixedMultiLogTest.flow": {
+    "signature_text": "TEST: MixedMultiLogTest.flow flow\nEXC: java.lang.IllegalArgumentException\nMSG: java.lang.IllegalArgumentException: bad arg foo at com.example.Validator.check(Validator.java:<NUM>)\nTEMPLATES: 13ddd5b361fca05b",
+    "exception_fp": -6859602026099710054,
+    "error_hash": 4972644429259512394,
+    "exc_classes": [
+      "java.lang.IllegalArgumentException"
+    ],
+    "frames": [],
+    "template_hashes": [
+      "13ddd5b361fca05b"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": false
+  },
+  "KafkaTest.brokerDown": {
+    "signature_text": "TEST: KafkaTest.brokerDown broker Down\nEXC: org.apache.kafka.common.errors.TimeoutException\nMSG: org.apache.kafka.common.errors.TimeoutException: broker not available\nTEMPLATES: 37bddf92ee0b6211",
+    "exception_fp": 8219474117338470620,
+    "error_hash": 4180468417006944501,
+    "exc_classes": [
+      "org.apache.kafka.common.errors.TimeoutException"
+    ],
+    "frames": [],
+    "template_hashes": [
+      "37bddf92ee0b6211"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": false
+  },
+  "EmptyItemTest.noLogs": {
+    "signature_text": "",
+    "exception_fp": 0,
+    "error_hash": 0,
+    "exc_classes": [],
+    "frames": [],
+    "template_hashes": [],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": false
+  },
+  "OomTest.heap": {
+    "signature_text": "TEST: OomTest.heap heap\nEXC: java.lang.OutOfMemoryError\nMSG: java.lang.OutOfMemoryError: Java heap space at com.example.report.Builder.build(Builder.java:<NUM>)\nTEMPLATES: 0702a8d24df1a377",
+    "exception_fp": 30811186809132763,
+    "error_hash": -9069459704218462905,
+    "exc_classes": [
+      "java.lang.OutOfMemoryError"
+    ],
+    "frames": [],
+    "template_hashes": [
+      "0702a8d24df1a377"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": false
+  }
+}

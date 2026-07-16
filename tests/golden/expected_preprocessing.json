@@ -1,0 +1,65 @@
+{
+  "java_npe": {
+    "unified": "c.e.Svc - failure at https://api.example.com/v1/orders\njava.lang.NullPointerException: null\nat com.example.Service.handle(Service.java:42)",
+    "msg": "c.e.Svc - failure at https://api.example.com/v1/orders\njava.lang.NullPointerException: null",
+    "stack": "at com.example.Service.handle",
+    "exceptions": [
+      "java.lang.NullPointerException"
+    ],
+    "status_codes": [],
+    "urls": [
+      "https://api.example.com/v1/orders"
+    ],
+    "paths": [],
+    "has_stacktrace": true
+  },
+  "python_trace": {
+    "unified": "Traceback (most recent call last):\n  File \"/app/svc/parser.py\", line 88, in parse\nValueError: bad input",
+    "msg": "ValueError: bad input",
+    "stack": "Traceback :\n  File \"/app/svc/parser.py\", line SPECIALNUMBER, in parse",
+    "exceptions": [
+      "ValueError"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": true
+  },
+  "http_code": {
+    "unified": "Response status code: 404 Not Found for /api/users/123",
+    "msg": "Response status code: 404 Not Found for /api/users/123",
+    "stack": "",
+    "exceptions": [],
+    "status_codes": [
+      "404",
+      "123"
+    ],
+    "urls": [],
+    "paths": [
+      "/api/users/123"
+    ],
+    "has_stacktrace": false
+  },
+  "webdriver_noise": {
+    "unified": "org.openqa.selenium.TimeoutException: wait failed\nat com.example.Page.wait(Page.java:5)",
+    "msg": "org.openqa.selenium.TimeoutException: wait failed\nat com.example.Page.wait(Page.java:5)",
+    "stack": "",
+    "exceptions": [
+      "org.openqa.selenium.TimeoutException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "uuid_hex": {
+    "unified": "Session SPECIALUUID with token SPECIALHEX expired",
+    "msg": "Session SPECIALUUID with token SPECIALHEX expired",
+    "stack": "",
+    "exceptions": [],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  }
+}
