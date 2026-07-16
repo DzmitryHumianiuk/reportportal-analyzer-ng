@@ -19,6 +19,7 @@ from analyzer_ng.db.repositories.drain3_state import PgDrain3StateStore
 from analyzer_ng.db.repositories.kb import PgKBStore
 from analyzer_ng.db.repositories.labels import PgLabelStore
 from analyzer_ng.db.repositories.llm_cache import PgLlmCacheStore
+from analyzer_ng.db.repositories.llm_events import PgLlmEventStore, PgLlmRoleStateStore
 from analyzer_ng.db.repositories.models import (
     Candidate,
     CandidateFilters,
@@ -35,6 +36,8 @@ from analyzer_ng.db.repositories.protocols import (
     KBStore,
     LabelStore,
     LlmCacheStore,
+    LlmEventStore,
+    LlmRoleStateStore,
     RetrievalStore,
     StatsStore,
 )
@@ -50,6 +53,8 @@ __all__ = [
     "PgStatsStore",
     "PgDrain3StateStore",
     "PgLlmCacheStore",
+    "PgLlmEventStore",
+    "PgLlmRoleStateStore",
     # protocols
     "RetrievalStore",
     "KBStore",
@@ -57,6 +62,8 @@ __all__ = [
     "StatsStore",
     "Drain3StateStore",
     "LlmCacheStore",
+    "LlmEventStore",
+    "LlmRoleStateStore",
     # models
     "TestItemIn",
     "SignatureIn",

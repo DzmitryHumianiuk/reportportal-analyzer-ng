@@ -123,11 +123,30 @@ class AppConfig(BaseSettings):
     analyzer_suggest_max: int = 3
     analyzer_burst_si_share: UnitInterval = 0.5
     analyzer_time_decay: UnitInterval = 0.999
+    # Optional LLM sidecar (spec 04 §1.2). All read once at startup; per-project
+    # runtime disable lives in llm_role_state (spec 04 §6). With the master switch
+    # off (the default) no code path touches the llm/ package beyond reading it.
     analyzer_llm_enabled: LegacyBool = False
     ollama_url: str = "http://ollama:11434"
-    analyzer_llm_model: str = "qwen3:4b"
-    analyzer_llm_judge_tau: UnitInterval = 0.5
+    analyzer_llm_model: str = "qwen3:4b-q4_K_M"  # exact Ollama tag, pinned quantization (§2)
+    analyzer_llm_api: str = "ollama"  # 'ollama' native /api/chat, or 'openai' /v1/chat/completions
+    analyzer_llm_explainer: LegacyBool = True
+    analyzer_llm_extractor: LegacyBool = True
+    analyzer_llm_judge: LegacyBool = True
+    analyzer_llm_coldstart: LegacyBool = True
+    analyzer_llm_timeout_s: int = 20
+    analyzer_llm_queue_max: int = 500
+    analyzer_llm_num_ctx: int = 4096
+    analyzer_llm_judge_tau: UnitInterval = 0.75  # judge fires when τ_suggest ≤ p* < this
     analyzer_seed_kb_path: str = "/opt/analyzer/seeds/failure_modes.json"
+
+    @field_validator("analyzer_llm_api")
+    @classmethod
+    def _valid_llm_api(cls, value: str) -> str:
+        token = value.strip().lower()
+        if token not in {"ollama", "openai"}:
+            raise ValueError(f"ANALYZER_LLM_API must be 'ollama' or 'openai', got {value!r}")
+        return token
 
     @field_validator("amqp_url")
     @classmethod

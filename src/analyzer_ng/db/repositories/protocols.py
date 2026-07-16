@@ -27,9 +27,7 @@ from analyzer_ng.db.repositories.models import (
 
 class RetrievalStore(Protocol):
     def transaction(self) -> AbstractContextManager[Any]: ...
-    def upsert_items(
-        self, items: Sequence[TestItemIn], *, conn: object | None = None
-    ) -> int: ...
+    def upsert_items(self, items: Sequence[TestItemIn], *, conn: object | None = None) -> int: ...
     def upsert_signatures(
         self, sigs: Sequence[SignatureIn], *, conn: object | None = None
     ) -> int: ...
@@ -136,6 +134,7 @@ class Drain3StateStore(Protocol):
 
 class LlmCacheStore(Protocol):
     def get(self, project_id: int, cache_key: str) -> dict | None: ...
+    def get_fresh(self, project_id: int, cache_key: str, ttl_days: int) -> dict | None: ...
     def put(
         self,
         project_id: int,
@@ -144,4 +143,33 @@ class LlmCacheStore(Protocol):
         model: str,
         output: dict,
         template_hash: int | None = None,
+    ) -> None: ...
+
+
+class LlmEventStore(Protocol):
+    def record(
+        self,
+        *,
+        project_id: int,
+        item_id: int,
+        role: str,
+        model: str,
+        prompt_hash: str,
+        cache_hit: bool,
+        outcome: str,
+        output: dict | None = None,
+        latency_ms: int | None = None,
+    ) -> int: ...
+
+
+class LlmRoleStateStore(Protocol):
+    def is_enabled(self, project_id: int, role: str) -> bool: ...
+    def set_state(
+        self,
+        project_id: int,
+        role: str,
+        *,
+        enabled: bool,
+        reason: str | None = None,
+        stats: dict | None = None,
     ) -> None: ...

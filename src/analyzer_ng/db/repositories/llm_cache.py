@@ -28,6 +28,25 @@ class PgLlmCacheStore(StoreBase):
             ).fetchone()
         return row[0] if row is not None else None
 
+    def get_fresh(self, project_id: int, cache_key: str, ttl_days: int) -> dict | None:
+        """Read-time freshness (spec 04 §3.0): return the entry only if it is
+        younger than ``ttl_days`` on ``created_at``; bump hits on a fresh hit.
+
+        A stale row is left in place for the spec 02 §6 retention sweep to reap; it
+        simply misses here so the role recomputes."""
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                UPDATE analyzer.llm_cache
+                SET hits = hits + 1, last_hit_at = now()
+                WHERE project_id = %s AND cache_key = %s
+                  AND created_at >= now() - make_interval(days => %s)
+                RETURNING output
+                """,
+                (project_id, cache_key, ttl_days),
+            ).fetchone()
+        return row[0] if row is not None else None
+
     def put(
         self,
         project_id: int,
