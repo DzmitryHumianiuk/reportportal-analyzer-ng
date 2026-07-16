@@ -292,7 +292,7 @@ def test_delete_round_trips_to_stringified_count(rp_service: ServiceHandle) -> N
     # Legacy wire shape: a plain stringified int (count of affected entities).
     text = reply.decode()
     assert text == str(int(text))  # a base-10 integer literal, no envelope
-    assert int(text) == 0  # Phase 1 stub removes nothing
+    assert int(text) >= 0  # real pipeline: count of entities actually removed
 
 
 def test_defect_update_round_trips_to_json_int_list(rp_service: ServiceHandle) -> None:
@@ -302,10 +302,14 @@ def test_defect_update_round_trips_to_json_int_list(rp_service: ServiceHandle) -
     )
     parsed = json.loads(reply)
     # Legacy wire shape: json.dumps(list_of_ints) — the ids NOT found/updated.
-    # Phase 1 has no storage, so every referenced id is "not found".
+    # With the real feedback pipeline the not-found set depends on whether the
+    # items were indexed/deleted by earlier round-trips in this module, so assert
+    # the wire shape (a JSON int array) and that it only ever names the referenced
+    # ids. Behavioral proof (events appended, labels overwritten) lives in
+    # tests/integration/test_index_pipeline.py.
     assert isinstance(parsed, list)
     assert all(isinstance(x, int) for x in parsed)
-    assert sorted(parsed) == [2001, 2002]
+    assert set(parsed) <= {2001, 2002}
 
 
 # --------------------------------------------------------------------------- #
