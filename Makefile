@@ -1,4 +1,4 @@
-.PHONY: install lint format test clean
+.PHONY: install lint format test test-unit test-integration clean
 
 VENV ?= .venv
 PY ?= python3.12
@@ -10,12 +10,22 @@ install:
 
 lint:
 	ruff check .
+	ruff format --check .
 
 format:
 	ruff format .
 
+# Full suite (unit + integration). Integration needs a running Docker daemon.
 test:
 	pytest
+
+# Fast path: pure-python tests only, no Docker required.
+test-unit:
+	pytest -m "not integration"
+
+# Integration tests: spin real containers via testcontainers (needs Docker).
+test-integration:
+	pytest -m integration
 
 clean:
 	rm -rf $(VENV) .pytest_cache .ruff_cache dist build

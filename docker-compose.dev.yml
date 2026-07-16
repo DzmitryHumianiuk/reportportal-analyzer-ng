@@ -1,0 +1,46 @@
+# Local development backing services for analyzer-ng.
+#
+# Brings up the two stateful dependencies the service talks to:
+#   * PostgreSQL 16 with the pgvector extension (spec 02 §1.1 requires the
+#     `vector` extension >= 0.8; the pgvector/pgvector:pg16 image ships it).
+#   * RabbitMQ 3 with the management plugin (AMQP 5672 + UI on 15672).
+#
+# This file is for interactive local work (`docker compose -f docker-compose.dev.yml up`).
+# The integration test suite spins its own throwaway containers via testcontainers
+# (see tests/integration/conftest.py) and does NOT depend on this file.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: analyzer
+      POSTGRES_PASSWORD: analyzer
+      POSTGRES_DB: analyzer
+    ports:
+      - "5432:5432"
+    volumes:
+      - analyzer-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U analyzer -d analyzer"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: analyzer
+      RABBITMQ_DEFAULT_PASS: analyzer
+      RABBITMQ_DEFAULT_VHOST: analyzer
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  analyzer-pgdata: {}

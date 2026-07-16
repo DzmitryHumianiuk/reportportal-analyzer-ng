@@ -64,4 +64,12 @@ select = ["E", "F", "I", "W", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: requires Docker; spins real containers via testcontainers",
+]
+filterwarnings = [
+    # Third-party: testcontainers' rabbitmq module uses a deprecated internal
+    # decorator. Not actionable from this repo; ignore to keep output clean.
+    "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning",
+]
