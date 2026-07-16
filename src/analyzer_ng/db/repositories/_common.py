@@ -22,6 +22,8 @@ from typing import Any
 from psycopg import Connection, Cursor
 from psycopg_pool import ConnectionPool
 
+from analyzer_ng.core.cancellation import statement_timeout_ms
+
 
 def require_row(cur: Cursor[Any]) -> tuple[Any, ...]:
     """Return the single row of a cursor, or raise if the query returned none.
@@ -75,13 +77,42 @@ class StoreBase:
     @contextmanager
     def _conn(self) -> Iterator[Connection]:
         """A pooled connection in autocommit mode (each store method is atomic
-        on its own; multi-statement methods open an explicit transaction)."""
+        on its own; multi-statement methods open an explicit transaction).
+
+        When invoked inside a task watchdog (spec 01 §8.2), the connection's
+        ``statement_timeout`` is set to the remaining task budget so a blocked SQL
+        statement is cancelled by the server rather than leaking the worker thread
+        past ``AMQP_HANDLER_TASK_TIMEOUT``. Startup/migration code connects
+        directly (not via the pool) and stays exempt.
+        """
         with self._pool.connection() as conn:
             prior = conn.autocommit
             if not prior:
                 conn.autocommit = True
+            budget_ms = statement_timeout_ms()
+            if budget_ms is not None:
+                # SET cannot take a bound parameter (extended protocol); budget_ms
+                # is an int we compute, so a literal is safe.
+                conn.execute(f"SET statement_timeout = {int(budget_ms)}")
             try:
                 yield conn
             finally:
+                if budget_ms is not None:
+                    try:  # reset so a pooled connection never carries a stale timeout
+                        conn.execute("SET statement_timeout = 0")
+                    except Exception:  # noqa: BLE001 — connection may be in a failed state
+                        pass
                 if conn.autocommit != prior:
                     conn.autocommit = prior
+
+    @contextmanager
+    def transaction(self) -> Iterator[Connection]:
+        """A pooled connection wrapped in a single explicit transaction.
+
+        Lets a caller run several store operations atomically by passing the
+        yielded connection into ``conn=``-aware store methods (spec 02 §2.10: the
+        ``index`` write path commits ``test_item`` + ``failure_signature`` +
+        ``test_history_stats`` together).
+        """
+        with self._conn() as conn, conn.transaction():
+            yield conn
