@@ -133,7 +133,7 @@ The legacy analyzer integrates via RabbitMQ; analyzer-ng must be a **drop-in rep
   (plus optional ollama container). Legacy `opensearch` container becomes unnecessary when
   analyzer-ng replaces both `analyzer` and `analyzer-train` services.
 - Reference for legacy behavior (cloned repo, read-only):
-  `/private/tmp/claude-501/-Users-Dmitriy-Gumeniuk-scripts/73236fa0-35ae-4721-b518-a2ce62e95c78/scratchpad/service-auto-analyzer`
+  `/Users/Dmitriy_Gumeniuk/IdeaProjects/service-auto-analyzer`
 
 ## 5. Reusable legacy assets (port, don't reinvent)
 
