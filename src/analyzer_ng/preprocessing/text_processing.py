@@ -1096,6 +1096,13 @@ def calculate_text_similarity(
 
     IDF is intentionally disabled so a slightly reworded log does not shift the
     score of unrelated candidates (legacy behaviour).
+
+    Deviation from legacy: tokens come from :func:`preprocess_text_for_similarity`,
+    which drops the WordNet lemmatizer step because ``nltk`` is excluded by spec 01
+    §2.1 (see that function's docstring and the module docstring). This function is
+    off the §1-4 pipeline critical path — the near-duplicate drop (§1.1) uses
+    :func:`find_last_unique_texts`, which never lemmatizes — so the deviation does
+    not affect signatures/fingerprints.
     """
     if base_text is None or not other_texts:
         return []

@@ -41,6 +41,25 @@ def test_filter_drops_below_error_dedupes_and_caps():
     assert set(kept) == set(DISTINCT)
 
 
+def test_filter_collapses_true_near_duplicates_keeping_last():
+    # A genuine near-duplicate pair (~0.97 cosine, NOT an exact copy) around the
+    # 0.95 drop threshold: the earlier one is dropped, the last occurrence kept.
+    shared = (
+        "org.springframework.web.client.HttpServerErrorException 500 Internal Server Error "
+        "while calling downstream billing service endpoint for tenant acme during nightly "
+        "reconciliation job attempting to settle invoices for the current period batch"
+    )
+    near1 = shared
+    near2 = shared + " billing service"  # near-dup, not identical
+    distinct = "selenium NoSuchElementException unable to locate element login button on checkout"
+
+    kept = filter_item_logs([LogInput(near1), LogInput(near2), LogInput(distinct)])
+
+    assert near1 not in kept  # earlier near-duplicate dropped
+    assert near2 in kept and distinct in kept  # last occurrence + distinct survive
+    assert len(kept) == 2
+
+
 def test_filter_empty_messages_dropped():
     logs = [LogInput("   ", log_level=40000), LogInput("real error here", log_level=40000)]
     assert filter_item_logs(logs) == ["real error here"]
