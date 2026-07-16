@@ -72,7 +72,7 @@ class AnalyzerService:
         # in the real logic without touching the transport.
         self._handlers = PipelineHandlers()
         if pg_pool is not None:
-            self._handlers.bind(pg_pool)
+            self._handlers.bind(pg_pool, max_logs=config.analyzer_max_logs_per_item)
         self._publisher = ReplyPublisher(AmqpConnection(config, app_version), self._dlq)
         self._pool = WorkerPool(
             Dispatcher(build_routes(self._handlers)),
@@ -114,7 +114,7 @@ class AnalyzerService:
     def set_pg_pool(self, pool: ConnectionPool) -> None:
         """Attach the PostgreSQL pool once it is opened (after DB bootstrap)."""
         self._pg_pool = pool
-        self._handlers.bind(pool)
+        self._handlers.bind(pool, max_logs=self._config.analyzer_max_logs_per_item)
 
     def load_seed_kb(self) -> SeedKB:
         """Startup step 6 (spec 01 §6): load & validate the seed failure-mode KB.

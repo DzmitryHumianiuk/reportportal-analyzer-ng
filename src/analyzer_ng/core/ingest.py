@@ -114,10 +114,21 @@ class IndexPipeline:
     ) -> None:
         items, sigs, stats_bumps = self._mine_and_build(project_id, entries)
 
-        self._retrieval.upsert_items(items)
-        self._retrieval.upsert_signatures(sigs)
-        for test_case_hash, ts in stats_bumps:
-            self._stats.bump_test_history(project_id, test_case_hash, True, ts)
+        # spec 02 §2.10: test_item + failure_signature + test_history_stats commit in
+        # ONE transaction, so a mid-write failure leaves nothing persisted for the
+        # project (never items-without-signatures/stats). Drain3 state was already
+        # saved above — its template mirror is idempotent/additive, so a rolled-back
+        # DB write is re-converged by the next index of the same launch.
+        with self._retrieval.transaction() as conn:
+            self._retrieval.upsert_items(items, conn=conn)
+            self._retrieval.upsert_signatures(sigs, conn=conn)
+            for test_case_hash, ts in stats_bumps:
+                # §2.10 records each index as a failure observation (incremental
+                # upsert), so window_runs accumulates on a re-index of the same
+                # launch. This is a deliberate reconciliation of §2.10 against
+                # §8.4's "no-op rewrite" wording in favor of the more specific
+                # §2.10 stats contract (the hot retrieval tables stay idempotent).
+                self._stats.bump_test_history(project_id, test_case_hash, True, ts, conn=conn)
 
         # foundExceptions per ERROR+ log for the BulkResponse (Drain-independent).
         for _launch, item in entries:

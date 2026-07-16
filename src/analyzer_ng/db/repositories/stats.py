@@ -15,47 +15,73 @@ class PgStatsStore(StoreBase):
     """psycopg3 implementation of :class:`~...protocols.StatsStore`."""
 
     def bump_test_history(
-        self, project_id: int, test_case_hash: int, failed: bool, ts: datetime
+        self,
+        project_id: int,
+        test_case_hash: int,
+        failed: bool,
+        ts: datetime,
+        *,
+        conn: object | None = None,
     ) -> None:
         """Incremental per-test upsert (spec 02 §2.10).
 
         A ``failed`` observation bumps runs+failures and counts a flip if the
         previous status was ``passed``; a passing observation bumps runs only and
         counts a flip if the previous status was ``failed`` (the fail->pass pair).
-        Flakiness is the alpha=0.1 EWMA of the flip indicator.
+        Flakiness is the alpha=0.1 EWMA of the flip indicator. Pass ``conn`` to run
+        in the caller's transaction — §2.10 requires this upsert to share the
+        ``index`` write's transaction with ``test_item``.
         """
         current = "failed" if failed else "passed"
         opposite = "passed" if failed else "failed"
         failure_inc = 1 if failed else 0
-        with self._conn() as conn:
-            conn.execute(
-                """
-                INSERT INTO analyzer.test_history_stats AS s
-                    (project_id, test_case_hash, window_runs, window_failures, window_flips,
-                     last_status, last_failure_ts, flakiness_score)
-                VALUES (%(pid)s, %(tch)s, 1, %(finc)s, 0, %(cur)s,
-                        CASE WHEN %(failed)s THEN %(ts)s ELSE NULL END, 0.0)
-                ON CONFLICT (project_id, test_case_hash) DO UPDATE SET
-                    window_runs     = s.window_runs + 1,
-                    window_failures = s.window_failures + %(finc)s,
-                    window_flips    = s.window_flips
-                                      + CASE WHEN s.last_status = %(opp)s THEN 1 ELSE 0 END,
-                    flakiness_score = s.flakiness_score * 0.9
-                                      + 0.1 * CASE WHEN s.last_status = %(opp)s THEN 1 ELSE 0 END,
-                    last_status     = %(cur)s,
-                    last_failure_ts = CASE WHEN %(failed)s THEN %(ts)s ELSE s.last_failure_ts END,
-                    updated_at      = now()
-                """,
-                {
-                    "pid": project_id,
-                    "tch": test_case_hash,
-                    "finc": failure_inc,
-                    "cur": current,
-                    "opp": opposite,
-                    "failed": failed,
-                    "ts": ts,
-                },
-            )
+        if conn is not None:
+            self._bump(conn, project_id, test_case_hash, current, opposite, failure_inc, failed, ts)
+        else:
+            with self._conn() as own:
+                self._bump(
+                    own, project_id, test_case_hash, current, opposite, failure_inc, failed, ts
+                )
+
+    @staticmethod
+    def _bump(
+        conn: object,
+        project_id: int,
+        test_case_hash: int,
+        current: str,
+        opposite: str,
+        failure_inc: int,
+        failed: bool,
+        ts: datetime,
+    ) -> None:
+        conn.execute(  # type: ignore[attr-defined]
+            """
+            INSERT INTO analyzer.test_history_stats AS s
+                (project_id, test_case_hash, window_runs, window_failures, window_flips,
+                 last_status, last_failure_ts, flakiness_score)
+            VALUES (%(pid)s, %(tch)s, 1, %(finc)s, 0, %(cur)s,
+                    CASE WHEN %(failed)s THEN %(ts)s ELSE NULL END, 0.0)
+            ON CONFLICT (project_id, test_case_hash) DO UPDATE SET
+                window_runs     = s.window_runs + 1,
+                window_failures = s.window_failures + %(finc)s,
+                window_flips    = s.window_flips
+                                  + CASE WHEN s.last_status = %(opp)s THEN 1 ELSE 0 END,
+                flakiness_score = s.flakiness_score * 0.9
+                                  + 0.1 * CASE WHEN s.last_status = %(opp)s THEN 1 ELSE 0 END,
+                last_status     = %(cur)s,
+                last_failure_ts = CASE WHEN %(failed)s THEN %(ts)s ELSE s.last_failure_ts END,
+                updated_at      = now()
+            """,
+            {
+                "pid": project_id,
+                "tch": test_case_hash,
+                "finc": failure_inc,
+                "cur": current,
+                "opp": opposite,
+                "failed": failed,
+                "ts": ts,
+            },
+        )
 
     def get_test_history(self, project_id: int, test_case_hashes: Sequence[int]) -> dict[int, dict]:
         if not test_case_hashes:

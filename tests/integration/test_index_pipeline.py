@@ -12,8 +12,11 @@ wire compatibility in ``test_rp_compat`` is here proven against the real store.
 from __future__ import annotations
 
 import json
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import psycopg
@@ -22,6 +25,7 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg_pool import ConnectionPool
 
+from analyzer_ng.amqp.dispatcher import Dispatcher, ProcessingItem, WorkerPool, build_routes
 from analyzer_ng.amqp.models import (
     DefectUpdate,
     DeleteLaunchesRequest,
@@ -30,8 +34,9 @@ from analyzer_ng.amqp.models import (
     Launch,
     RemoveByDatesRequest,
 )
-from analyzer_ng.core.handlers import PipelineHandlers
+from analyzer_ng.core.handlers import PipelineHandlers, StubHandlers
 from analyzer_ng.db.repositories import LabelEventIn, ModeIn, PgKBStore, PgLabelStore
+from analyzer_ng.db.repositories._common import StoreBase
 from analyzer_ng.db.startup import bootstrap_and_migrate
 
 _FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -311,3 +316,104 @@ def test_defect_update_recomputes_mode_purity(
     # The sole labeled member makes the mode pure.
     assert support == 1
     assert purity == pytest.approx(1.0)
+
+
+# --------------------------------------------------------------------------- #
+# Review follow-up #1 — atomic index write (spec 02 §2.10, one transaction)
+# --------------------------------------------------------------------------- #
+def test_index_write_is_atomic_on_signature_failure(
+    handlers: PipelineHandlers, pool: ConnectionPool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure after test_item upsert must roll back the whole per-project write.
+
+    Proves §2.10: test_item + failure_signature + test_history_stats commit
+    together, so nothing is persisted for the project when the signature write
+    fails mid-sequence (never items-without-signatures).
+    """
+    retrieval = handlers._pipeline._retrieval  # type: ignore[union-attr]
+
+    def boom(*_args: Any, **_kwargs: Any) -> int:
+        raise RuntimeError("injected signature write failure")
+
+    monkeypatch.setattr(retrieval, "upsert_signatures", boom)
+    resp = handlers.index(_launches())
+
+    assert resp.errors is True  # BulkResponse reports the failure
+    # Nothing committed for the project: the transaction rolled back the items too.
+    assert _count(pool, "test_item") == 0
+    assert _count(pool, "failure_signature") == 0
+    assert _count(pool, "test_history_stats") == 0
+
+
+# --------------------------------------------------------------------------- #
+# Review follow-up #2 — PG statement_timeout to remaining budget (spec 01 §8.2)
+# --------------------------------------------------------------------------- #
+class _SleepStore(StoreBase):
+    def sleep(self, seconds: float) -> None:
+        with self._conn() as conn:
+            conn.execute("SELECT pg_sleep(%s)", (seconds,))
+
+
+class _PgSleepHandlers(StubHandlers):
+    def __init__(self, store: _SleepStore) -> None:
+        self._store = store
+
+    def noop_sleep(self, seconds: Any) -> None:
+        self._store.sleep(float(seconds))
+        return None
+
+
+class _Publisher:
+    def __init__(self) -> None:
+        self.replies: list[tuple[str, str, str]] = []
+        self.dead_letters: list[tuple[bytes, dict[str, Any]]] = []
+        self._lock = threading.Lock()
+
+    def reply(self, reply_to: str, correlation_id: str, body: str) -> None:
+        with self._lock:
+            self.replies.append((reply_to, correlation_id, body))
+
+    def dead_letter(self, body: bytes, headers: dict[str, Any]) -> None:
+        with self._lock:
+            self.dead_letters.append((body, headers))
+
+
+def _wait(predicate: Any, timeout: float = 15.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.02)
+    raise AssertionError("condition not met within timeout")
+
+
+def test_pg_statement_timeout_cancels_hung_sql(pool: ConnectionPool) -> None:
+    """A SQL statement that would outlive the task budget is cancelled by PG.
+
+    Without the §8.2 statement_timeout wiring a ``pg_sleep(30)`` in handler work
+    would leak the worker thread for 30 s; with it, the server cancels the query
+    at the remaining budget and the task fails cleanly to the DLQ path.
+    """
+    handlers = _PgSleepHandlers(_SleepStore(pool))
+    pub = _Publisher()
+    worker = WorkerPool(
+        Dispatcher(build_routes(handlers)),
+        pub,
+        workers=1,
+        retry_delays=[0.0, 0.0, 0.0],
+        task_timeout=0.3,
+    )
+    worker.start()
+    try:
+        started = time.monotonic()
+        worker.submit(
+            ProcessingItem(1, 1, "noop_sleep", reply_to=None, correlation_id="c", body=30)
+        )
+        _wait(lambda: pub.dead_letters, timeout=15)
+        elapsed = time.monotonic() - started
+        # Cancelled promptly at the ~0.3 s budget (× a few retries), never ~30 s.
+        assert elapsed < 10, f"statement not cancelled promptly (took {elapsed:.1f}s)"
+        _body, headers = pub.dead_letters[0]
+        assert headers["x-routing-key"] == "noop_sleep"
+    finally:
+        worker.shutdown(timeout=2)

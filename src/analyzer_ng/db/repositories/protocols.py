@@ -9,8 +9,9 @@ mirror spec 02 §4 (rendered synchronous to match the threaded service — see
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import AbstractContextManager
 from datetime import date, datetime
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from analyzer_ng.db.repositories.models import (
     Candidate,
@@ -25,8 +26,13 @@ from analyzer_ng.db.repositories.models import (
 
 
 class RetrievalStore(Protocol):
-    def upsert_items(self, items: Sequence[TestItemIn]) -> int: ...
-    def upsert_signatures(self, sigs: Sequence[SignatureIn]) -> int: ...
+    def transaction(self) -> AbstractContextManager[Any]: ...
+    def upsert_items(
+        self, items: Sequence[TestItemIn], *, conn: object | None = None
+    ) -> int: ...
+    def upsert_signatures(
+        self, sigs: Sequence[SignatureIn], *, conn: object | None = None
+    ) -> int: ...
     def update_issue_type(
         self, project_id: int, item_id: int, issue_type: str | None, is_auto: bool
     ) -> bool: ...
@@ -92,7 +98,13 @@ class LabelStore(Protocol):
 
 class StatsStore(Protocol):
     def bump_test_history(
-        self, project_id: int, test_case_hash: int, failed: bool, ts: datetime
+        self,
+        project_id: int,
+        test_case_hash: int,
+        failed: bool,
+        ts: datetime,
+        *,
+        conn: object | None = None,
     ) -> None: ...
     def get_test_history(
         self, project_id: int, test_case_hashes: Sequence[int]

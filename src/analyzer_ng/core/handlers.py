@@ -180,6 +180,7 @@ class PipelineHandlers(StubHandlers):
         *,
         embedder: object | None = None,
         emb_model_ver: int = 0,
+        max_logs: int = 20,
     ) -> None:
         """Attach the store layer once the PostgreSQL pool is open (spec 01 §6)."""
         retrieval = PgRetrievalStore(pool)
@@ -192,6 +193,7 @@ class PipelineHandlers(StubHandlers):
             PgDrain3StateStore(pool),
             embedder=embedder,
             emb_model_ver=emb_model_ver,
+            max_logs=max_logs,
         )
 
     # -- index ------------------------------------------------------------- #
@@ -279,6 +281,11 @@ class PipelineHandlers(StubHandlers):
                 not_updated.append(item_id)
                 continue
             # 2. Append-only label_event + current-label overwrite + purity + outcomes.
+            # These run as separate store transactions (not one atomic unit): the
+            # label_event log is append-only and the current-label/purity/outcome
+            # updates are individually idempotent, so a partial failure re-converges
+            # on the next defect_update — full cross-store atomicity is not required
+            # for this feedback signal.
             old_label = existing[item_id]
             self._retrieval.update_issue_type(project, item_id, issue_type, is_auto=False)
             self._label.append_event(

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from psycopg_pool import ConnectionPool
 
@@ -58,107 +58,125 @@ class PgRetrievalStore(StoreBase):
     # --------------------------------------------------------------------- #
     # Writes
     # --------------------------------------------------------------------- #
-    def upsert_items(self, items: Sequence[TestItemIn]) -> int:
+    def upsert_items(self, items: Sequence[TestItemIn], *, conn: object | None = None) -> int:
+        """Upsert test items. Pass ``conn`` to enlist in a caller's transaction
+        (spec 02 §2.10 atomic index write); otherwise runs in its own."""
         if not items:
             return 0
-        with self._conn() as conn, conn.transaction():
-            cur = conn.cursor()
-            cur.executemany(
-                "INSERT INTO analyzer.project (project_id) VALUES (%s) ON CONFLICT DO NOTHING",
-                [(pid,) for pid in {it.project_id for it in items}],
-            )
-            cur.executemany(
-                """
-                INSERT INTO analyzer.test_item
-                    (project_id, item_id, launch_id, launch_name, launch_number,
-                     test_case_hash, unique_id, item_name, start_time, is_auto_analyzed,
-                     issue_type, log_count, log_time_max, indexed_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now())
-                ON CONFLICT (project_id, item_id) DO UPDATE SET
-                    launch_id        = EXCLUDED.launch_id,
-                    launch_name      = EXCLUDED.launch_name,
-                    launch_number    = EXCLUDED.launch_number,
-                    test_case_hash   = EXCLUDED.test_case_hash,
-                    unique_id        = EXCLUDED.unique_id,
-                    item_name        = EXCLUDED.item_name,
-                    start_time       = EXCLUDED.start_time,
-                    is_auto_analyzed = EXCLUDED.is_auto_analyzed,
-                    issue_type       = EXCLUDED.issue_type,
-                    log_count        = EXCLUDED.log_count,
-                    log_time_max     = EXCLUDED.log_time_max,
-                    indexed_at       = now()
-                """,
-                [
-                    (
-                        it.project_id,
-                        it.item_id,
-                        it.launch_id,
-                        it.launch_name,
-                        it.launch_number,
-                        it.test_case_hash,
-                        it.unique_id,
-                        it.item_name,
-                        it.start_time,
-                        it.is_auto_analyzed,
-                        it.issue_type,
-                        it.log_count,
-                        it.log_time_max,
-                    )
-                    for it in items
-                ],
-            )
+        if conn is not None:
+            self._upsert_items(conn, items)
+        else:
+            with self._conn() as own, own.transaction():
+                self._upsert_items(own, items)
         return len(items)
 
-    def upsert_signatures(self, sigs: Sequence[SignatureIn]) -> int:
+    @staticmethod
+    def _upsert_items(conn: Any, items: Sequence[TestItemIn]) -> None:
+        cur = conn.cursor()
+        cur.executemany(
+            "INSERT INTO analyzer.project (project_id) VALUES (%s) ON CONFLICT DO NOTHING",
+            [(pid,) for pid in {it.project_id for it in items}],
+        )
+        cur.executemany(
+            """
+            INSERT INTO analyzer.test_item
+                (project_id, item_id, launch_id, launch_name, launch_number,
+                 test_case_hash, unique_id, item_name, start_time, is_auto_analyzed,
+                 issue_type, log_count, log_time_max, indexed_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now())
+            ON CONFLICT (project_id, item_id) DO UPDATE SET
+                launch_id        = EXCLUDED.launch_id,
+                launch_name      = EXCLUDED.launch_name,
+                launch_number    = EXCLUDED.launch_number,
+                test_case_hash   = EXCLUDED.test_case_hash,
+                unique_id        = EXCLUDED.unique_id,
+                item_name        = EXCLUDED.item_name,
+                start_time       = EXCLUDED.start_time,
+                is_auto_analyzed = EXCLUDED.is_auto_analyzed,
+                issue_type       = EXCLUDED.issue_type,
+                log_count        = EXCLUDED.log_count,
+                log_time_max     = EXCLUDED.log_time_max,
+                indexed_at       = now()
+            """,
+            [
+                (
+                    it.project_id,
+                    it.item_id,
+                    it.launch_id,
+                    it.launch_name,
+                    it.launch_number,
+                    it.test_case_hash,
+                    it.unique_id,
+                    it.item_name,
+                    it.start_time,
+                    it.is_auto_analyzed,
+                    it.issue_type,
+                    it.log_count,
+                    it.log_time_max,
+                )
+                for it in items
+            ],
+        )
+
+    def upsert_signatures(self, sigs: Sequence[SignatureIn], *, conn: object | None = None) -> int:
+        """Upsert failure signatures. Pass ``conn`` to enlist in a caller's
+        transaction (spec 02 §2.10 atomic index write)."""
         if not sigs:
             return 0
-        with self._conn() as conn:
-            conn.cursor().executemany(
-                """
-                INSERT INTO analyzer.failure_signature
-                    (project_id, item_id, exception_fp, error_hash, top_frames, template_ids,
-                     exc_text, msg_text, frames_text, tmpl_text, only_numbers, status_codes,
-                     urls, paths, emb, emb_model_ver)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (project_id, item_id) DO UPDATE SET
-                    exception_fp = EXCLUDED.exception_fp,
-                    error_hash   = EXCLUDED.error_hash,
-                    top_frames   = EXCLUDED.top_frames,
-                    template_ids = EXCLUDED.template_ids,
-                    exc_text     = EXCLUDED.exc_text,
-                    msg_text     = EXCLUDED.msg_text,
-                    frames_text  = EXCLUDED.frames_text,
-                    tmpl_text    = EXCLUDED.tmpl_text,
-                    only_numbers = EXCLUDED.only_numbers,
-                    status_codes = EXCLUDED.status_codes,
-                    urls         = EXCLUDED.urls,
-                    paths        = EXCLUDED.paths,
-                    emb          = EXCLUDED.emb,
-                    emb_model_ver = EXCLUDED.emb_model_ver
-                """,
-                [
-                    (
-                        s.project_id,
-                        s.item_id,
-                        s.exception_fp,
-                        s.error_hash,
-                        s.top_frames,
-                        s.template_ids,
-                        s.exc_text,
-                        s.msg_text,
-                        s.frames_text,
-                        s.tmpl_text,
-                        s.only_numbers,
-                        s.status_codes,
-                        s.urls,
-                        s.paths,
-                        halfvec_literal(s.emb) if s.emb is not None else None,
-                        s.emb_model_ver,
-                    )
-                    for s in sigs
-                ],
-            )
+        if conn is not None:
+            self._upsert_signatures(conn, sigs)
+        else:
+            with self._conn() as own, own.transaction():
+                self._upsert_signatures(own, sigs)
         return len(sigs)
+
+    @staticmethod
+    def _upsert_signatures(conn: Any, sigs: Sequence[SignatureIn]) -> None:
+        conn.cursor().executemany(
+            """
+            INSERT INTO analyzer.failure_signature
+                (project_id, item_id, exception_fp, error_hash, top_frames, template_ids,
+                 exc_text, msg_text, frames_text, tmpl_text, only_numbers, status_codes,
+                 urls, paths, emb, emb_model_ver)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (project_id, item_id) DO UPDATE SET
+                exception_fp = EXCLUDED.exception_fp,
+                error_hash   = EXCLUDED.error_hash,
+                top_frames   = EXCLUDED.top_frames,
+                template_ids = EXCLUDED.template_ids,
+                exc_text     = EXCLUDED.exc_text,
+                msg_text     = EXCLUDED.msg_text,
+                frames_text  = EXCLUDED.frames_text,
+                tmpl_text    = EXCLUDED.tmpl_text,
+                only_numbers = EXCLUDED.only_numbers,
+                status_codes = EXCLUDED.status_codes,
+                urls         = EXCLUDED.urls,
+                paths        = EXCLUDED.paths,
+                emb          = EXCLUDED.emb,
+                emb_model_ver = EXCLUDED.emb_model_ver
+            """,
+            [
+                (
+                    s.project_id,
+                    s.item_id,
+                    s.exception_fp,
+                    s.error_hash,
+                    s.top_frames,
+                    s.template_ids,
+                    s.exc_text,
+                    s.msg_text,
+                    s.frames_text,
+                    s.tmpl_text,
+                    s.only_numbers,
+                    s.status_codes,
+                    s.urls,
+                    s.paths,
+                    halfvec_literal(s.emb) if s.emb is not None else None,
+                    s.emb_model_ver,
+                )
+                for s in sigs
+            ],
+        )
 
     def update_issue_type(
         self, project_id: int, item_id: int, issue_type: str | None, is_auto: bool

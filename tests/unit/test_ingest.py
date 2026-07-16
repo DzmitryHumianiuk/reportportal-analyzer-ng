@@ -8,6 +8,8 @@ idempotent re-index) is provable without a database.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -31,12 +33,16 @@ class FakeRetrieval:
         self.items: dict[tuple[int, int], TestItemIn] = {}
         self.sigs: dict[tuple[int, int], SignatureIn] = {}
 
-    def upsert_items(self, items: Any) -> int:
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        yield None
+
+    def upsert_items(self, items: Any, *, conn: object | None = None) -> int:
         for it in items:
             self.items[(it.project_id, it.item_id)] = it
         return len(list(items))
 
-    def upsert_signatures(self, sigs: Any) -> int:
+    def upsert_signatures(self, sigs: Any, *, conn: object | None = None) -> int:
         for s in sigs:
             self.sigs[(s.project_id, s.item_id)] = s
         return len(list(sigs))
@@ -47,7 +53,7 @@ class FakeStats:
         self.bumps: list[tuple[int, int, bool]] = []
 
     def bump_test_history(
-        self, project_id: int, test_case_hash: int, failed: bool, ts: Any
+        self, project_id: int, test_case_hash: int, failed: bool, ts: Any, *, conn: object = None
     ) -> None:
         self.bumps.append((project_id, test_case_hash, failed))
 
