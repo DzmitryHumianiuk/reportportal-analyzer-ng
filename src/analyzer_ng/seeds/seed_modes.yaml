@@ -1,0 +1,281 @@
+# Seed failure-mode catalog (spec 03 §9). Transcribed verbatim from the spec.
+#
+# This YAML is the cold-start knowledge base: 50 generic failure modes with
+# matching rules (exception-name regex / message regex / keyword sets) and a
+# prior (label + confidence). It is shipped as package data and loaded &
+# validated at startup (spec 01 §6 step 6). Per-project copies are created
+# lazily in `failure_mode` on the first match (loader.py).
+#
+# Rule semantics (spec 03 §9):
+#   exc_re : regex, case-sensitive, matched against EXC classes.
+#   msg_re : regex, case-insensitive, matched against MSG + template texts.
+#   kw     : lowercase substring, ANY-of, matched against MSG + templates + EXC.
+# A mode matches if ANY listed rule group matches; first matching mode by
+# priority (list order below) wins for `seed_mode_matched`.
+version: 1
+modes:
+  # ---- memory / resources -------------------------------------------------
+  - mode_key: oom_java            # 1
+    title: "Out of memory (JVM/Python)"
+    rules: {exc_re: ['java\.lang\.OutOfMemoryError', '^MemoryError$'], kw: ["outofmemoryerror", "gc overhead limit"]}
+    prior: {label: si, confidence: 0.8}
+    rationale: "Heap exhaustion is an environment/resource issue, rarely the test's logic."
+  - mode_key: oom_killed_container # 2
+    title: "Container OOM-killed (exit 137)"
+    rules: {msg_re: ['exit code 137', 'OOMKilled', 'Killed\s+process'], kw: ["oom-killed", "exit status 137"]}
+    prior: {label: si, confidence: 0.85}
+    rationale: "cgroup kill = infrastructure sizing, not test or product logic."
+  - mode_key: stack_overflow      # 3
+    title: "Stack overflow"
+    rules: {exc_re: ['java\.lang\.StackOverflowError', '^RecursionError$']}
+    prior: {label: pb, confidence: 0.5}
+    rationale: "Usually runaway recursion in product code; sometimes test fixtures."
+  - mode_key: disk_full           # 4
+    title: "Disk full / no space left"
+    rules: {msg_re: ['[Nn]o space left on device', 'DiskFull'], kw: ["disk quota exceeded"]}
+    prior: {label: si, confidence: 0.9}
+    rationale: "Storage exhaustion on the runner is purely environmental."
+  - mode_key: too_many_open_files # 5
+    title: "Too many open files"
+    rules: {msg_re: ['[Tt]oo many open files'], kw: ["emfile"]}
+    prior: {label: si, confidence: 0.75}
+    rationale: "ulimit/leak on the agent; environment-dominated."
+
+  # ---- network / connectivity ---------------------------------------------
+  - mode_key: conn_refused        # 6
+    title: "Connection refused"
+    rules: {exc_re: ['ConnectException', 'ConnectionRefusedError'], msg_re: ['[Cc]onnection refused']}
+    prior: {label: si, confidence: 0.75}
+    rationale: "Target service down/unreachable — infra or deployment issue."
+  - mode_key: conn_reset          # 7
+    title: "Connection reset / broken pipe"
+    rules: {msg_re: ['[Cc]onnection reset by peer', '[Bb]roken pipe', 'ECONNRESET']}
+    prior: {label: si, confidence: 0.7}
+    rationale: "Transient network/service instability."
+  - mode_key: conn_timeout        # 8
+    title: "Connection/read timeout"
+    rules: {exc_re: ['SocketTimeoutException', 'ReadTimeout(Error)?$', 'ConnectTimeout'], msg_re: ['[Tt]imed? ?out (waiting for )?connection', 'read timed out']}
+    prior: {label: si, confidence: 0.65}
+    rationale: "Network/service latency; occasionally an undersized test timeout (ab)."
+  - mode_key: dns_resolution      # 9
+    title: "DNS resolution failure"
+    rules: {exc_re: ['UnknownHostException', 'gaierror'], msg_re: ['[Nn]ame or service not known', 'getaddrinfo failed', 'NXDOMAIN']}
+    prior: {label: si, confidence: 0.85}
+    rationale: "Name resolution is environment config, never test logic."
+  - mode_key: tls_cert            # 10
+    title: "TLS/certificate error"
+    rules: {exc_re: ['SSLHandshakeException', 'SSLError', 'CertificateException'], msg_re: ['certificate verify failed', 'PKIX path building failed', 'self[- ]signed certificate']}
+    prior: {label: si, confidence: 0.8}
+    rationale: "Cert/truststore problems are environment configuration."
+  - mode_key: port_in_use         # 11
+    title: "Port already in use"
+    rules: {exc_re: ['BindException'], msg_re: ['[Aa]ddress already in use', 'EADDRINUSE']}
+    prior: {label: si, confidence: 0.8}
+    rationale: "Runner port collision — parallelism/environment issue."
+  - mode_key: proxy_gateway       # 12
+    title: "Proxy / gateway error"
+    rules: {msg_re: ['502 Bad Gateway', '504 Gateway Time-?out', 'ProxyError']}
+    prior: {label: si, confidence: 0.75}
+    rationale: "Intermediary failure between test and system under test."
+
+  # ---- HTTP-status families -------------------------------------------------
+  - mode_key: http_5xx            # 13
+    title: "HTTP 5xx server error"
+    rules: {msg_re: ['\b(HTTP|status( code)?)[ :=]*5\d\d\b', 'Internal Server Error', 'Service Unavailable']}
+    prior: {label: si, confidence: 0.6}
+    rationale: "Server-side failure; could be product bug, but bursts are usually systemic."
+  - mode_key: http_401_403        # 14
+    title: "HTTP 401/403 auth failure"
+    rules: {msg_re: ['\b(HTTP|status( code)?)[ :=]*40[13]\b', 'Unauthorized', 'Forbidden']}
+    prior: {label: ab, confidence: 0.55}
+    rationale: "Expired test credentials/tokens are the common cause."
+  - mode_key: http_404            # 15
+    title: "HTTP 404 not found"
+    rules: {msg_re: ['\b(HTTP|status( code)?)[ :=]*404\b', 'Not Found']}
+    prior: {label: ab, confidence: 0.45}
+    rationale: "Often stale endpoint/fixture in the test; sometimes a real routing bug."
+  - mode_key: http_429            # 16
+    title: "HTTP 429 rate limit / quota"
+    rules: {msg_re: ['\b429\b', '[Rr]ate limit', 'quota exceeded', 'Too Many Requests']}
+    prior: {label: si, confidence: 0.75}
+    rationale: "Throttling by shared services — environmental capacity."
+
+  # ---- database / messaging -------------------------------------------------
+  - mode_key: db_pool_exhausted   # 17
+    title: "DB connection pool exhausted"
+    rules: {msg_re: ['[Cc]onnection pool.*(exhaust|timeout)', 'HikariPool.*timed? ?out', 'too many clients already', 'QueuePool limit']}
+    prior: {label: si, confidence: 0.75}
+    rationale: "Pool sizing/leaks under load — systemic."
+  - mode_key: db_deadlock         # 18
+    title: "Deadlock / lock timeout"
+    rules: {msg_re: ['[Dd]eadlock (found|detected)', 'LockAcquisitionException', 'lock wait timeout exceeded', 'could not obtain lock']}
+    prior: {label: pb, confidence: 0.5}
+    rationale: "Concurrency bugs in product code, sometimes test data collisions."
+  - mode_key: db_conn_failed      # 19
+    title: "Database connection failure"
+    rules: {exc_re: ['SQLTransientConnectionException', 'OperationalError'], msg_re: ['(database|db).*(connection (refused|failed))', 'FATAL:\s+(the )?database', 'password authentication failed']}
+    prior: {label: si, confidence: 0.75}
+    rationale: "DB unreachable/misconfigured — environment."
+  - mode_key: db_migration_failed # 20
+    title: "Schema migration failed"
+    rules: {msg_re: ['[Ff]lyway.*(failed|error)', 'liquibase.*(failed|error)', 'alembic.*(error|failed)', 'migration.*failed']}
+    prior: {label: si, confidence: 0.7}
+    rationale: "Migration/environment drift blocks the whole run."
+  - mode_key: kafka_rabbit        # 21
+    title: "Kafka/RabbitMQ connectivity"
+    rules: {msg_re: ['kafka.*(timeout|not available|disconnect)', 'TimeoutException.*kafka', '(rabbitmq|amqp).*(refused|unreachable|timeout)'], kw: ["broker not available", "leader not available"]}
+    prior: {label: si, confidence: 0.75}
+    rationale: "Message broker availability is infrastructural."
+  - mode_key: redis_conn          # 22
+    title: "Redis connectivity"
+    rules: {exc_re: ['JedisConnectionException', 'RedisConnectionError'], msg_re: ['redis.*(refused|timeout|unreachable)', 'MISCONF Redis']}
+    prior: {label: si, confidence: 0.75}
+    rationale: "Cache layer availability — infra."
+
+  # ---- selenium / webdriver -------------------------------------------------
+  - mode_key: wd_stale_element    # 23
+    title: "StaleElementReferenceException"
+    rules: {exc_re: ['StaleElementReferenceException']}
+    prior: {label: ab, confidence: 0.8}
+    rationale: "Classic race between DOM refresh and test — test synchronization bug."
+  - mode_key: wd_no_such_element  # 24
+    title: "NoSuchElementException (locator)"
+    rules: {exc_re: ['NoSuchElementException'], msg_re: ['[Uu]nable to (locate|find) element']}
+    prior: {label: ab, confidence: 0.65}
+    rationale: "Broken/changed locator most often; occasionally a real missing UI element."
+  - mode_key: wd_not_interactable # 25
+    title: "ElementNotInteractable / ClickIntercepted"
+    rules: {exc_re: ['ElementNotInteractableException', 'ElementClickInterceptedException'], msg_re: ['element not interactable', 'Other element would receive the click']}
+    prior: {label: ab, confidence: 0.7}
+    rationale: "Timing/overlay handling in the test."
+  - mode_key: wd_wait_timeout     # 26
+    title: "Explicit wait timeout"
+    rules: {exc_re: ['org\.openqa\.selenium\.TimeoutException', 'selenium\.common\.exceptions\.TimeoutException'], msg_re: ['[Ee]xpected condition failed.*wait', 'Waited \d+ seconds for']}
+    prior: {label: ab, confidence: 0.6}
+    rationale: "Waits/synchronization tuned wrong; sometimes genuine slowness (si)."
+  - mode_key: wd_session          # 27
+    title: "WebDriver session error"
+    rules: {exc_re: ['WebDriverException', 'SessionNotCreatedException', 'NoSuchSessionException'], msg_re: ['invalid session id', 'session deleted because of page crash', 'chrome not reachable']}
+    prior: {label: si, confidence: 0.7}
+    rationale: "Browser/driver infrastructure crashed, not the test's assertions."
+  - mode_key: wd_driver_mismatch  # 28
+    title: "ChromeDriver/browser version mismatch"
+    rules: {msg_re: ['[Tt]his version of ChromeDriver only supports', 'session not created.*version', 'unsupported browser version']}
+    prior: {label: si, confidence: 0.85}
+    rationale: "Grid/agent image out of date — environment."
+  - mode_key: browser_console     # 29
+    title: "Browser console errors assertion"
+    rules: {msg_re: ['console error(s)? (found|detected)', 'severe.*console', 'js console.*error']}
+    prior: {label: pb, confidence: 0.5}
+    rationale: "Tests asserting a clean console usually surface real front-end errors."
+
+  # ---- assertions -----------------------------------------------------------
+  - mode_key: assertion_java      # 30
+    title: "JUnit/TestNG assertion failure"
+    rules: {exc_re: ['java\.lang\.AssertionError', 'org\.junit\.ComparisonFailure', 'AssertionFailedError'], msg_re: ['expected:.*but was']}
+    prior: {label: pb, confidence: 0.4}
+    rationale: "Functional mismatch — pb-leaning, but stale expectations are common; low confidence."
+  - mode_key: assertion_pytest    # 31
+    title: "pytest assertion failure"
+    rules: {exc_re: ['^AssertionError$'], msg_re: ['^assert\b', 'AssertionError:']}
+    prior: {label: pb, confidence: 0.4}
+    rationale: "As above, for Python."
+  - mode_key: assertion_js        # 32
+    title: "chai/jest expect failure"
+    rules: {msg_re: ['expect\(.*\)\.to', 'expect\(received\)', 'AssertionError \[ERR_ASSERTION\]', 'jest.*expect'], kw: ["expected value to be"]}
+    prior: {label: pb, confidence: 0.4}
+    rationale: "As above, for JS."
+  - mode_key: snapshot_mismatch   # 33
+    title: "Snapshot/visual mismatch"
+    rules: {msg_re: ['[Ss]napshot.*(mismatch|does not match|obsolete)', 'toMatchSnapshot', 'screenshot comparison failed', 'pixel difference']}
+    prior: {label: ab, confidence: 0.5}
+    rationale: "Snapshots drift with intended UI changes as often as with real bugs."
+  - mode_key: soft_assert_bundle  # 34
+    title: "Multiple soft-assert failures"
+    rules: {msg_re: ['[Ss]oft ?assert', 'The following asserts failed']}
+    prior: {label: pb, confidence: 0.4}
+    rationale: "Aggregated functional mismatches."
+
+  # ---- code-level exceptions ------------------------------------------------
+  - mode_key: npe_undefined       # 35
+    title: "NullPointerException / undefined access"
+    rules: {exc_re: ['java\.lang\.NullPointerException'], msg_re: ["TypeError: Cannot read propert(y|ies) of (undefined|null)", "'NoneType' object (has no attribute|is not)"]}
+    prior: {label: pb, confidence: 0.55}
+    rationale: "Null-safety bugs are usually product-side, sometimes fixture gaps."
+  - mode_key: illegal_state       # 36
+    title: "IllegalState/IllegalArgument"
+    rules: {exc_re: ['java\.lang\.IllegalStateException', 'java\.lang\.IllegalArgumentException', '^ValueError$']}
+    prior: {label: pb, confidence: 0.45}
+    rationale: "Contract violations lean product, but tests pass bad args too."
+  - mode_key: index_key_error     # 37
+    title: "IndexOutOfBounds / KeyError"
+    rules: {exc_re: ['IndexOutOfBoundsException', 'ArrayIndexOutOfBoundsException', '^KeyError$', '^IndexError$']}
+    prior: {label: pb, confidence: 0.5}
+    rationale: "Boundary bugs; test-data shape mismatches also occur."
+  - mode_key: class_not_found     # 38
+    title: "ClassNotFound / NoClassDefFound / ImportError"
+    rules: {exc_re: ['ClassNotFoundException', 'NoClassDefFoundError', 'ModuleNotFoundError', '^ImportError$']}
+    prior: {label: ab, confidence: 0.6}
+    rationale: "Classpath/packaging of the test run — automation/config, not product logic."
+  - mode_key: file_not_found      # 39
+    title: "File not found"
+    rules: {exc_re: ['FileNotFoundException', 'FileNotFoundError'], msg_re: ['No such file or directory']}
+    prior: {label: ab, confidence: 0.55}
+    rationale: "Missing fixtures/paths in the test environment."
+  - mode_key: permission_denied   # 40
+    title: "Permission denied (fs/os)"
+    rules: {exc_re: ['AccessDeniedException', 'PermissionError'], msg_re: ['[Pp]ermission denied', 'EACCES']}
+    prior: {label: si, confidence: 0.7}
+    rationale: "Filesystem/user permissions on the agent."
+  - mode_key: encoding_error      # 41
+    title: "Encoding/serialization error"
+    rules: {exc_re: ['UnicodeDecodeError', 'JsonParseException', 'JsonMappingException', 'JSONDecodeError', 'SerializationException']}
+    prior: {label: pb, confidence: 0.45}
+    rationale: "Contract/format drift between components; sometimes bad test data."
+
+  # ---- build / dependencies / CI -------------------------------------------
+  - mode_key: compile_error       # 42
+    title: "Compilation/build error"
+    rules: {msg_re: ['COMPILATION ERROR', 'cannot find symbol', 'SyntaxError:', 'error TS\d+', 'BUILD FAILED']}
+    prior: {label: ab, confidence: 0.75}
+    rationale: "The test code/build is broken before any product behavior is exercised."
+  - mode_key: dependency_resolution # 43
+    title: "Dependency resolution failure (maven/npm/pip)"
+    rules: {msg_re: ['Could not resolve dependencies', 'Could not transfer artifact', 'npm ERR!.*(404|ETIMEDOUT|ERESOLVE)', 'No matching distribution found', 'ResolutionImpossible']}
+    prior: {label: si, confidence: 0.7}
+    rationale: "Registry/proxy availability or lockfile drift — environmental."
+  - mode_key: docker_testcontainers # 44
+    title: "Docker/testcontainers failure"
+    rules: {exc_re: ['ContainerLaunchException'], msg_re: ['Could not find a valid Docker environment', '(pull access denied|manifest unknown|toomanyrequests)', 'error during connect: .*docker']}
+    prior: {label: si, confidence: 0.8}
+    rationale: "Container runtime/registry issues on the agent."
+  - mode_key: ci_agent_lost       # 45
+    title: "CI agent lost / job cancelled"
+    rules: {msg_re: ['(agent|node|runner).*(disconnect|went offline|lost)', 'job was cancell?ed', 'received SIGTERM', 'The operation was canceled']}
+    prior: {label: si, confidence: 0.85}
+    rationale: "Executor infrastructure died mid-run."
+  - mode_key: env_config_missing  # 46
+    title: "Missing env var / configuration"
+    rules: {msg_re: ['environment variable.*(not set|missing|is required)', 'Missing required (property|configuration)', 'Could not resolve placeholder'], kw: ["config not found"]}
+    prior: {label: ab, confidence: 0.6}
+    rationale: "Run configuration gap in the automation setup."
+  - mode_key: generic_timeout     # 47
+    title: "Generic test timeout"
+    rules: {msg_re: ['[Tt]est timed out after', 'TimeoutError(?!.*selenium)', 'exceeded timeout of \d+', 'DeadlineExceeded']}
+    prior: {label: ab, confidence: 0.5}
+    rationale: "Timeout budget vs genuine slowness — ambiguous, mild ab lean."
+  - mode_key: flaky_retry_passed  # 48
+    title: "Flaky: failed then passed on retry"
+    rules: {msg_re: ['(passed|succeeded) (on|after) retry', 'Flaky ?[Tt]est', 'retr(y|ies).*succe']}
+    prior: {label: nd, confidence: 0.7}
+    rationale: "Retry-passed is the canonical no-defect signal."
+  - mode_key: concurrent_mod      # 49
+    title: "ConcurrentModification / race"
+    rules: {exc_re: ['ConcurrentModificationException', 'RaceConditionError'], msg_re: ['optimistic lock(ing)? (failed|exception)']}
+    prior: {label: pb, confidence: 0.55}
+    rationale: "Concurrency defects in product code."
+  - mode_key: auth_token_expired  # 50
+    title: "Auth token/session expired"
+    rules: {msg_re: ['token (is )?expired', 'JWT expired', 'session (has )?expired', 'invalid_grant']}
+    prior: {label: ab, confidence: 0.6}
+    rationale: "Test credentials lifecycle — automation maintenance."

@@ -120,6 +120,56 @@ class PgKBStore(StoreBase):
                 )
         return int(mode_id)
 
+    def ensure_seed_mode(self, project_id: int, seed_key: str, mode: ModeIn) -> int:
+        """Idempotently create (or fetch) a project's lazy copy of a seed mode.
+
+        First match on a project materializes the catalog mode as a
+        ``failure_mode`` row (``status='candidate'``, ``label_source='seed'``,
+        centroid NULL — spec 03 §9). ``seed_key`` = the catalog ``mode_key``; the
+        partial unique index ``(project_id, seed_key)`` is the ON CONFLICT arbiter,
+        so concurrent workers converge to a single row and a re-match reuses it.
+        Returns the mode_id.
+        """
+        centroid = halfvec_literal(mode.centroid) if mode.centroid is not None else None
+        with self._conn() as conn, conn.transaction():
+            conn.execute(
+                "INSERT INTO analyzer.project (project_id) VALUES (%s) ON CONFLICT DO NOTHING",
+                (project_id,),
+            )
+            inserted = conn.execute(
+                """
+                INSERT INTO analyzer.failure_mode
+                    (project_id, seed_key, status, label, label_source, title, summary,
+                     centroid, emb_model_ver, representative_template_ids, exception_fps)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (project_id, seed_key) WHERE seed_key IS NOT NULL DO NOTHING
+                RETURNING mode_id
+                """,
+                (
+                    project_id,
+                    seed_key,
+                    mode.status,
+                    mode.label,
+                    mode.label_source,
+                    mode.title,
+                    mode.summary,
+                    centroid,
+                    mode.emb_model_ver,
+                    mode.representative_template_ids,
+                    mode.exception_fps,
+                ),
+            ).fetchone()
+            if inserted is not None:
+                return int(inserted[0])
+            existing = require_row(
+                conn.execute(
+                    "SELECT mode_id FROM analyzer.failure_mode "
+                    "WHERE project_id = %s AND seed_key = %s",
+                    (project_id, seed_key),
+                )
+            )
+        return int(existing[0])
+
     def add_members(
         self, project_id: int, mode_id: int, members: Sequence[tuple[int, float, MatchedBy]]
     ) -> int:

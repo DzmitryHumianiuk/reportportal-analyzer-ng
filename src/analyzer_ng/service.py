@@ -28,7 +28,9 @@ from analyzer_ng.amqp.consumer import Consumer
 from analyzer_ng.amqp.dispatcher import Dispatcher, WorkerPool
 from analyzer_ng.config import AppConfig
 from analyzer_ng.db.pool import check_pg, pool_in_use
+from analyzer_ng.db.repositories.kb import PgKBStore
 from analyzer_ng.metrics import Metrics
+from analyzer_ng.seeds.loader import SeedKB, load_seed_kb
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,7 @@ class AnalyzerService:
         self.gbm_model_ver = gbm_model_ver
         self._pg_pool = pg_pool
         self._metrics = metrics or Metrics()
+        self.seed_kb: SeedKB | None = None
 
         prefix = config.analyzer_ng_queue_prefix
         self._all_queue = f"{prefix}all"
@@ -101,6 +104,17 @@ class AnalyzerService:
     def set_pg_pool(self, pool: ConnectionPool) -> None:
         """Attach the PostgreSQL pool once it is opened (after DB bootstrap)."""
         self._pg_pool = pool
+
+    def load_seed_kb(self) -> SeedKB:
+        """Startup step 6 (spec 01 §6): load & validate the seed failure-mode KB.
+
+        Idempotent — validates the packaged catalog and binds the KBStore for
+        lazy per-project copies. Safe to call again (re-load never duplicates DB
+        rows; the catalog is package data). Requires the PG pool to be attached.
+        """
+        kb_store = PgKBStore(self._pg_pool) if self._pg_pool is not None else None
+        self.seed_kb = load_seed_kb(kb_store)
+        return self.seed_kb
 
     # -- lifecycle --------------------------------------------------------- #
     def start(self) -> None:

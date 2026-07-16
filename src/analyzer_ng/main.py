@@ -6,8 +6,9 @@ bootstrap + migrations -> open the connection pool -> start AMQP consumers, work
 pool, and reply publisher -> readiness flips true. SIGTERM/SIGINT triggers a
 graceful shutdown; a second signal exits immediately (130).
 
-Model warmup (§6 step 5) and seed-KB load (§6 step 6) land with the ML/seed tasks
-in a later phase; ``emb``/``gbm`` versions are reported as ``null`` until then.
+Seed-KB load (§6 step 6) validates the packaged failure-mode catalog and binds
+the KBStore for lazy per-project copies. Model warmup (§6 step 5) lands with the
+ML task; ``emb``/``gbm`` versions are reported as ``null`` until then.
 """
 
 from __future__ import annotations
@@ -117,6 +118,10 @@ def run(config: AppConfig, app_version: str) -> int:
     logger.info("Migrations applied this start: %d", len(applied))
     pool = open_pool(config)
     service.set_pg_pool(pool)
+
+    # Step 6: seed KB load (idempotent) — validate the packaged catalog and bind
+    # the KBStore for lazy per-project copies (spec 01 §6 / spec 03 §9).
+    service.load_seed_kb()
 
     # Steps 7–9: AMQP consumers + worker pool + reply publisher; readiness true.
     service.start()
