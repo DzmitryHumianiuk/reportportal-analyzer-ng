@@ -449,7 +449,7 @@ def test_bootstrap_and_migrate_on_cold_db_applies_initial_schema(
     fresh_dsn = _dsn_for_db(base_dsn, dbname)
     try:
         applied = bootstrap_and_migrate(fresh_dsn, create_db=True, attempts=5, delay=0.2)
-        assert applied == [1, 2, 3]
+        assert applied == [1, 2, 3, 4]
         # Idempotent restart applies nothing further.
         assert bootstrap_and_migrate(fresh_dsn, create_db=True, attempts=5, delay=0.2) == []
     finally:

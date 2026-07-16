@@ -102,7 +102,7 @@ def fresh_db_dsn(postgres_dsn: str) -> Iterator[str]:
 
 def test_clean_bootstrap_creates_db_schema_and_migration(fresh_db_dsn: str) -> None:
     applied = bootstrap_and_migrate(fresh_db_dsn, create_db=True, attempts=3, delay=0.0)
-    assert applied == [1, 2, 3]
+    assert applied == [1, 2, 3, 4]
 
     with psycopg.connect(fresh_db_dsn) as conn:
         conn.execute("SET search_path = analyzer, public")
@@ -111,7 +111,7 @@ def test_clean_bootstrap_creates_db_schema_and_migration(fresh_db_dsn: str) -> N
         rows = conn.execute(
             "SELECT version, filename, checksum FROM analyzer.schema_migrations ORDER BY version"
         ).fetchall()
-        assert len(rows) == 3
+        assert len(rows) == 4
         assert rows[0][0] == 1
         assert rows[0][1] == "0001_init.sql"
         assert rows[0][2] == compute_checksum(_INIT_SQL.read_bytes())
@@ -219,7 +219,7 @@ def test_rows_land_in_correct_partition(fresh_db_dsn: str) -> None:
 
 def test_idempotent_restart(fresh_db_dsn: str) -> None:
     first = bootstrap_and_migrate(fresh_db_dsn, create_db=True, attempts=3, delay=0.0)
-    assert first == [1, 2, 3]
+    assert first == [1, 2, 3, 4]
 
     with psycopg.connect(fresh_db_dsn) as conn:
         applied_at_before = conn.execute(
@@ -231,7 +231,7 @@ def test_idempotent_restart(fresh_db_dsn: str) -> None:
 
     with psycopg.connect(fresh_db_dsn) as conn:
         rows = conn.execute("SELECT applied_at FROM analyzer.schema_migrations").fetchall()
-        assert len(rows) == 3
+        assert len(rows) == 4
         applied_at_after = conn.execute(
             "SELECT applied_at FROM analyzer.schema_migrations WHERE version=1"
         ).fetchone()[0]
@@ -271,11 +271,11 @@ def test_concurrent_cold_start_apply_once(fresh_db_dsn: str) -> None:
 
     assert errors == [], f"concurrent cold starts errored: {errors}"
     # Exactly one runner applied the pending migrations; the other found nothing.
-    assert sorted(results) == [[], [1, 2, 3]]
+    assert sorted(results) == [[], [1, 2, 3, 4]]
 
     with psycopg.connect(fresh_db_dsn) as conn:
         rows = conn.execute("SELECT applied_at FROM analyzer.schema_migrations").fetchall()
-        assert len(rows) == 3
+        assert len(rows) == 4
         # Schema + both extensions created exactly once, no duplicates.
         exts = conn.execute(
             "SELECT count(*) FROM pg_extension WHERE extname IN ('vector','pg_trgm')"
@@ -326,10 +326,10 @@ def test_missing_db_detection_is_locale_independent(
     # probe on the maintenance DB, so the create path still fires.
     monkeypatch.setattr(startup, "_is_missing_database", lambda exc, dbname: False)
     applied = bootstrap_and_migrate(fresh_db_dsn, create_db=True, attempts=3, delay=0.0)
-    assert applied == [1, 2, 3]
+    assert applied == [1, 2, 3, 4]
     with psycopg.connect(fresh_db_dsn) as conn:
         n = conn.execute("SELECT count(*) FROM analyzer.schema_migrations").fetchone()[0]
-        assert n == 3
+        assert n == 4
 
 
 # --------------------------------------------------------------------------- #
