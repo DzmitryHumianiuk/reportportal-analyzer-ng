@@ -211,13 +211,27 @@ class DrainManager:
         return hashes
 
     def cluster_mirror_rows(self) -> list[dict]:
-        """Snapshot of all live clusters for ``Drain3StateStore.upsert_templates``."""
+        """Snapshot of all live clusters for ``Drain3StateStore.upsert_templates``.
+
+        The mirror row identity (``template_id`` = the ``log_template`` PK) is the
+        **content hash** ``xxh3_64(masked_template_text)`` — signed for the bigint
+        column — **not** Drain's ``cluster_id`` (spec 03 §2.3). Drain cluster ids
+        are volatile: LRU eviction / state rebuild reassign them, so keying the
+        mirror on ``cluster_id`` would fragment or collide rows for the same
+        template. Hashing the template text keeps identity stable across evictions
+        and rebuilds, and a widened (re-generalized) template naturally becomes a
+        new hash → a new row, per §2.3. ``template_hash`` is emitted redundantly to
+        make the identity explicit at the call site (spec 02's ``template_hash`` is
+        a signed-bigint content hash, §2 "IDs").
+        """
         rows: list[dict] = []
         for cluster in self._miner.drain.clusters:
             template = cluster.get_template()
+            template_hash = xxh3_64_signed(template)
             rows.append(
                 {
-                    "template_id": int(cluster.cluster_id),
+                    "template_id": template_hash,
+                    "template_hash": template_hash,
                     "pattern": template,
                     "token_count": len(template.split()),
                     "example": template,

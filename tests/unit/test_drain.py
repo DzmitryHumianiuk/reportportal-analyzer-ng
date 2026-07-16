@@ -6,7 +6,8 @@ the state-loss rebuild recovery rate. All network-free (in-memory fake store).
 
 from __future__ import annotations
 
-from analyzer_ng.ml.drain import DrainManager, load_manager, mask_text, save_manager
+from analyzer_ng.ml.drain import DrainManager, build_config, load_manager, mask_text, save_manager
+from analyzer_ng.ml.hashing import xxh3_64_signed
 
 
 class FakeDrainStore:
@@ -106,6 +107,61 @@ def test_cas_persistence_roundtrip_no_new_hashes():
     original_hashes = {h for row in baseline for h in row}
     reprocessed = {x.hash_hex for msg in corpus for x in m2.add_message(msg)}
     assert reprocessed <= original_hashes
+
+
+def test_mirror_identity_is_content_hash_not_cluster_id():
+    """spec 03 §2.3: mirror rows are keyed by template_hash, not the volatile cluster_id."""
+    a = "Payment gateway declined transaction for merchant account east"
+    b = "Inventory reservation failed for warehouse west region shelf"
+
+    m1 = DrainManager()
+    ha = m1.add_message(a)[0]
+
+    # Fresh miner, different insertion order → Drain assigns `a` a DIFFERENT
+    # cluster_id than it had in m1 (cluster_id is volatile).
+    m2 = DrainManager()
+    m2.add_message(b)  # claims the cluster_id that `a` held in m1
+    ha2 = m2.add_message(a)[0]
+
+    assert ha2.cluster_id != ha.cluster_id  # cluster_id churns
+    assert ha2.hash_signed == ha.hash_signed  # content-hash identity is stable
+
+    # Every mirror row's template_id equals xxh3 of its pattern, and no two
+    # distinct templates share a template_id (no cluster_id-reuse collisions).
+    rows = m2.cluster_mirror_rows()
+    for r in rows:
+        assert r["template_id"] == xxh3_64_signed(r["pattern"])
+        assert r["template_id"] == r["template_hash"]
+    assert len({r["template_id"] for r in rows}) == len(rows)
+
+
+def test_mirror_identity_survives_lru_eviction_and_rebuild():
+    """A template evicted under LRU (then re-seen / rebuilt) keeps the same template_id."""
+    cfg = build_config(max_clusters=4)  # tiny LRU to force eviction
+    m = DrainManager(config=cfg)
+    # Structurally distinct messages so each forms its own cluster (no widening).
+    templates = [
+        "Connection refused to authentication service on primary",
+        "HTTP gateway returned server error for checkout",
+        "Null pointer in the inventory module handler",
+        "Read timeout while waiting for downstream response",
+        "Disk usage exceeded threshold on the worker node",
+        "Retry limit reached for the payment settlement job",
+        "Cache miss forced a reload of the pricing catalog",
+        "Deadlock detected during the ledger reconciliation batch",
+    ]
+    first = m.add_message(templates[0])[0]
+    for t in templates[1:]:  # evicts templates[0] (LRU, max 4 clusters)
+        m.add_message(t)
+    reseen = m.add_message(templates[0])[0]  # re-created with a fresh cluster_id
+    assert reseen.hash_signed == first.hash_signed  # identity unchanged by eviction
+
+    # Rebuild a fresh tree from the persisted template texts → same identity.
+    rebuilt = DrainManager()
+    rebuilt.rebuild_from_templates([r["pattern"] for r in m.cluster_mirror_rows()])
+    by_pattern = {r["pattern"]: r["template_id"] for r in rebuilt.cluster_mirror_rows()}
+    for r in m.cluster_mirror_rows():
+        assert by_pattern[r["pattern"]] == r["template_id"]
 
 
 def test_state_loss_rebuild_recovery_at_least_95pct():
