@@ -62,6 +62,16 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B"]
 
+[tool.mypy]
+python_version = "3.12"
+
+# pika ships no type stubs or py.typed marker; silence import-untyped for it
+# (it is a deliberate dependency choice — spec 01 §2.1). All first-party code and
+# other deps remain fully type-checked.
+[[tool.mypy.overrides]]
+module = ["pika.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"

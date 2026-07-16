@@ -74,13 +74,19 @@ def postgres_dsn(postgres_container: PostgresContainer) -> str:
 
 @pytest.fixture(scope="session")
 def rabbitmq_container() -> Iterator[RabbitMqContainer]:
-    """A running RabbitMQ 3 (management) container."""
+    """A running RabbitMQ 3 (management) container.
+
+    The management plugin's HTTP API (15672) is additionally exposed so the AMQP
+    contract test can verify the exchange's advertised capability arguments — the
+    same way the ReportPortal backend discovers analyzers (spec 01 §3.2, §10).
+    """
     container = RabbitMqContainer(
         image=RABBITMQ_IMAGE,
         username="analyzer",
         password="analyzer",
         vhost="analyzer",
     )
+    container.with_exposed_ports(container.port, 15672)
     with container:
         yield container
 
@@ -91,3 +97,11 @@ def rabbitmq_params(
 ) -> pika.ConnectionParameters:
     """pika connection parameters pointing at the running broker."""
     return rabbitmq_container.get_connection_params()
+
+
+@pytest.fixture
+def rabbitmq_management_url(rabbitmq_container: RabbitMqContainer) -> str:
+    """Base URL of the RabbitMQ management HTTP API (no trailing slash)."""
+    host = rabbitmq_container.get_container_host_ip()
+    port = rabbitmq_container.get_exposed_port(15672)
+    return f"http://{host}:{port}"
