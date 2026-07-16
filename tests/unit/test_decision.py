@@ -203,6 +203,19 @@ def test_gbm_auto_band():
     assert res.issue_type == "si001"  # default locator (no candidate)
     assert res.confidence == 0.9
     assert res.probs["si"] == 0.9
+    # Minor: the served model version is carried on the decision (no re-fetch).
+    assert res.model_version == "gbm-test"
+
+
+def test_gbm_abstain_still_carries_model_version():
+    res = decide(DecisionInputs(exception_fp=0, gbm_predict=_gbm("pb", 0.3)), now=NOW)
+    assert res.method == METHOD_GBM
+    assert res.model_version == "gbm-test"
+
+
+def test_rule_paths_have_no_model_version():
+    res = decide(DecisionInputs(exception_fp=0), now=NOW)
+    assert res.model_version is None
 
 
 def test_gbm_suggest_band():

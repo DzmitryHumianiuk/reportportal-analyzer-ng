@@ -629,18 +629,16 @@ class AnalysisEngine:
             ts = ts.replace(tzinfo=UTC)
         return max(0.0, (now - ts).total_seconds() / 86400.0)
 
-    def _gbm_version(self) -> str | None:
-        return self.predictor.active_version() if self.predictor is not None else None
-
     def _model_ver(self, decision: DecisionResult) -> str:
         # Stamp the shipped GBM version on GBM-method decisions; rule paths keep the
-        # cold tag (spec §6.5: every suggestion records the model it came from).
+        # cold tag (spec §6.5: every suggestion records the model it came from). The
+        # version is carried on the decision (from the GbmPrediction) — no re-fetch.
         if decision.method == METHOD_GBM:
-            gbm = self._gbm_version() or "gbm"
+            gbm = decision.model_version or "gbm"
             return f"{gbm};fs={FEATURE_SCHEMA_VER};emb={self.emb_model_tag}"
         return f"rule_cold;fs={FEATURE_SCHEMA_VER};emb={self.emb_model_tag}"
 
     def _model_info(self, decision: DecisionResult) -> str:
         mode = decision.matched_mode_id if decision.matched_mode_id is not None else "none"
-        gbm = self._gbm_version() if decision.method == METHOD_GBM else None
+        gbm = decision.model_version if decision.method == METHOD_GBM else None
         return f"analyzer-ng;gbm={gbm or 'none'};emb={self.emb_model_tag};kb_mode={mode}"

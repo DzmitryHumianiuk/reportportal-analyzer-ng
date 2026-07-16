@@ -104,6 +104,9 @@ class DecisionResult:
     features: dict[str, float]
     feature_schema_ver: int = FEATURE_SCHEMA_VER
     probs: dict[str, float] = field(default_factory=dict)
+    # Version of the shipped GBM that produced this decision (None for rule paths);
+    # carried straight from the prediction so the suggestion stamp needs no re-fetch.
+    model_version: str | None = None
     # Scoped/boosted Stage-C candidates carried for the suggest route (§6.6).
     stage_c: list[Candidate] = field(default_factory=list)
 
@@ -269,6 +272,7 @@ def decide(inputs: DecisionInputs, *, now: datetime | None = None) -> DecisionRe
         matched_mode_id: int | None = None,
         abstain_reason: str | None = None,
         probs: dict[str, float] | None = None,
+        model_version: str | None = None,
     ) -> DecisionResult:
         action = ACTION_ABSTAIN if label == "ti" else _band_action(confidence, short_circuit)
         default_probs = {label: confidence} if label != "ti" else {}
@@ -283,6 +287,7 @@ def decide(inputs: DecisionInputs, *, now: datetime | None = None) -> DecisionRe
             matched_mode_id=matched_mode_id,
             features=features,
             probs=probs if probs is not None else default_probs,
+            model_version=model_version,
             stage_c=list(inputs.stage_c),
         )
 
@@ -356,12 +361,19 @@ def _gbm_result(
     p = max(0.0, min(1.0, float(gbm.max_prob)))
     label = gbm.label if gbm.label in BASE_LABELS else "ti"
     probs = {b: float(gbm.probs.get(b, 0.0)) for b in BASE_LABELS}
+    version = gbm.model_version or None
     if label == "ti" or p < TAU_SUGGEST:
-        return result_fn("ti", "ti", p, METHOD_GBM, abstain_reason="gbm_below_suggest", probs=probs)
+        return result_fn(
+            "ti", "ti", p, METHOD_GBM,
+            abstain_reason="gbm_below_suggest", probs=probs, model_version=version,
+        )
     cand = _pick_relevant(stage_c, label)
     locator = cand.issue_type if cand is not None and cand.issue_type else default_locator(label)
     rel = cand.item_id if cand is not None else None
-    return result_fn(label, locator, p, METHOD_GBM, relevant_item_id=rel, probs=probs)
+    return result_fn(
+        label, locator, p, METHOD_GBM,
+        relevant_item_id=rel, probs=probs, model_version=version,
+    )
 
 
 def _with_candidates(
