@@ -14,6 +14,8 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal
 
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from analyzer_ng.db.repositories._common import (
@@ -28,6 +30,7 @@ from analyzer_ng.db.repositories.models import (
     CandidateFilters,
     QuerySignature,
     SignatureIn,
+    SuggestionIn,
     TestItemIn,
 )
 from analyzer_ng.db.repositories.protocols import KBStore
@@ -376,6 +379,142 @@ class PgRetrievalStore(StoreBase):
         stage_b = self._stage_b(project_id, q, k, filters)
         return (stage_a + stage_b)[: k + 10]
 
+    def find_hash_matches(self, project_id: int, error_hash: int, limit: int = 10) -> list[dict]:
+        """Stage-A exact-error_hash matches enriched with label provenance (spec §6.1).
+
+        Returns labeled, non-``ti`` items sharing ``error_hash``, each carrying the
+        source and timestamp of its most-recent ``label_event`` so the Stage-A
+        guards (human-sourced / unanimous / age ≤ 180d / not auto-nd) can be
+        evaluated. Newest first.
+        """
+        with self._conn() as conn:
+            cur = conn.cursor(row_factory=dict_row)
+            cur.execute(
+                """
+                SELECT ti.item_id, ti.issue_type, ti.issue_type_group, ti.is_auto_analyzed,
+                       le.source AS label_source, le.ts AS label_ts
+                FROM analyzer.failure_signature fs
+                JOIN analyzer.test_item ti USING (project_id, item_id)
+                LEFT JOIN LATERAL (
+                    SELECT source, ts FROM analyzer.label_event le
+                    WHERE le.project_id = ti.project_id AND le.item_id = ti.item_id
+                    ORDER BY le.ts DESC LIMIT 1
+                ) le ON true
+                WHERE fs.project_id = %s AND fs.error_hash = %s
+                  AND ti.issue_type IS NOT NULL AND ti.issue_type_group <> 'ti'
+                ORDER BY le.ts DESC NULLS LAST, ti.indexed_at DESC, ti.item_id DESC
+                LIMIT %s
+                """,
+                (project_id, error_hash, limit),
+            )
+            rows = cur.fetchall()
+        for r in rows:
+            r["label_source"] = _LABEL_SOURCE_MAP.get(r["label_source"])
+        return rows
+
+    def item_launch_names(self, project_id: int, item_ids: Sequence[int]) -> dict[int, str]:
+        """launch_name per item — feeds analyzerMode name-based scope (spec §6.0)."""
+        if not item_ids:
+            return {}
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT item_id, launch_name FROM analyzer.test_item "
+                "WHERE project_id=%s AND item_id = ANY(%s)",
+                (project_id, list(item_ids)),
+            ).fetchall()
+        return {int(r[0]): r[1] or "" for r in rows}
+
+    def error_hash_seen(self, project_id: int, error_hash: int, exclude_launch_id: int) -> bool:
+        """True if this ``error_hash`` was recorded before, outside the given launch.
+
+        Gates the burst ``si_prior`` (spec §5): a group whose representative failure
+        already exists in history is *not* a new system issue.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM analyzer.failure_signature fs "
+                "JOIN analyzer.test_item ti USING (project_id, item_id) "
+                "WHERE fs.project_id=%s AND fs.error_hash=%s AND ti.launch_id <> %s LIMIT 1",
+                (project_id, error_hash, exclude_launch_id),
+            ).fetchone()
+        return row is not None
+
+    def write_suggestion(self, sug: SuggestionIn) -> int:
+        """Persist a ``suggestion`` row (every decision writes one — spec §6.6)."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO analyzer.suggestion
+                    (project_id, item_id, launch_id, group_id, predicted_label, confidence,
+                     matched_mode_id, matched_item_id, features, model_ver, llm_used)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING suggestion_id
+                """,
+                (
+                    sug.project_id,
+                    sug.item_id,
+                    sug.launch_id,
+                    sug.group_id,
+                    sug.predicted_label,
+                    sug.confidence,
+                    sug.matched_mode_id,
+                    sug.matched_item_id,
+                    Jsonb(sug.features),
+                    sug.model_ver,
+                    sug.llm_used,
+                ),
+            )
+            return int(require_row(cur)[0])
+
+    def upsert_launch_group(
+        self,
+        project_id: int,
+        launch_id: int,
+        fingerprint: int,
+        member_count: int,
+        si_prior: float,
+        dominant: bool,
+    ) -> int:
+        """Insert/refresh a ``launch_group`` row, keyed by (launch, fingerprint)."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO analyzer.launch_group
+                    (project_id, launch_id, fingerprint, member_count, si_prior, dominant)
+                VALUES (%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (project_id, launch_id, fingerprint) DO UPDATE SET
+                    member_count = EXCLUDED.member_count,
+                    si_prior     = EXCLUDED.si_prior,
+                    dominant     = EXCLUDED.dominant
+                RETURNING group_id
+                """,
+                (project_id, launch_id, fingerprint, member_count, si_prior, dominant),
+            )
+            return int(require_row(cur)[0])
+
+    def latest_suggestions(self, project_id: int, item_ids: Sequence[int]) -> dict[int, dict]:
+        """Most-recent ``suggestion`` row per item (the ``suggest`` read path).
+
+        Returns a mapping item_id → row. Precomputed suggestions written by a prior
+        ``analyze`` are served here without recomputation when present.
+        """
+        if not item_ids:
+            return {}
+        with self._conn() as conn:
+            cur = conn.cursor(row_factory=dict_row)
+            cur.execute(
+                """
+                SELECT DISTINCT ON (item_id)
+                       item_id, group_id, predicted_label, confidence, matched_mode_id,
+                       matched_item_id, features, model_ver
+                FROM analyzer.suggestion
+                WHERE project_id = %s AND item_id = ANY(%s)
+                ORDER BY item_id, created_at DESC
+                """,
+                (project_id, list(item_ids)),
+            )
+            return {int(r["item_id"]): r for r in cur.fetchall()}
+
     def _stage_b(
         self, project_id: int, q: QuerySignature, k: int, filters: CandidateFilters
     ) -> list[Candidate]:
@@ -429,7 +568,7 @@ class PgRetrievalStore(StoreBase):
             _template_ids,
             issue_type,
             test_case_hash,
-            _launch_id,
+            launch_id,
             launch_number,
             _is_auto,
             label_source,
@@ -457,4 +596,5 @@ class PgRetrievalStore(StoreBase):
             same_error_hash=error_hash == q.error_hash,
             same_exception_fp=exception_fp == q.exception_fp,
             launch_distance=launch_distance,
+            launch_id=launch_id,
         )

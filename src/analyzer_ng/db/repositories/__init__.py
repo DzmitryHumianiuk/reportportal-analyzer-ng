@@ -27,6 +27,7 @@ from analyzer_ng.db.repositories.models import (
     ModeIn,
     QuerySignature,
     SignatureIn,
+    SuggestionIn,
     TestItemIn,
 )
 from analyzer_ng.db.repositories.protocols import (
@@ -59,6 +60,7 @@ __all__ = [
     # models
     "TestItemIn",
     "SignatureIn",
+    "SuggestionIn",
     "QuerySignature",
     "CandidateFilters",
     "Candidate",

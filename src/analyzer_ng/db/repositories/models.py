@@ -101,6 +101,8 @@ class Candidate(BaseModel):
     same_error_hash: bool = False
     same_exception_fp: bool = False
     launch_distance: int | None = None  # |query.launch_number - cand.launch_number|
+    launch_id: int | None = None  # candidate's launch (analyzerMode scope, §6.0)
+    launch_name: str | None = None
     # KB-mode extras (stage A)
     mode_status: str | None = None
     mode_purity: float | None = None
@@ -123,6 +125,22 @@ class ModeIn(BaseModel):
     exception_fps: list[int] = []
     title: str | None = None
     summary: str | None = None
+
+
+class SuggestionIn(BaseModel):
+    """A ``suggestion`` row written on every decision (spec 02 §2.8, spec 03 §6.6)."""
+
+    project_id: int
+    item_id: int
+    launch_id: int
+    group_id: int | None = None
+    predicted_label: str  # locator, or 'ti' when abstained
+    confidence: float
+    matched_mode_id: int | None = None
+    matched_item_id: int | None = None  # relevantItem in RP replies
+    features: dict[str, float] = {}
+    model_ver: str
+    llm_used: bool = False
 
 
 class LabelEventIn(BaseModel):
