@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Annotated
 
 from pydantic import BeforeValidator, Field, ValidationError, field_validator, model_validator
@@ -172,7 +173,19 @@ def load_config() -> AppConfig:
     try:
         # Values come from the environment; mypy can't see that and treats the
         # env-sourced fields as required positional args.
-        return AppConfig()  # type: ignore[call-arg]
+        config = AppConfig()  # type: ignore[call-arg]
     except ValidationError as exc:
         logger.error("Invalid analyzer-ng configuration:\n%s", exc)
         raise SystemExit(2) from exc
+
+    # §5.3 fail-fast: the embedding model dir must exist. (The "unloadable" half
+    # — building the ONNX session — is checked in the §6 startup warmup step.)
+    if not Path(config.analyzer_emb_model_path).exists():
+        logger.error(
+            "Invalid analyzer-ng configuration:\nANALYZER_EMB_MODEL_PATH %r does not "
+            "exist (embedding model + tokenizer directory)",
+            config.analyzer_emb_model_path,
+        )
+        raise SystemExit(2)
+
+    return config

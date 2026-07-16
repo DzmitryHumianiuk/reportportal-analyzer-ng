@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import pathlib
 
 import pytest
 from pydantic import ValidationError
@@ -232,9 +233,10 @@ def test_config_is_frozen(env: pytest.MonkeyPatch) -> None:
 
 
 def test_legacy_es_vars_warn_and_are_ignored(
-    env: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    env: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: pathlib.Path
 ) -> None:
     _minimal(env)
+    env.setenv("ANALYZER_EMB_MODEL_PATH", str(tmp_path))
     env.setenv("ES_HOSTS", "http://elasticsearch:9200")
     env.setenv("ES_USER", "elastic")
     env.setenv("ES_BOOST_AA", "2.0")
@@ -253,9 +255,10 @@ def test_legacy_es_vars_warn_and_are_ignored(
 
 
 def test_no_warn_when_no_legacy_vars(
-    env: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    env: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: pathlib.Path
 ) -> None:
     _minimal(env)
+    env.setenv("ANALYZER_EMB_MODEL_PATH", str(tmp_path))
     with caplog.at_level(logging.WARNING, logger="analyzer_ng.config"):
         load_config()
     assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
@@ -272,3 +275,27 @@ def test_load_config_exits_2_on_invalid(env: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit) as exc:
         load_config()
     assert exc.value.code == 2
+
+
+def test_load_config_exits_2_when_model_path_missing(
+    env: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: pathlib.Path
+) -> None:
+    _minimal(env)
+    missing = tmp_path / "no-such-model-dir"
+    env.setenv("ANALYZER_EMB_MODEL_PATH", str(missing))
+    with caplog.at_level(logging.ERROR, logger="analyzer_ng.config"):
+        with pytest.raises(SystemExit) as exc:
+            load_config()
+    assert exc.value.code == 2
+    joined = "\n".join(r.getMessage() for r in caplog.records if r.levelno == logging.ERROR)
+    assert "ANALYZER_EMB_MODEL_PATH" in joined
+    assert str(missing) in joined
+
+
+def test_load_config_accepts_existing_model_path(
+    env: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    _minimal(env)
+    env.setenv("ANALYZER_EMB_MODEL_PATH", str(tmp_path))
+    cfg = load_config()
+    assert cfg.analyzer_emb_model_path == str(tmp_path)
