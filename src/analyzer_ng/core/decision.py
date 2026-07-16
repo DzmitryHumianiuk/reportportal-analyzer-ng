@@ -14,16 +14,19 @@ layer renders that into the legacy wire shapes.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Protocol
 
 from analyzer_ng.core.features import (
+    BASE_LABELS,
     FEATURE_SCHEMA_VER,
     FeatureContext,
     KBMatch,
     SeedSignal,
     extract_features,
+    to_vector,
 )
 from analyzer_ng.db.repositories.models import Candidate
 
@@ -206,9 +209,33 @@ def _band_action(confidence: float, short_circuit: bool) -> str:
     return ACTION_ABSTAIN
 
 
+class GbmDecision(Protocol):
+    """Structural view of a served GBM prediction (spec §6.5/§6.6).
+
+    Kept structural so :mod:`decision` stays pure — it never imports the serving
+    layer; the engine passes a ``gbm_predict`` callable that returns one of these
+    (a :class:`analyzer_ng.ml.serving.GbmPrediction`) or ``None`` when cold. The
+    members are read-only properties so a frozen dataclass satisfies the protocol.
+    """
+
+    @property
+    def label(self) -> str: ...
+    @property
+    def max_prob(self) -> float: ...
+    @property
+    def probs(self) -> dict[str, float]: ...
+    @property
+    def model_version(self) -> str: ...
+
+
 @dataclass
 class DecisionInputs:
-    """Everything the cold decision function needs for one item (no DB access)."""
+    """Everything the decision function needs for one item (no DB access).
+
+    ``gbm_predict`` is the serving hook (spec §6.5): given the ordered feature
+    vector it returns the calibrated GBM decision, or ``None`` when no model is
+    shipped (cold install) — in which case the rule-based fallback decides.
+    """
 
     exception_fp: int
     hash_matches: Sequence[HashMatch] = ()
@@ -217,6 +244,7 @@ class DecisionInputs:
     stage_c: Sequence[Candidate] = ()  # top-20, post-boost order
     stage_c_ages_days: Sequence[float] = ()
     feature_ctx: FeatureContext | None = None  # non-candidate context (stats/group/flags)
+    gbm_predict: Callable[[list[float]], GbmDecision | None] | None = None
 
 
 def decide(inputs: DecisionInputs, *, now: datetime | None = None) -> DecisionResult:
@@ -240,8 +268,10 @@ def decide(inputs: DecisionInputs, *, now: datetime | None = None) -> DecisionRe
         relevant_item_id: int | None = None,
         matched_mode_id: int | None = None,
         abstain_reason: str | None = None,
+        probs: dict[str, float] | None = None,
     ) -> DecisionResult:
         action = ACTION_ABSTAIN if label == "ti" else _band_action(confidence, short_circuit)
+        default_probs = {label: confidence} if label != "ti" else {}
         return DecisionResult(
             label=label,
             issue_type=issue_type,
@@ -252,7 +282,7 @@ def decide(inputs: DecisionInputs, *, now: datetime | None = None) -> DecisionRe
             relevant_item_id=relevant_item_id,
             matched_mode_id=matched_mode_id,
             features=features,
-            probs={label: confidence} if label != "ti" else {},
+            probs=probs if probs is not None else default_probs,
             stage_c=list(inputs.stage_c),
         )
 
@@ -281,6 +311,14 @@ def decide(inputs: DecisionInputs, *, now: datetime | None = None) -> DecisionRe
             matched_mode_id=kb.mode_id,
         )
 
+    # GBM decision (spec §6.5/§6.6) — the shipped model decides once Stage A / KB
+    # short-circuits have not fired. Absent a model (cold install) this hook is
+    # None and control falls through to the rule-based cold fallback.
+    if inputs.gbm_predict is not None:
+        gbm = inputs.gbm_predict(to_vector(features))
+        if gbm is not None:
+            return _gbm_result(gbm, inputs.stage_c, result)
+
     # Cold fallback — seed prior when confident enough.
     if inputs.seed is not None and inputs.seed.confidence >= SEED_PRIOR_MIN_CONF:
         base = _base(inputs.seed.label)
@@ -293,6 +331,37 @@ def decide(inputs: DecisionInputs, *, now: datetime | None = None) -> DecisionRe
 
     # Otherwise abstain (ti). Suggest may still surface Stage-C candidates.
     return result("ti", "ti", 0.0, METHOD_RULE_COLD, abstain_reason="no_confident_rule")
+
+
+def _pick_relevant(stage_c: Sequence[Candidate], base: str) -> Candidate | None:
+    """Best Stage-C candidate whose base group matches the GBM label (for relevantItem)."""
+    for c in stage_c:
+        if c.item_id is not None and _base(c.issue_type) == base:
+            return c
+    return None
+
+
+def _gbm_result(
+    gbm: GbmDecision,
+    stage_c: Sequence[Candidate],
+    result_fn: Callable[..., DecisionResult],
+) -> DecisionResult:
+    """Turn a calibrated GBM prediction into a banded decision (spec §6.6).
+
+    ``p* ≥ τ_auto`` → auto; ``τ_suggest ≤ p* < τ_auto`` → suggest; ``p* < τ_suggest``
+    → abstain (``ti``). The concrete locator/relevantItem is taken from the best
+    Stage-C candidate that shares the predicted base group, else the RP default
+    locator. The full calibrated distribution is carried for audit/suggest ranking.
+    """
+    p = max(0.0, min(1.0, float(gbm.max_prob)))
+    label = gbm.label if gbm.label in BASE_LABELS else "ti"
+    probs = {b: float(gbm.probs.get(b, 0.0)) for b in BASE_LABELS}
+    if label == "ti" or p < TAU_SUGGEST:
+        return result_fn("ti", "ti", p, METHOD_GBM, abstain_reason="gbm_below_suggest", probs=probs)
+    cand = _pick_relevant(stage_c, label)
+    locator = cand.issue_type if cand is not None and cand.issue_type else default_locator(label)
+    rel = cand.item_id if cand is not None else None
+    return result_fn(label, locator, p, METHOD_GBM, relevant_item_id=rel, probs=probs)
 
 
 def _with_candidates(

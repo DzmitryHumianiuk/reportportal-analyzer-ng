@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -36,9 +36,11 @@ from analyzer_ng.amqp.models import (
 from analyzer_ng.core import scope
 from analyzer_ng.core.decision import (
     ACTION_AUTO,
+    METHOD_GBM,
     TAU_SUGGEST,
     DecisionInputs,
     DecisionResult,
+    GbmDecision,
     HashMatch,
     decide,
 )
@@ -60,6 +62,7 @@ from analyzer_ng.db.repositories.models import (
 )
 from analyzer_ng.db.repositories.retrieval import PgRetrievalStore
 from analyzer_ng.ml.hashing import xxh3_64_unsigned
+from analyzer_ng.ml.serving import GbmPredictor
 from analyzer_ng.seeds.loader import SeedKB
 
 logger = logging.getLogger(__name__)
@@ -85,6 +88,7 @@ class AnalysisEngine:
     pipeline: IndexPipeline
     seed_kb: SeedKB | None = None
     emb_model_tag: str = "none"
+    predictor: GbmPredictor | None = None  # shipped GBM; None => rule fallback (§6.5)
 
     # ------------------------------------------------------------------ #
     # analyze (spec §6.6 analyze column)
@@ -318,6 +322,13 @@ class AnalysisEngine:
         )
 
         ctx = self._feature_ctx(rep, group, total_failures)
+        # Serving hook (spec §6.5): the shipped GBM decides once Stage A / KB have
+        # not short-circuited; when no model is live the predictor returns None per
+        # vector and control falls through to the rule-based cold fallback.
+        gbm_predict: Callable[[list[float]], GbmDecision | None] | None = None
+        predictor = self.predictor
+        if predictor is not None:
+            gbm_predict = lambda vec: predictor.predict(vec, project)  # noqa: E731
         inputs = DecisionInputs(
             exception_fp=sig.exception_fp,
             hash_matches=hash_matches,
@@ -326,6 +337,7 @@ class AnalysisEngine:
             stage_c=stage_c,
             stage_c_ages_days=ages,
             feature_ctx=ctx,
+            gbm_predict=gbm_predict,
         )
         return decide(inputs)
 
@@ -448,7 +460,7 @@ class AnalysisEngine:
                 matched_mode_id=decision.matched_mode_id,
                 matched_item_id=decision.relevant_item_id,
                 features=decision.features,
-                model_ver=self._model_ver(),
+                model_ver=self._model_ver(decision),
             )
         )
 
@@ -617,9 +629,18 @@ class AnalysisEngine:
             ts = ts.replace(tzinfo=UTC)
         return max(0.0, (now - ts).total_seconds() / 86400.0)
 
-    def _model_ver(self) -> str:
+    def _gbm_version(self) -> str | None:
+        return self.predictor.active_version() if self.predictor is not None else None
+
+    def _model_ver(self, decision: DecisionResult) -> str:
+        # Stamp the shipped GBM version on GBM-method decisions; rule paths keep the
+        # cold tag (spec §6.5: every suggestion records the model it came from).
+        if decision.method == METHOD_GBM:
+            gbm = self._gbm_version() or "gbm"
+            return f"{gbm};fs={FEATURE_SCHEMA_VER};emb={self.emb_model_tag}"
         return f"rule_cold;fs={FEATURE_SCHEMA_VER};emb={self.emb_model_tag}"
 
     def _model_info(self, decision: DecisionResult) -> str:
         mode = decision.matched_mode_id if decision.matched_mode_id is not None else "none"
-        return f"analyzer-ng;gbm=none;emb={self.emb_model_tag};kb_mode={mode}"
+        gbm = self._gbm_version() if decision.method == METHOD_GBM else None
+        return f"analyzer-ng;gbm={gbm or 'none'};emb={self.emb_model_tag};kb_mode={mode}"

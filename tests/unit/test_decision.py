@@ -171,3 +171,90 @@ def test_decide_pure_abstain_features_present():
     assert res.label == "ti"
     assert res.action == ACTION_ABSTAIN
     assert len(res.features) == 39
+
+
+# --------------------------------------------------------------------------- #
+# GBM serving integration (spec §6.5/§6.6)
+# --------------------------------------------------------------------------- #
+from dataclasses import dataclass  # noqa: E402
+
+from analyzer_ng.core.decision import METHOD_GBM  # noqa: E402
+
+
+@dataclass
+class _FakeGbm:
+    label: str
+    max_prob: float
+    probs: dict
+    model_version: str = "gbm-test"
+
+
+def _gbm(label, p):
+    probs = {"pb": 0.1, "ab": 0.1, "si": 0.1, "nd": 0.1}
+    probs[label] = p
+    return lambda _vec: _FakeGbm(label=label, max_prob=p, probs=probs)
+
+
+def test_gbm_auto_band():
+    res = decide(DecisionInputs(exception_fp=0, gbm_predict=_gbm("si", 0.9)), now=NOW)
+    assert res.method == METHOD_GBM
+    assert res.action == ACTION_AUTO
+    assert res.label == "si"
+    assert res.issue_type == "si001"  # default locator (no candidate)
+    assert res.confidence == 0.9
+    assert res.probs["si"] == 0.9
+
+
+def test_gbm_suggest_band():
+    res = decide(DecisionInputs(exception_fp=0, gbm_predict=_gbm("ab", 0.6)), now=NOW)
+    assert res.method == METHOD_GBM
+    assert res.action == ACTION_SUGGEST
+    assert res.label == "ab"
+
+
+def test_gbm_abstain_band_becomes_ti():
+    res = decide(DecisionInputs(exception_fp=0, gbm_predict=_gbm("pb", 0.3)), now=NOW)
+    assert res.method == METHOD_GBM
+    assert res.label == "ti"
+    assert res.issue_type == "ti"
+    assert res.action == ACTION_ABSTAIN
+    assert res.abstain_reason == "gbm_below_suggest"
+    # Full distribution is still carried for audit even on abstain.
+    assert set(res.probs) == {"pb", "ab", "si", "nd"}
+
+
+def test_gbm_uses_candidate_locator_and_relevant_item():
+    cand = Candidate(item_id=42, mode_id=None, issue_type="si_custom", cosine=0.9)
+    res = decide(
+        DecisionInputs(exception_fp=0, stage_c=[cand], gbm_predict=_gbm("si", 0.95)), now=NOW
+    )
+    assert res.issue_type == "si_custom"  # concrete historical locator wins
+    assert res.relevant_item_id == 42
+
+
+def test_stage_a_short_circuits_over_gbm():
+    # A confident hash inherit must decide before the GBM is even consulted.
+    res = decide(
+        DecisionInputs(
+            exception_fp=9,
+            hash_matches=[_hm(7, "pb001", "rp")],
+            gbm_predict=_gbm("si", 0.99),
+        ),
+        now=NOW,
+    )
+    assert res.method == METHOD_HASH
+    assert res.label == "pb"
+
+
+def test_gbm_overrides_seed_cold_fallback():
+    # With a model shipped, the GBM decides even when a seed prior exists.
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            seed=SeedSignal(label="si", confidence=0.85),
+            gbm_predict=_gbm("ab", 0.8),
+        ),
+        now=NOW,
+    )
+    assert res.method == METHOD_GBM
+    assert res.label == "ab"
