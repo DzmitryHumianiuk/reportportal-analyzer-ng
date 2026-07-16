@@ -7,6 +7,7 @@ missing-pgvector path is covered in tests/integration/test_db_migrations.py.
 
 from __future__ import annotations
 
+import psycopg
 import pytest
 
 from analyzer_ng.db import startup
@@ -16,8 +17,10 @@ from analyzer_ng.db.startup import (
     EXIT_FATAL,
     FATAL_PGVECTOR_MISSING,
     BootstrapError,
+    _is_missing_database,
     _maintenance_dsn,
     _parse_version,
+    _target_database_absent,
     bootstrap_and_migrate_or_exit,
     check_server_and_extensions,
 )
@@ -77,6 +80,22 @@ def test_check_fails_on_old_pgvector() -> None:
     assert exc.value.exit_code == EXIT_FATAL
     assert "0.7.4" in str(exc.value)
     assert "0.8" in str(exc.value)
+
+
+def test_target_absent_falls_back_to_text_when_maintenance_unreachable() -> None:
+    # Port 1 => connection refused: the maintenance probe cannot decide, so the
+    # decision falls back to the libpq-text heuristic on the original error.
+    unreachable = "postgresql://u:p@127.0.0.1:1/postgres"
+    missing = psycopg.OperationalError('database "app" does not exist')
+    other = psycopg.OperationalError("some transient network blip")
+    assert _target_database_absent(missing, unreachable, "app") is True
+    assert _target_database_absent(other, unreachable, "app") is None
+
+
+def test_is_missing_database_heuristic() -> None:
+    assert _is_missing_database(psycopg.OperationalError('database "x" does not exist'), "x")
+    assert not _is_missing_database(psycopg.OperationalError("connection refused"), "x")
+    assert not _is_missing_database(psycopg.OperationalError("anything"), None)
 
 
 def test_maintenance_dsn_swaps_dbname() -> None:

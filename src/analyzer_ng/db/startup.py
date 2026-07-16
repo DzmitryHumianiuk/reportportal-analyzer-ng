@@ -2,12 +2,16 @@
 
 Runs in the container entrypoint before AMQP consumers start:
 
-1. Connect to the target database; on ``3D000`` (does not exist) and
-   ``ANALYZER_PG_CREATE_DB=true`` create it via the maintenance DB.
+1. Connect to the target database; if it does not exist and
+   ``ANALYZER_PG_CREATE_DB=true`` create it via the maintenance DB. Whether the
+   database is missing is decided authoritatively by probing ``pg_database`` on
+   the ``postgres`` maintenance DB (not by parsing localized libpq text).
 2. Fail fast on operator errors — PostgreSQL < 16, pgvector absent or < 0.8 —
    with an actionable message and exit code 3 (no retry loop; a crash-loop with
    a clear message is the correct docker-compose behavior).
-3. ``CREATE SCHEMA IF NOT EXISTS analyzer`` + the extension block (idempotent).
+3. ``CREATE SCHEMA IF NOT EXISTS analyzer`` + the extension block (idempotent),
+   run under the migration advisory lock so simultaneous cold starts do not race
+   PostgreSQL's ``IF NOT EXISTS`` forms.
 4. Hand the open connection to the migration runner (spec 02 §3).
 
 Transient connection failures DO retry (30 attempts, 2 s apart, then exit 4).
@@ -21,7 +25,7 @@ import time
 import psycopg
 from psycopg import conninfo, sql
 
-from analyzer_ng.db.migrate import MigrationError, apply_migrations
+from analyzer_ng.db.migrate import MigrationError, apply_migrations, migration_lock
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +35,10 @@ EXIT_CONNECT = 4  # transient connection failures exhausted
 
 # sqlstate codes.
 _INVALID_CATALOG_NAME = "3D000"  # database does not exist
-_INSUFFICIENT_PRIVILEGE = "42501"
-_DUPLICATE_DATABASE = "42P04"
+
+# ascii 'anzcrdb0' as a signed int64: a distinct advisory key that serializes
+# concurrent CREATE DATABASE without coupling to the migration lock.
+CREATE_DB_ADVISORY_KEY = 0x616E7A6372646230
 
 # Minimum supported versions (spec 02 §1.1).
 MIN_SERVER_VERSION_NUM = 160000
@@ -54,15 +60,11 @@ class BootstrapError(RuntimeError):
         self.exit_code = exit_code
 
 
-class _DatabaseDoesNotExist(RuntimeError):
-    """Internal sentinel: the target database is absent (not a transient fault)."""
-
-
 def _is_missing_database(exc: psycopg.OperationalError, dbname: str | None) -> bool:
-    """True if ``exc`` means "database does not exist" (spec 02 §1.2, ``3D000``).
+    """Best-effort libpq-text fallback used only when the maintenance DB is
+    unreachable (so we cannot authoritatively probe ``pg_database``).
 
-    psycopg3 does not populate ``sqlstate`` for connection-time failures, so we
-    fall back to the libpq FATAL text (which names the missing database). The
+    psycopg3 leaves ``sqlstate`` unset on connection-time failures; the
     ``sqlstate`` check keeps working if a future psycopg starts setting it.
     """
     if dbname is None:
@@ -93,21 +95,13 @@ def connect_with_retries(
     autocommit: bool = False,
     attempts: int = 30,
     delay: float = 2.0,
-    missing_db: str | None = None,
 ) -> psycopg.Connection:
-    """Connect, retrying transient failures (spec 02 §1.1: 30x2s, then exit 4).
-
-    A "database does not exist" failure is not transient: it raises
-    ``_DatabaseDoesNotExist`` immediately (never retried) so the caller can
-    create the database. ``missing_db`` is the target name used to recognize it.
-    """
+    """Connect, retrying transient failures (spec 02 §1.1: 30x2s, then exit 4)."""
     last_error: psycopg.OperationalError | None = None
     for attempt in range(1, attempts + 1):
         try:
             return psycopg.connect(dsn, autocommit=autocommit)
         except psycopg.OperationalError as exc:
-            if _is_missing_database(exc, missing_db):
-                raise _DatabaseDoesNotExist(str(exc)) from exc
             last_error = exc
             if attempt < attempts:
                 logger.warning(
@@ -120,6 +114,57 @@ def connect_with_retries(
     )
 
 
+def _target_database_absent(
+    connect_error: psycopg.OperationalError, maintenance_dsn: str, target_db: str
+) -> bool | None:
+    """Decide whether ``target_db`` is absent by probing ``pg_database``.
+
+    Returns True (absent), False (present), or None (undecidable — the
+    maintenance DB is unreachable, e.g. server down or the role lacks CONNECT on
+    ``postgres``; the caller falls back to the libpq-text heuristic). This is the
+    locale-proof primary detection the review asked for.
+    """
+    try:
+        admin = psycopg.connect(maintenance_dsn, autocommit=True)
+    except psycopg.OperationalError:
+        return True if _is_missing_database(connect_error, target_db) else None
+    try:
+        present = admin.execute(
+            "SELECT 1 FROM pg_database WHERE datname = %s", (target_db,)
+        ).fetchone()
+        return present is None
+    finally:
+        admin.close()
+
+
+def _create_database(maintenance_dsn: str, target_db: str, *, attempts: int, delay: float) -> None:
+    """Create ``target_db`` under an advisory lock (concurrent-start safe)."""
+    admin = connect_with_retries(maintenance_dsn, autocommit=True, attempts=attempts, delay=delay)
+    try:
+        admin.execute("SELECT pg_advisory_lock(%s)", (CREATE_DB_ADVISORY_KEY,))
+        try:
+            if admin.execute(
+                "SELECT 1 FROM pg_database WHERE datname = %s", (target_db,)
+            ).fetchone():
+                return  # a concurrent starter created it while we waited for the lock
+            logger.info("Target database %r missing; creating it", target_db)
+            try:
+                admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_db)))
+            except psycopg.errors.DuplicateDatabase:
+                logger.info("Database %r already created concurrently", target_db)
+            except psycopg.errors.InsufficientPrivilege as exc:
+                raise BootstrapError(
+                    f"role lacks CREATEDB to create database {target_db!r}. Grant CREATEDB, or "
+                    "pre-create the database (db/bootstrap/create_role_and_db.sql) and start with "
+                    "ANALYZER_PG_CREATE_DB=false",
+                    EXIT_FATAL,
+                ) from exc
+        finally:
+            admin.execute("SELECT pg_advisory_unlock(%s)", (CREATE_DB_ADVISORY_KEY,))
+    finally:
+        admin.close()
+
+
 def ensure_database(
     dsn: str,
     *,
@@ -127,37 +172,40 @@ def ensure_database(
     attempts: int = 30,
     delay: float = 2.0,
 ) -> psycopg.Connection:
-    """Connect to the target DB, creating it if missing (spec 02 §1.2 step 1)."""
+    """Connect to the target DB, creating it if missing (spec 02 §1.2 step 1).
+
+    A failed target connection is disambiguated by probing ``pg_database`` on the
+    maintenance DB, so a missing database is recognized on the first failure
+    (never after burning the retry budget) and independently of server locale.
+    """
     maintenance_dsn, target_db = _maintenance_dsn(dsn)
-    try:
-        return connect_with_retries(dsn, attempts=attempts, delay=delay, missing_db=target_db)
-    except _DatabaseDoesNotExist as exc:
-        if not create_db:
-            raise BootstrapError(
-                f"target database {target_db!r} does not exist and "
-                "ANALYZER_PG_CREATE_DB=false; create it out of band "
-                "(see db/bootstrap/create_role_and_db.sql)",
-                EXIT_FATAL,
-            ) from exc
-
-    logger.info("Target database %r missing; creating it", target_db)
-    admin = connect_with_retries(maintenance_dsn, autocommit=True, attempts=attempts, delay=delay)
-    try:
-        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_db)))
-    except psycopg.errors.DuplicateDatabase:
-        # A concurrent starter won the race; that is fine.
-        logger.info("Database %r already created concurrently", target_db)
-    except psycopg.errors.InsufficientPrivilege as exc:
-        raise BootstrapError(
-            f"role lacks CREATEDB to create database {target_db!r}. Grant CREATEDB, or "
-            "pre-create the database (db/bootstrap/create_role_and_db.sql) and start with "
-            "ANALYZER_PG_CREATE_DB=false",
-            EXIT_FATAL,
-        ) from exc
-    finally:
-        admin.close()
-
-    return connect_with_retries(dsn, attempts=attempts, delay=delay)
+    last_error: psycopg.OperationalError | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return psycopg.connect(dsn)
+        except psycopg.OperationalError as exc:
+            last_error = exc
+            absent = _target_database_absent(exc, maintenance_dsn, target_db)
+            if absent is True:
+                if not create_db:
+                    raise BootstrapError(
+                        f"target database {target_db!r} does not exist and "
+                        "ANALYZER_PG_CREATE_DB=false; create it out of band "
+                        "(see db/bootstrap/create_role_and_db.sql)",
+                        EXIT_FATAL,
+                    ) from exc
+                _create_database(maintenance_dsn, target_db, attempts=attempts, delay=delay)
+                continue  # reconnect to the freshly-created database
+            # DB exists (transient target failure) or undecidable: retry.
+            if attempt < attempts:
+                logger.warning(
+                    "PostgreSQL not reachable (attempt %d/%d): %s", attempt, attempts, exc
+                )
+                time.sleep(delay)
+    raise BootstrapError(
+        f"could not connect to PostgreSQL after {attempts} attempts: {last_error}",
+        EXIT_CONNECT,
+    )
 
 
 def _parse_version(version: str) -> tuple[int, ...]:
@@ -211,6 +259,16 @@ def ensure_schema_and_extensions(conn: psycopg.Connection, schema: str = "analyz
         conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 
 
+def _connect_and_check(
+    dsn: str, *, create_db: bool, attempts: int, delay: float
+) -> psycopg.Connection:
+    """Connect (creating the DB if needed) and run the read-only fail-fast checks."""
+    conn = ensure_database(dsn, create_db=create_db, attempts=attempts, delay=delay)
+    conn.autocommit = True
+    check_server_and_extensions(conn)  # read-only; safe under concurrency, no lock needed
+    return conn
+
+
 def bootstrap(
     dsn: str,
     *,
@@ -223,12 +281,12 @@ def bootstrap(
 
     The connection is left in autocommit with the schema and extensions ready;
     the caller passes it to :func:`analyzer_ng.db.migrate.apply_migrations` and
-    owns closing it.
+    owns closing it. Schema/extension creation runs under the migration advisory
+    lock so simultaneous cold starts do not race the ``IF NOT EXISTS`` forms.
     """
-    conn = ensure_database(dsn, create_db=create_db, attempts=attempts, delay=delay)
-    conn.autocommit = True
-    check_server_and_extensions(conn)
-    ensure_schema_and_extensions(conn, schema)
+    conn = _connect_and_check(dsn, create_db=create_db, attempts=attempts, delay=delay)
+    with migration_lock(conn):
+        ensure_schema_and_extensions(conn, schema)
     return conn
 
 
@@ -240,10 +298,16 @@ def bootstrap_and_migrate(
     attempts: int = 30,
     delay: float = 2.0,
 ) -> list[int]:
-    """Bootstrap then apply migrations; return versions applied this run."""
-    conn = bootstrap(dsn, schema=schema, create_db=create_db, attempts=attempts, delay=delay)
-    with conn:
-        return apply_migrations(conn, schema=schema)
+    """Bootstrap then apply migrations; return versions applied this run.
+
+    Schema/extension creation and migration share one advisory-lock critical
+    section, so two simultaneous cold starts against an empty database converge
+    without racing ``CREATE SCHEMA/EXTENSION IF NOT EXISTS`` (spec acceptance #4).
+    """
+    conn = _connect_and_check(dsn, create_db=create_db, attempts=attempts, delay=delay)
+    with conn, migration_lock(conn):
+        ensure_schema_and_extensions(conn, schema)
+        return apply_migrations(conn, schema=schema, lock=False)
 
 
 def bootstrap_and_migrate_or_exit(

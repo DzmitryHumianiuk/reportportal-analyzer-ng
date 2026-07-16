@@ -25,6 +25,7 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from testcontainers.postgres import PostgresContainer
 
+from analyzer_ng.db import startup
 from analyzer_ng.db.migrate import (
     DEFAULT_MIGRATIONS_DIR,
     MigrationError,
@@ -237,26 +238,24 @@ def test_idempotent_restart(fresh_db_dsn: str) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_concurrent_starts_apply_once(fresh_db_dsn: str) -> None:
-    # Bootstrap the DB/schema/extensions once, then race two migration runners
-    # on their own connections (the advisory lock must serialize them).
-    conn0 = bootstrap(fresh_db_dsn, create_db=True, attempts=3, delay=0.0)
-    conn0.close()
-
+def test_concurrent_cold_start_apply_once(fresh_db_dsn: str) -> None:
+    # Race the FULL cold-start path in both workers against a database that does
+    # not yet exist: CREATE DATABASE, CREATE SCHEMA/EXTENSION IF NOT EXISTS, and
+    # migration all run under advisory locks and must converge with no errors in
+    # either "log" (spec acceptance #4).
     barrier = threading.Barrier(2)
     results: list[list[int]] = []
     errors: list[BaseException] = []
-    lock = threading.Lock()
+    guard = threading.Lock()
 
     def worker() -> None:
         try:
-            barrier.wait()
-            with psycopg.connect(fresh_db_dsn) as conn:
-                applied = apply_migrations(conn)
-            with lock:
+            barrier.wait()  # maximize overlap on the unguarded windows
+            applied = bootstrap_and_migrate(fresh_db_dsn, create_db=True, attempts=15, delay=0.2)
+            with guard:
                 results.append(applied)
         except BaseException as exc:  # noqa: BLE001 - surface any race failure
-            with lock:
+            with guard:
                 errors.append(exc)
 
     threads = [threading.Thread(target=worker) for _ in range(2)]
@@ -265,13 +264,18 @@ def test_concurrent_starts_apply_once(fresh_db_dsn: str) -> None:
     for t in threads:
         t.join()
 
-    assert errors == [], f"concurrent runners errored: {errors}"
+    assert errors == [], f"concurrent cold starts errored: {errors}"
     # Exactly one runner applied version 1; the other found nothing pending.
     assert sorted(results) == [[], [1]]
 
     with psycopg.connect(fresh_db_dsn) as conn:
         rows = conn.execute("SELECT applied_at FROM analyzer.schema_migrations").fetchall()
         assert len(rows) == 1
+        # Schema + both extensions created exactly once, no duplicates.
+        exts = conn.execute(
+            "SELECT count(*) FROM pg_extension WHERE extname IN ('vector','pg_trgm')"
+        ).fetchone()[0]
+        assert exts == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -307,6 +311,20 @@ def test_missing_db_without_create_flag_exits_3(fresh_db_dsn: str) -> None:
     with pytest.raises(BootstrapError) as exc:
         bootstrap(fresh_db_dsn, create_db=False, attempts=3, delay=0.0)
     assert exc.value.exit_code == 3
+
+
+def test_missing_db_detection_is_locale_independent(
+    fresh_db_dsn: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Disable the libpq-text heuristic entirely: on a non-English lc_messages
+    # server it would never match. Detection must still work via the pg_database
+    # probe on the maintenance DB, so the create path still fires.
+    monkeypatch.setattr(startup, "_is_missing_database", lambda exc, dbname: False)
+    applied = bootstrap_and_migrate(fresh_db_dsn, create_db=True, attempts=3, delay=0.0)
+    assert applied == [1]
+    with psycopg.connect(fresh_db_dsn) as conn:
+        n = conn.execute("SELECT count(*) FROM analyzer.schema_migrations").fetchone()[0]
+        assert n == 1
 
 
 # --------------------------------------------------------------------------- #

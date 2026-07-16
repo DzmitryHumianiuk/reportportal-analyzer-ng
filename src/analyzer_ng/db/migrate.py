@@ -21,6 +21,8 @@ import hashlib
 import logging
 import re
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -274,25 +276,44 @@ def _apply_one(conn: psycopg.Connection, migration: Migration, schema: str) -> N
             )
 
 
+@contextmanager
+def migration_lock(conn: psycopg.Connection) -> Iterator[None]:
+    """Hold the project-wide migration advisory lock for the block's duration.
+
+    Session-scoped and blocking (spec 02 §3.2): a concurrent starter waits at
+    acquisition, so the whole cold-start critical section — schema/extension
+    creation AND migration — can run under one lock and race-free. The lock is
+    re-entrant within a session; it releases on exit (or on disconnect).
+    """
+    conn.execute("SELECT pg_advisory_lock(%s)", (ADVISORY_LOCK_KEY,))
+    try:
+        yield
+    finally:
+        conn.execute("SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_KEY,))
+
+
 def apply_migrations(
     conn: psycopg.Connection,
     *,
     migrations_dir: Path = DEFAULT_MIGRATIONS_DIR,
     schema: str = "analyzer",
+    lock: bool = True,
 ) -> list[int]:
     """Run all pending migrations under the advisory lock (spec 02 §3.2).
 
     Returns the versions applied on this call (empty on an up-to-date database).
-    The connection is switched to autocommit; the caller owns closing it.
+    The connection is switched to autocommit; the caller owns closing it. Pass
+    ``lock=False`` when the caller already holds :func:`migration_lock` (so the
+    schema-creation and migration steps share a single critical section).
     """
     migrations = discover_migrations(migrations_dir)
     by_version = {m.version: m for m in migrations}
 
     conn.autocommit = True
-    # Session-scoped, blocking: the second concurrent starter waits here, then
-    # finds nothing pending. Released in the finally (or on disconnect).
-    conn.execute("SELECT pg_advisory_lock(%s)", (ADVISORY_LOCK_KEY,))
-    try:
+    # Blocking acquisition serializes concurrent container starts; the second
+    # starter then finds nothing pending.
+    lock_ctx = migration_lock(conn) if lock else nullcontext()
+    with lock_ctx:
         conn.execute(sql.SQL("SET search_path = {}, public").format(sql.Identifier(schema)))
         _ensure_ledger(conn, schema)
         applied = _load_applied(conn, schema)
@@ -315,5 +336,3 @@ def apply_migrations(
         else:
             logger.info("Database schema is up to date (max version %d)", max_applied)
         return applied_now
-    finally:
-        conn.execute("SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_KEY,))
