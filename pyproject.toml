@@ -31,6 +31,7 @@ dependencies = [
     "lightgbm~=4.5",
     "numpy~=2.1",
     "scikit-learn~=1.5",
+    "xxhash~=3.5",  # spec 03 §3.3: deterministic XXH3-64 fingerprints/error hashes (BSD-2)
     "tenacity~=9.0",
     "httpx~=0.27",
     "prometheus-client~=0.21",

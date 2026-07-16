@@ -113,6 +113,12 @@ class AppConfig(BaseSettings):
     analyzer_ng_queue_size: int = 100
     analyzer_emb_model_path: str = "/opt/analyzer/models/e5-small-int8"
     analyzer_emb_dims: int = 384
+    analyzer_emb_model_rev: str = "unknown"  # pinned HF revision hash (spec 03 §4)
+    analyzer_emb_batch_size: int = 32
+    # Preprocessing / Drain3 tunables (spec 03 §1.1, §2.2).
+    analyzer_max_logs_per_item: int = 20
+    analyzer_drain_sim_th: UnitInterval = 0.4
+    analyzer_drain_max_lines: int = 40
     analyzer_auto_min_prob: UnitInterval = 0.6
     analyzer_suggest_max: int = 3
     analyzer_burst_si_share: UnitInterval = 0.5

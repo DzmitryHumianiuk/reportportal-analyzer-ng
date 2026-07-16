@@ -8,3 +8,5 @@ venv/
 dist/
 build/
 *.egg-info/
+models/
+tests/golden/**/*.actual.json
