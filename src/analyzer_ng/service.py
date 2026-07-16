@@ -19,6 +19,7 @@ from __future__ import annotations
 import itertools
 import logging
 import threading
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from psycopg_pool import ConnectionPool
@@ -31,6 +32,7 @@ from analyzer_ng.core.handlers import PipelineHandlers
 from analyzer_ng.db.pool import check_pg, pool_in_use
 from analyzer_ng.db.repositories.kb import PgKBStore
 from analyzer_ng.metrics import Metrics
+from analyzer_ng.ml.reporting import MetricsDailyJob
 from analyzer_ng.ml.retrain import REASON_NIGHTLY, NightlyRetrainTimer
 from analyzer_ng.seeds.loader import SeedKB, load_seed_kb
 
@@ -151,13 +153,24 @@ class AnalyzerService:
         )
 
     def _start_retrain_timer(self) -> None:
-        """Start the nightly retrain timer once the store layer is bound (spec §6.5)."""
+        """Start the nightly retrain timer once the store layer is bound (spec §6.5).
+
+        The 02:00 timer drives both the retrain (spec §6.5) and the ``metrics_daily``
+        rollup for the day that just ended (spec §10.3).
+        """
         retrainer = self._handlers.retrainer
         if retrainer is None:
             return  # store-less (unit) configuration — no learning loop
+        stats = self._handlers.stats
 
         def _trigger() -> None:
             retrainer.maybe_retrain(reason=REASON_NIGHTLY)
+            if stats is not None:
+                try:
+                    yesterday = datetime.now(UTC).date() - timedelta(days=1)
+                    MetricsDailyJob(stats).run(yesterday)
+                except Exception:  # noqa: BLE001 — reporting must not kill the timer
+                    logger.exception("nightly metrics_daily rollup failed")
 
         self._retrain_timer = NightlyRetrainTimer(_trigger)
         self._retrain_timer.start()

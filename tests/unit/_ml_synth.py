@@ -62,6 +62,56 @@ def base_of(locator: str) -> str:
     return locator[:2]
 
 
+def degraded_frame(
+    n: int = 600, *, seed: int = 0, project_ids: tuple[int, ...] = (1,)
+) -> list[dict]:
+    """A frame whose feature snapshots carry **no** signal for their label.
+
+    Labels are assigned round-robin but the ``hist_*`` mass is decoupled from the
+    label (a second, independent RNG stream), so a model trained on it cannot
+    separate the classes — the canonical "deliberately crippled" candidate (§10.2).
+    """
+    rng = random.Random(seed)
+    noise = random.Random(seed * 7919 + 1)
+    rows: list[dict] = []
+    for i in range(n):
+        label = BASE[i % 4]
+        # Feature mass encodes a *random* label, unrelated to the true one.
+        decoy = BASE[noise.randrange(4)]
+        rows.append(
+            {
+                "project_id": project_ids[i % len(project_ids)],
+                "item_id": 5000 + i,
+                "new_label": _LOCATOR[label],
+                "features": _features_for(decoy, rng),
+                "ts": _T0 + timedelta(minutes=i),
+            }
+        )
+    return rows
+
+
+def synth_suggestions(
+    specs: Sequence[tuple],  # (project_id, day_offset, predicted_locator, confidence, outcome)
+    *,
+    model_ver: str = "gbm-2026.07.16",
+) -> list[dict]:
+    """Build suggestion-row dicts (the shape the daily aggregator consumes)."""
+    rows: list[dict] = []
+    for i, (pid, day_off, locator, conf, outcome) in enumerate(specs):
+        rows.append(
+            {
+                "project_id": pid,
+                "item_id": 7000 + i,
+                "created_at": _T0 + timedelta(days=day_off, minutes=i),
+                "predicted_label": locator,
+                "confidence": conf,
+                "outcome": outcome,
+                "model_ver": model_ver,
+            }
+        )
+    return rows
+
+
 class FakeModelStore:
     """In-memory ModelStore honouring the single-active-per-key atomic contract."""
 
@@ -98,6 +148,16 @@ class FakeModelStore:
             )
         )
         return mid
+
+    def save(self, spec: ArtifactSpec, *, activate: bool = False) -> int:
+        if activate:
+            self._rows = [
+                _deactivate(r)
+                if (r.kind == spec.kind and r.project_id == spec.project_id and r.is_active)
+                else r
+                for r in self._rows
+            ]
+        return self._insert(spec, is_active=activate)
 
     def active_gbm_version(self) -> tuple[int, str] | None:
         for r in self._rows:

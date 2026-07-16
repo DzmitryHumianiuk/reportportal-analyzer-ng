@@ -53,6 +53,7 @@ from analyzer_ng.db.repositories import (
 )
 from analyzer_ng.db.repositories.protocols import KBStore, LabelStore
 from analyzer_ng.ml.artifacts import PgModelStore
+from analyzer_ng.ml.gate import make_ship_gate
 from analyzer_ng.ml.retrain import REASON_EVENTS, REASON_ROUTE, Retrainer
 from analyzer_ng.ml.serving import GbmPredictor
 from analyzer_ng.seeds.loader import SeedKB
@@ -222,7 +223,14 @@ class PipelineHandlers(StubHandlers):
         # service's nightly timer (spec §6.5).
         self._model_store = PgModelStore(pool)
         self._predictor = GbmPredictor(self._model_store)
-        self._retrainer = Retrainer(label, self._model_store, self._predictor)
+        # The ship gate (T3.2) closes the loop: a retrained candidate replaces the
+        # active model only if it holds up on the chronological eval slice (§10.2).
+        self._retrainer = Retrainer(
+            label,
+            self._model_store,
+            self._predictor,
+            gate=make_ship_gate(self._model_store),
+        )
         self._build_engine(retrieval, kb, stats)
 
     def set_seed_kb(self, seed_kb: SeedKB) -> None:
@@ -235,6 +243,11 @@ class PipelineHandlers(StubHandlers):
     def retrainer(self) -> Retrainer | None:
         """The learning-loop retrainer (driven by the service's nightly timer)."""
         return self._retrainer
+
+    @property
+    def stats(self) -> PgStatsStore | None:
+        """The StatsStore (drives the nightly metrics_daily rollup, spec §10.3)."""
+        return self._stats
 
     def gbm_version(self) -> str | None:
         """Version string of the currently served GBM (None when cold)."""

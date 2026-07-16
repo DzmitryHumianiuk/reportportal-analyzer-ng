@@ -158,3 +158,59 @@ class PgStatsStore(StoreBase):
                 (project_id, frm, to),
             )
             return cur.fetchall()
+
+    # -- nightly daily-metrics rollup (spec 03 §10.3) --------------------------- #
+    def fetch_suggestions_for_day(self, day: date) -> list[dict]:
+        """All ``suggestion`` rows *shown* on ``day``, across projects (§10.3).
+
+        Aggregation keys off the suggestion's ``created_at`` day; outcomes are read
+        from the same row (``defect_update`` stamps them in place).
+        """
+        with self._conn() as conn:
+            cur = conn.cursor(row_factory=dict_row)
+            cur.execute(
+                """
+                SELECT project_id, item_id, created_at, predicted_label,
+                       confidence, outcome, model_ver
+                FROM analyzer.suggestion
+                WHERE created_at >= %s::date AND created_at < (%s::date + INTERVAL '1 day')
+                """,
+                (day, day),
+            )
+            return cur.fetchall()
+
+    def upsert_daily_metrics(self, dm: object) -> None:
+        """Idempotent absolute upsert of one (project, day) rollup (§10.3).
+
+        Writes the six ``metrics_daily`` counters and the per-label breakdown as
+        computed by the nightly job (absolute SET, so a recompute is safe to re-run).
+        The ``auto_labeled``/``auto_corrected``/``model_ver`` fields of §10.3 have no
+        column in the 0001 schema (no migration is permitted for this task) and are
+        surfaced through the job's structured logs instead.
+        """
+        with self._conn() as conn, conn.transaction():
+            conn.execute(
+                """
+                INSERT INTO analyzer.metrics_daily
+                    (project_id, day, suggestions, accepted, corrected, ignored,
+                     abstained, per_label)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (project_id, day) DO UPDATE SET
+                    suggestions = EXCLUDED.suggestions,
+                    accepted    = EXCLUDED.accepted,
+                    corrected   = EXCLUDED.corrected,
+                    ignored     = EXCLUDED.ignored,
+                    abstained   = EXCLUDED.abstained,
+                    per_label   = EXCLUDED.per_label
+                """,
+                (
+                    dm.project_id,  # type: ignore[attr-defined]
+                    dm.day,  # type: ignore[attr-defined]
+                    dm.suggestions,  # type: ignore[attr-defined]
+                    dm.accepted,  # type: ignore[attr-defined]
+                    dm.corrected,  # type: ignore[attr-defined]
+                    dm.ignored,  # type: ignore[attr-defined]
+                    dm.abstained,  # type: ignore[attr-defined]
+                    Jsonb(dm.per_label),  # type: ignore[attr-defined]
+                ),
+            )
