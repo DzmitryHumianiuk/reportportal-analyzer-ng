@@ -24,13 +24,17 @@ from analyzer_ng.db.repositories.models import Candidate
 NOW = datetime(2026, 7, 16, tzinfo=UTC)
 
 
-def _hm(item_id, issue_type, source, days_ago=1.0, is_auto=False):
+_SRC_CONF = {"rp": 1.0, "human": 0.9, "ai_suggested": 0.3}
+
+
+def _hm(item_id, issue_type, source, days_ago=1.0, is_auto=False, confidence=None):
     return HashMatch(
         item_id=item_id,
         issue_type=issue_type,
         issue_type_group=issue_type[:2],
         label_source=source,
         label_ts=NOW - timedelta(days=days_ago),
+        confidence=confidence if confidence is not None else _SRC_CONF.get(source, 0.3),
         is_auto_analyzed=is_auto,
     )
 
@@ -47,6 +51,12 @@ def test_stage_a_single_human_match_inherits():
     matches = [_hm(1, "pb001", "rp")]
     got = stage_a_inherit(123, matches, now=NOW)
     assert got is not None and got.item_id == 1
+
+
+def test_stage_a_single_human_low_confidence_does_not_inherit():
+    # §6.1: a single human match must have confidence ≥ 0.9 to inherit.
+    matches = [_hm(1, "pb001", "human", confidence=0.5)]
+    assert stage_a_inherit(123, matches, now=NOW) is None
 
 
 def test_stage_a_two_unanimous_matches_inherit():
@@ -135,6 +145,7 @@ def test_decide_seed_prior_auto_band():
     )
     assert res.method == METHOD_RULE_COLD
     assert res.label == "si"
+    assert res.issue_type == "si001"  # base group → RP default locator
     assert res.action == ACTION_AUTO  # 0.85 ≥ τ_auto
 
 

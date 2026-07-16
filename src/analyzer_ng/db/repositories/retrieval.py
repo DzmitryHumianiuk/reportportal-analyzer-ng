@@ -392,6 +392,7 @@ class PgRetrievalStore(StoreBase):
             cur.execute(
                 """
                 SELECT ti.item_id, ti.issue_type, ti.issue_type_group, ti.is_auto_analyzed,
+                       ti.launch_id, ti.launch_name,
                        le.source AS label_source, le.ts AS label_ts
                 FROM analyzer.failure_signature fs
                 JOIN analyzer.test_item ti USING (project_id, item_id)
@@ -411,6 +412,20 @@ class PgRetrievalStore(StoreBase):
         for r in rows:
             r["label_source"] = _LABEL_SOURCE_MAP.get(r["label_source"])
         return rows
+
+    def test_case_first_seen(self, project_id: int, test_case_hash: int) -> datetime | None:
+        """Earliest observation of a test case (feeds ``test_age_days``, §6.4).
+
+        Uses ``start_time`` (the actual run time, stable across re-index) with
+        ``indexed_at`` as a fallback; ``None`` when the test case is unseen.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT min(COALESCE(start_time, indexed_at)) FROM analyzer.test_item "
+                "WHERE project_id=%s AND test_case_hash=%s",
+                (project_id, test_case_hash),
+            ).fetchone()
+        return row[0] if row is not None else None
 
     def item_launch_names(self, project_id: int, item_ids: Sequence[int]) -> dict[int, str]:
         """launch_name per item — feeds analyzerMode name-based scope (spec §6.0)."""

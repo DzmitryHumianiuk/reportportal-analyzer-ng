@@ -90,11 +90,22 @@ def analyze_boost(
 ) -> float:
     """Soft multiplier applied on the ``analyze`` route (spec §6.0, analyze column).
 
-    Only ``CURRENT_AND_THE_SAME_NAME`` carries a soft boost on ``analyze`` (its
-    hard filter keeps same-name history, the boost lifts the current launch).
+    ``CURRENT_AND_THE_SAME_NAME`` lifts the current launch; **default/unset** (no
+    hard filter) additionally ×boosts same name and same launch_id. The other
+    modes express their preference purely through the hard filter (boost 1.0).
     """
-    if _mode(analyzer_mode) == CURRENT_AND_THE_SAME_NAME and cand.launch_id == q.launch_id:
-        return launch_boost
+    mode = _mode(analyzer_mode)
+    same_name = bool(q.launch_name) and cand.launch_name == q.launch_name
+    same_launch = cand.launch_id == q.launch_id
+    if mode == CURRENT_AND_THE_SAME_NAME:
+        return launch_boost if same_launch else 1.0
+    if mode is None:  # default/unset
+        boost = 1.0
+        if same_name:
+            boost *= launch_boost
+        if same_launch:
+            boost *= launch_boost
+        return boost
     return 1.0
 
 

@@ -47,6 +47,7 @@ from analyzer_ng.core.features import (
     FeatureContext,
     SeedSignal,
     feature_names,
+    src_weight,
     to_vector,
 )
 from analyzer_ng.core.grouping import GroupItem, LaunchGroup, group_launch
@@ -64,6 +65,9 @@ from analyzer_ng.seeds.loader import SeedKB
 logger = logging.getLogger(__name__)
 
 TOP_K = 20
+# Retrieve wider than TOP_K so the analyzerMode hard-scope filter (§6.0) is not
+# starved by out-of-scope rows dominating the top-20 before filtering.
+STAGE_C_RETRIEVE_K = 60
 SEARCH_COS_THRESHOLD = 0.75
 INT53_MASK = (1 << 53) - 1  # Java long-safe positive cluster id
 SUGGEST_MAX = 3
@@ -273,11 +277,24 @@ class AnalysisEngine:
             rep, launch_id=rep.launch.launchId, launch_number=rep.launch.launchNumber
         )
 
-        # Stage A — exact error_hash matches with label provenance.
+        # Stage A — exact error_hash matches with label provenance, restricted to
+        # the analyzerMode scope (§6.1: labeled items *in scope*). analyze applies
+        # the hard filter; suggest keeps every labeled, non-ti match (base only).
         hash_matches: list[HashMatch] = []
         if sig.exception_fp != 0:
             for row in self.retrieval.find_hash_matches(project, sig.error_hash):
                 if row["item_id"] == rep.item.testItemId:
+                    continue
+                sc = scope.ScopeCandidate(
+                    launch_id=row["launch_id"],
+                    launch_name=row["launch_name"] or "",
+                    issue_type_group=row["issue_type_group"] or "",
+                    is_labeled=True,
+                )
+                if route == "analyze":
+                    if not scope.in_analyze_scope(analyzer_mode, scope_q, sc):
+                        continue
+                elif not scope.passes_base(sc):
                     continue
                 hash_matches.append(
                     HashMatch(
@@ -286,6 +303,7 @@ class AnalysisEngine:
                         issue_type_group=row["issue_type_group"] or "",
                         label_source=row["label_source"],
                         label_ts=row["label_ts"],
+                        confidence=src_weight(row["label_source"]),
                         is_auto_analyzed=bool(row["is_auto_analyzed"]),
                     )
                 )
@@ -320,8 +338,17 @@ class AnalysisEngine:
         self_item_id: int,
         route: str,
     ) -> tuple[list[Candidate], list[float]]:
+        # Retrieve WIDER than TOP_K, then apply the analyzerMode scope, then
+        # truncate: a hard scope filter over exactly top-20 can be starved when the
+        # top-20 is dominated by out-of-scope (e.g. same-launch) rows so the
+        # in-scope history never surfaces (§6.0). Widening trades a little latency
+        # for recall; the verbatim RRF fusion SQL is untouched (only the LIMIT
+        # param widens). Final list is still capped at TOP_K for feature stability.
         cands = self.retrieval.find_candidates(
-            project, q, k=TOP_K, filters=CandidateFilters(exclude_item_ids=[self_item_id])
+            project,
+            q,
+            k=STAGE_C_RETRIEVE_K,
+            filters=CandidateFilters(exclude_item_ids=[self_item_id]),
         )
         items = [c for c in cands if c.item_id is not None]
         # Enrich with launch_name for name-based scope (single batched lookup).
@@ -339,11 +366,15 @@ class AnalysisEngine:
                     continue
                 boost = scope.analyze_boost(analyzer_mode, scope_q, sc)
             else:
+                # suggest never hard-filters, but ti/unlabeled must never leak into
+                # suggestions/features (belt-and-suspenders over the Stage-B SQL).
+                if not scope.passes_base(sc):
+                    continue
                 boost = scope.suggest_boost(analyzer_mode, scope_q, sc)
             scored.append((c.rrf_score * boost, c))
-        # Deterministic re-rank by boosted rrf, tie-break by item_id desc.
+        # Deterministic re-rank by boosted rrf, tie-break by item_id desc, cap TOP_K.
         scored.sort(key=lambda pair: (pair[0], pair[1].item_id or 0), reverse=True)
-        ordered = [c for _s, c in scored]
+        ordered = [c for _s, c in scored][:TOP_K]
         now = datetime.now(UTC)
         ages = [self._age_days(c.label_ts, now) for c in ordered]
         return ordered, ages
@@ -370,17 +401,24 @@ class AnalysisEngine:
         sig = rep.signature
         tch = rep.item.testCaseHash or None
         stats_row: dict = {}
+        test_age_days: float | None = None
         if tch is not None:
             stats_row = self.stats.get_test_history(rep.launch.project, [tch]).get(tch, {})  # type: ignore[attr-defined]
+            first_seen = self.retrieval.test_case_first_seen(rep.launch.project, tch)
+            if first_seen is not None:
+                test_age_days = self._age_days(first_seen, datetime.now(UTC))
         return FeatureContext(
             flakiness_score=stats_row.get("flakiness_score"),
             window_runs=stats_row.get("window_runs", 0) or 0,
             window_failures=stats_row.get("window_failures", 0) or 0,
             window_flips=stats_row.get("window_flips", 0) or 0,
             group_size=len(group.members),
+            # We know the failing-item count; the launch's *total* item count is not
+            # carried on the wire, so launch_fail_fraction stays 0 (unknown, §6.4 #31).
             launch_failures=total_failures,
-            launch_items=total_failures,
+            launch_items=0,
             si_prior=group.si_prior,
+            test_age_days=test_age_days,
             item_log_count=rep.log_count,
             has_stacktrace=sig.has_stacktrace,
             is_assertion=sig.is_assertion,
@@ -392,7 +430,12 @@ class AnalysisEngine:
     # Wire rendering
     # ------------------------------------------------------------------ #
     def _write_suggestion(
-        self, project: int, item_id: int, launch_id: int, group_id: int, decision: DecisionResult
+        self,
+        project: int,
+        item_id: int,
+        launch_id: int,
+        group_id: int | None,
+        decision: DecisionResult,
     ) -> None:
         self.retrieval.write_suggestion(
             SuggestionIn(
@@ -457,7 +500,7 @@ class AnalysisEngine:
                 )
             )
         # Persist the decision (every decision writes a suggestion row, §6.6).
-        self._write_suggestion(info.project, info.testItemId, info.launchId, 0, decision)
+        self._write_suggestion(info.project, info.testItemId, info.launchId, None, decision)
         return out
 
     def _suggestion_candidates(

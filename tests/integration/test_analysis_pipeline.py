@@ -202,15 +202,15 @@ def test_g2_analyze_groups_matches_and_decides(db_factory) -> None:
     # NPE inherits the human pb001 via Stage A, relevantItem = history item 800.
     assert by_item[200].issueType == "pb001"
     assert by_item[200].relevantItem == 800
-    # All five OOM items auto-labeled 'si' from the seed prior (0.8 ≥ τ_auto).
+    # All five OOM items auto-labeled 'si001' (seed prior 0.8 ≥ τ_auto → RP locator).
     for i in range(5):
-        assert by_item[100 + i].issueType == "si"
+        assert by_item[100 + i].issueType == "si001"
     # The benign item abstained → omitted from the analyze reply (stays ti).
     assert 300 not in by_item
 
     labels = _labels(pool)
     assert labels[200] == "pb001"
-    assert all(labels[100 + i] == "si" for i in range(5))
+    assert all(labels[100 + i] == "si001" for i in range(5))
     assert labels[300] is None  # never auto-labeled
 
 
@@ -253,6 +253,23 @@ def test_g2_suggestions_written_with_features_and_launch_groups(db_factory) -> N
         ).fetchall()
         assert all(cnt == 1 for _k, cnt in seeded)
         assert any(k == "oom_java" for k, _c in seeded)
+
+
+def test_stage_a_respects_analyzer_mode_scope(db_factory) -> None:
+    # CURRENT_LAUNCH bounds Stage A to the launch under analysis: the human-labeled
+    # NPE lives in launch 900, so it is out of scope and must NOT be inherited.
+    pool = db_factory()
+    handlers = _bound_handlers(pool)
+    _seed_history_and_label(handlers)
+
+    launch = _analysis_launch()
+    launch.analyzerConfig = AnalyzerConf(analyzerMode="CURRENT_LAUNCH")
+    handlers.index([launch])
+    results = handlers.analyze([launch])
+
+    by_item = {r.testItem: r for r in results}
+    assert 200 not in by_item  # NPE not inherited (history out of scope) → stays ti
+    assert _labels(pool)[200] is None
 
 
 def test_analyze_deterministic_under_shuffled_input(db_factory) -> None:

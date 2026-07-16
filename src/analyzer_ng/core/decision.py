@@ -60,6 +60,19 @@ ACTION_SUGGEST = "suggest"  # abstain on analyze (store) / top-3 on suggest
 ACTION_ABSTAIN = "abstain"  # ti; suggest returns []
 
 
+# RP default sub-type locators for each base group (legacy standard sub-types).
+# A base group with no concrete historical locator flows as its default locator.
+DEFAULT_LOCATOR = {"pb": "pb001", "ab": "ab001", "si": "si001", "nd": "nd001", "ti": "ti001"}
+
+# §6.1 single-match inherit requires a human label with confidence ≥ this.
+STAGE_A_HUMAN_MIN_CONF = 0.9
+
+
+def default_locator(base: str) -> str:
+    """The RP default sub-type locator for a base issue-type group (spec §6.6)."""
+    return DEFAULT_LOCATOR.get(base, base)
+
+
 @dataclass(frozen=True)
 class HashMatch:
     """A Stage-A exact-error_hash match with the evidence the guards need."""
@@ -69,6 +82,7 @@ class HashMatch:
     issue_type_group: str  # 'pb'|'ab'|'si'|'nd'|'ti'
     label_source: str | None  # 'rp'|'human'|'ai_suggested'|None
     label_ts: datetime | None
+    confidence: float = 0.0  # label-event confidence (derived from source, §6.1 guard)
     is_auto_analyzed: bool = False
 
 
@@ -124,8 +138,11 @@ def stage_a_inherit(
     labels = {m.issue_type for m in matches}
     unanimous = len(labels) == 1
     human = newest.label_source in ("rp", "human")
-    # ≥2 unanimous items, OR a single human-sourced label.
-    if not ((len(matches) >= 2 and unanimous) or (len(matches) == 1 and human)):
+    # ≥2 unanimous items, OR a single human-sourced label with confidence ≥ 0.9 (§6.1).
+    single_human = (
+        len(matches) == 1 and human and newest.confidence >= STAGE_A_HUMAN_MIN_CONF
+    )
+    if not ((len(matches) >= 2 and unanimous) or single_human):
         return None
 
     base = _base(newest.issue_type)
@@ -269,7 +286,7 @@ def decide(inputs: DecisionInputs, *, now: datetime | None = None) -> DecisionRe
         base = _base(inputs.seed.label)
         return result(
             base,
-            base,  # seed prior carries a base group, not a concrete RP locator
+            default_locator(base),  # seed carries a base group → RP default locator
             inputs.seed.confidence,
             METHOD_RULE_COLD,
         )

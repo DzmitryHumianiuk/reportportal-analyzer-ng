@@ -133,3 +133,13 @@ def test_src_weight_and_decay():
 def test_si_prior_capped_at_09():
     values = extract_features(FeatureContext(si_prior=5.0))
     assert values["si_prior"] == 0.9
+
+
+def test_launch_fail_fraction_zero_when_total_unknown():
+    # §6.4 #31: 0 when the launch's total item count is unknown (launch_items=0),
+    # even though group_dominance still uses the known failing count.
+    values = extract_features(
+        FeatureContext(group_size=3, launch_failures=6, launch_items=0)
+    )
+    assert values["launch_fail_fraction"] == 0.0
+    assert values["group_dominance"] == 3 / 6

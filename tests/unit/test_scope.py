@@ -56,10 +56,21 @@ def test_analyze_hard_filter_still_requires_base():
     assert scope.in_analyze_scope("ALL", Q, _c(101, group="ti")) is False
 
 
-def test_analyze_boost_only_for_current_and_same_name():
+def test_analyze_boost_current_and_same_name():
     assert scope.analyze_boost("CURRENT_AND_THE_SAME_NAME", Q, _c(100)) == pytest.approx(1.1)
     assert scope.analyze_boost("CURRENT_AND_THE_SAME_NAME", Q, _c(101)) == pytest.approx(1.0)
-    assert scope.analyze_boost("ALL", Q, _c(100)) == pytest.approx(1.0)
+
+
+def test_analyze_boost_default_unset_boosts_name_and_launch():
+    # default/unset analyze: no hard filter, ×boost same name and same launch_id.
+    assert scope.analyze_boost(None, Q, _c(100, "Nightly")) == pytest.approx(1.1 * 1.1)
+    assert scope.analyze_boost(None, Q, _c(101, "Nightly")) == pytest.approx(1.1)
+    assert scope.analyze_boost(None, Q, _c(101, "Other")) == pytest.approx(1.0)
+
+
+def test_analyze_boost_hard_filter_modes_have_no_soft_boost():
+    for mode in ("LAUNCH_NAME", "CURRENT_LAUNCH", "PREVIOUS_LAUNCH", "ALL"):
+        assert scope.analyze_boost(mode, Q, _c(100, "Nightly")) == pytest.approx(1.0)
 
 
 def test_suggest_boosts_launch_name_and_all():
