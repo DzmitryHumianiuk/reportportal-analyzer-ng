@@ -50,6 +50,16 @@ class PgDrain3StateStore(StoreBase):
             )
             return cur.rowcount > 0
 
+    def load_template_texts(self, project_id: int) -> list[str]:
+        """Mirror template patterns, most-frequent first (Drain rebuild, spec §2.3)."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT pattern FROM analyzer.log_template "
+                "WHERE project_id=%s ORDER BY match_count DESC, template_id",
+                (project_id,),
+            ).fetchall()
+        return [r[0] for r in rows]
+
     def upsert_templates(self, project_id: int, templates: Sequence[dict]) -> int:
         """Mirror Drain3 clusters into ``log_template`` (spec 02 §2.3).
 

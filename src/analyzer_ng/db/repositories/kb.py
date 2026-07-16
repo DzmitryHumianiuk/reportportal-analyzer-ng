@@ -75,6 +75,16 @@ class PgKBStore(StoreBase):
             )
         return out
 
+    def member_mode_id(self, project_id: int, item_id: int) -> int | None:
+        """The mode an item belongs to (best match), for feedback purity updates."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT mode_id FROM analyzer.mode_membership "
+                "WHERE project_id=%s AND item_id=%s ORDER BY match_score DESC LIMIT 1",
+                (project_id, item_id),
+            ).fetchone()
+        return int(row[0]) if row is not None else None
+
     # --------------------------------------------------------------------- #
     # Lifecycle
     # --------------------------------------------------------------------- #

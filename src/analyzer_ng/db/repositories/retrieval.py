@@ -20,6 +20,7 @@ from analyzer_ng.db.repositories._common import (
     StoreBase,
     bigint_array_literal,
     halfvec_literal,
+    require_row,
 )
 from analyzer_ng.db.repositories.kb import PgKBStore
 from analyzer_ng.db.repositories.models import (
@@ -206,23 +207,76 @@ class PgRetrievalStore(StoreBase):
             return cur.rowcount
 
     def delete_by_time_range(
-        self, project_id: int, field: Literal["start_time", "log_time"], before: datetime
+        self,
+        project_id: int,
+        field: Literal["start_time", "log_time"],
+        before: datetime,
+        after: datetime | None = None,
     ) -> int:
+        """Delete items whose ``field`` is ``< before`` (and ``>= after`` if given).
+
+        ``after`` implements the ``remove_by_*`` route's half-open window
+        ``[interval_start_date, interval_end_date)`` (spec 01 §4.4); omitting it
+        keeps the legacy retention semantics (everything before ``before``).
+        """
         column = "start_time" if field == "start_time" else "log_time_max"
+        bound = f"{column} IS NOT NULL AND {column} < %s"
+        del_params: tuple = (project_id, before)
+        if after is not None:
+            bound += f" AND {column} >= %s"
+            del_params = (project_id, before, after)
         subq = (
             "item_id IN (SELECT item_id FROM analyzer.test_item "
-            f"WHERE project_id=%s AND {column} IS NOT NULL AND {column} < %s)"
+            f"WHERE project_id=%s AND {bound})"
         )
         with self._conn() as conn, conn.transaction():
-            self._purge_items(conn, project_id, subq, (project_id, project_id, before))
+            # _purge_items prefixes the predicate with its own `project_id=%s`, so the
+            # subquery's own project_id (+ the bound params) follow it.
+            self._purge_items(conn, project_id, subq, (project_id, *del_params))
             cur = conn.execute(
-                f"DELETE FROM analyzer.test_item "
-                f"WHERE project_id=%s AND {column} IS NOT NULL AND {column} < %s",
-                (project_id, before),
+                f"DELETE FROM analyzer.test_item WHERE project_id=%s AND {bound}",
+                del_params,
             )
             return cur.rowcount
 
-    def delete_project(self, project_id: int) -> None:
+    def get_items_labels(self, project_id: int, item_ids: Sequence[int]) -> dict[int, str | None]:
+        """Current ``issue_type`` for each *existing* item (defect_update / feedback).
+
+        Absence from the returned mapping means the item is unknown to
+        analyzer-ng — the caller reports it as not-updated (spec 01 §4.5 step 3).
+        """
+        if not item_ids:
+            return {}
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT item_id, issue_type FROM analyzer.test_item "
+                "WHERE project_id=%s AND item_id = ANY(%s)",
+                (project_id, list(item_ids)),
+            ).fetchall()
+        return {int(r[0]): r[1] for r in rows}
+
+    def record_feedback_outcome(self, project_id: int, item_id: int, new_label: str) -> int:
+        """Resolve pending suggestions for an item after human feedback (spec §4.5).
+
+        A pending suggestion is ``accepted`` when its predicted base issue-type
+        group matches the human label, else ``corrected``. Returns rows updated.
+        """
+        with self._conn() as conn:
+            cur = conn.execute(
+                """
+                UPDATE analyzer.suggestion SET
+                    outcome = CASE
+                        WHEN substring(predicted_label from '^[a-z]+')
+                             = substring(%s from '^[a-z]+') THEN 'accepted'
+                        ELSE 'corrected' END,
+                    outcome_ts = now()
+                WHERE project_id=%s AND item_id=%s AND outcome='pending'
+                """,
+                (new_label, project_id, item_id),
+            )
+            return cur.rowcount
+
+    def delete_project(self, project_id: int) -> int:
         # Children first; the project row (with its FK cascades) last.
         tables = (
             "mode_membership",
@@ -239,9 +293,15 @@ class PgRetrievalStore(StoreBase):
             "metrics_daily",
         )
         with self._conn() as conn, conn.transaction():
+            count = require_row(
+                conn.execute(
+                    "SELECT count(*) FROM analyzer.test_item WHERE project_id=%s", (project_id,)
+                )
+            )[0]
             for table in tables:
                 conn.execute(f"DELETE FROM analyzer.{table} WHERE project_id=%s", (project_id,))
             conn.execute("DELETE FROM analyzer.project WHERE project_id=%s", (project_id,))
+        return int(count)
 
     @staticmethod
     def _purge_items(conn, project_id: int, predicate: str, params: tuple) -> None:
