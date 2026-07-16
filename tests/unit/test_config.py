@@ -1,0 +1,274 @@
+"""Unit tests for the analyzer-ng configuration module (spec 01 §5).
+
+Covers the acceptance criteria for task T0.3:
+- defaults match the spec env table,
+- env overrides win,
+- invalid values fail fast with a clear message,
+- legacy ES/datastore vars are accepted-but-ignored with a WARN.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+
+import pytest
+from pydantic import ValidationError
+
+from analyzer_ng.config import AppConfig, load_config
+
+# Every env var the settings model may read, grouped by spec section. Used to
+# isolate each test from whatever the developer/CI shell happens to export.
+_ENV_PREFIXES = (
+    "AMQP_",
+    "ANALYZER_",
+    "LOGGING_",
+    "DEBUG_",
+    "OLLAMA_",
+    "ES_",
+    "DATASTORE_",
+    "MINIO_",
+)
+
+
+@pytest.fixture
+def env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    """Strip inherited config env vars so tests see spec defaults."""
+    for key in list(os.environ):
+        if key.startswith(_ENV_PREFIXES):
+            monkeypatch.delenv(key, raising=False)
+    return monkeypatch
+
+
+def _minimal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set only the required vars so AppConfig() constructs cleanly."""
+    monkeypatch.setenv("AMQP_URL", "amqp://rabbitmq:5672")
+    monkeypatch.setenv("ANALYZER_PG_DSN", "postgresql://u:p@postgres:5432/analyzer")
+
+
+def _cfg() -> AppConfig:
+    # _env_file=None keeps the model hermetic (never reads a dev .env).
+    return AppConfig(_env_file=None)
+
+
+# --------------------------------------------------------------------------- #
+# Defaults (spec §5.1 / §5.2 tables)
+# --------------------------------------------------------------------------- #
+
+
+def test_defaults_match_spec(env: pytest.MonkeyPatch) -> None:
+    _minimal(env)
+    cfg = _cfg()
+
+    # §5.1 legacy-compatible vars
+    assert cfg.amqp_url == "amqp://rabbitmq:5672"
+    assert cfg.amqp_virtual_host == "analyzer"
+    assert cfg.amqp_exchange_name == "analyzer"
+    assert cfg.amqp_heartbeat_interval == 30
+    assert cfg.amqp_initial_retry_interval == 1
+    assert cfg.amqp_max_retry_time == 300
+    assert cfg.amqp_backoff_factor == 2
+    assert cfg.amqp_handler_max_retries == 3
+    assert cfg.amqp_handler_task_timeout == 600
+    assert cfg.analyzer_priority == 1
+    assert cfg.analyzer_index is True
+    assert cfg.analyzer_log_search is True
+    assert cfg.analyzer_suggest is True
+    assert cfg.analyzer_cluster is True
+    assert cfg.analyzer_http_port == 5001
+    assert cfg.analyzer_file_logging_path == "/tmp/config.log"
+    assert cfg.logging_level == "INFO"
+    assert cfg.debug_mode is False
+
+    # §5.2 new analyzer-ng vars
+    assert cfg.analyzer_pg_host == "postgres"
+    assert cfg.analyzer_pg_port == 5432
+    assert cfg.analyzer_pg_db == "analyzer"
+    assert cfg.analyzer_pg_schema == "analyzer"
+    assert cfg.analyzer_pg_pool_min == 2
+    assert cfg.analyzer_pg_pool_max == 10
+    assert cfg.analyzer_pg_create_db is True
+    assert cfg.analyzer_pg_admin_dsn == ""
+    assert cfg.analyzer_ng_workers == 2
+    assert cfg.analyzer_ng_prefetch == 1
+    assert cfg.analyzer_ng_queue_prefix == "analyzer-ng."
+    assert cfg.analyzer_ng_queue_size == 100
+    assert cfg.analyzer_emb_model_path == "/opt/analyzer/models/e5-small-int8"
+    assert cfg.analyzer_emb_dims == 384
+    assert cfg.analyzer_auto_min_prob == 0.6
+    assert cfg.analyzer_suggest_max == 3
+    assert cfg.analyzer_burst_si_share == 0.5
+    assert cfg.analyzer_time_decay == 0.999
+    assert cfg.analyzer_llm_enabled is False
+    assert cfg.ollama_url == "http://ollama:11434"
+    assert cfg.analyzer_llm_model == "qwen3:4b"
+    assert cfg.analyzer_llm_judge_tau == 0.5
+    assert cfg.analyzer_seed_kb_path == "/opt/analyzer/seeds/failure_modes.json"
+
+
+# --------------------------------------------------------------------------- #
+# Overrides + precedence
+# --------------------------------------------------------------------------- #
+
+
+def test_env_overrides_defaults(env: pytest.MonkeyPatch) -> None:
+    _minimal(env)
+    env.setenv("ANALYZER_NG_WORKERS", "8")
+    env.setenv("LOGGING_LEVEL", "DEBUG")
+    env.setenv("ANALYZER_HTTP_PORT", "9999")
+    env.setenv("ANALYZER_AUTO_MIN_PROB", "0.75")
+    cfg = _cfg()
+    assert cfg.analyzer_ng_workers == 8
+    assert cfg.logging_level == "DEBUG"
+    assert cfg.analyzer_http_port == 9999
+    assert cfg.analyzer_auto_min_prob == 0.75
+
+
+def test_amqp_url_trailing_slashes_stripped(env: pytest.MonkeyPatch) -> None:
+    _minimal(env)
+    env.setenv("AMQP_URL", "amqp://rabbitmq:5672///")
+    assert _cfg().amqp_url == "amqp://rabbitmq:5672"
+
+
+# --------------------------------------------------------------------------- #
+# Boolean parsing (legacy to_bool: spec §5)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("value", ["TRUE", "True", "true", "1", "Y", "y"])
+def test_bool_true_forms(env: pytest.MonkeyPatch, value: str) -> None:
+    _minimal(env)
+    env.setenv("ANALYZER_LLM_ENABLED", value)
+    assert _cfg().analyzer_llm_enabled is True
+
+
+@pytest.mark.parametrize("value", ["FALSE", "False", "false", "0", "N", "n"])
+def test_bool_false_forms(env: pytest.MonkeyPatch, value: str) -> None:
+    _minimal(env)
+    env.setenv("ANALYZER_INDEX", value)
+    assert _cfg().analyzer_index is False
+
+
+def test_bool_invalid_value_fails_with_clear_message(env: pytest.MonkeyPatch) -> None:
+    _minimal(env)
+    env.setenv("DEBUG_MODE", "maybe")
+    with pytest.raises(ValidationError) as exc:
+        _cfg()
+    msg = str(exc.value)
+    assert "debug_mode" in msg.lower()
+    assert "maybe" in msg
+
+
+# --------------------------------------------------------------------------- #
+# Fail-fast validation (spec §5.3)
+# --------------------------------------------------------------------------- #
+
+
+def test_missing_amqp_url_is_required(env: pytest.MonkeyPatch) -> None:
+    env.setenv("ANALYZER_PG_DSN", "postgresql://u:p@postgres:5432/analyzer")
+    with pytest.raises(ValidationError) as exc:
+        _cfg()
+    assert "amqp_url" in str(exc.value).lower()
+
+
+def test_no_pg_dsn_derivable_fails(env: pytest.MonkeyPatch) -> None:
+    env.setenv("AMQP_URL", "amqp://rabbitmq:5672")
+    # No DSN and no discrete user/password -> not derivable.
+    with pytest.raises(ValidationError) as exc:
+        _cfg()
+    assert "dsn" in str(exc.value).lower()
+
+
+def test_discrete_pg_vars_derive_dsn(env: pytest.MonkeyPatch) -> None:
+    env.setenv("AMQP_URL", "amqp://rabbitmq:5672")
+    env.setenv("ANALYZER_PG_USER", "rpuser")
+    env.setenv("ANALYZER_PG_PASSWORD", "rppass")
+    env.setenv("ANALYZER_PG_HOST", "db")
+    env.setenv("ANALYZER_PG_PORT", "6543")
+    env.setenv("ANALYZER_PG_DB", "reports")
+    cfg = _cfg()
+    assert cfg.pg_dsn_effective == "postgresql://rpuser:rppass@db:6543/reports"
+
+
+def test_explicit_dsn_wins_over_discrete_vars(env: pytest.MonkeyPatch) -> None:
+    env.setenv("AMQP_URL", "amqp://rabbitmq:5672")
+    env.setenv("ANALYZER_PG_DSN", "postgresql://a:b@h:5432/main")
+    env.setenv("ANALYZER_PG_USER", "ignored")
+    env.setenv("ANALYZER_PG_PASSWORD", "ignored")
+    assert _cfg().pg_dsn_effective == "postgresql://a:b@h:5432/main"
+
+
+def test_threshold_out_of_range_fails(env: pytest.MonkeyPatch) -> None:
+    _minimal(env)
+    env.setenv("ANALYZER_AUTO_MIN_PROB", "1.5")
+    with pytest.raises(ValidationError) as exc:
+        _cfg()
+    assert "analyzer_auto_min_prob" in str(exc.value).lower()
+
+
+def test_unparsable_numeric_fails(env: pytest.MonkeyPatch) -> None:
+    _minimal(env)
+    env.setenv("ANALYZER_NG_WORKERS", "lots")
+    with pytest.raises(ValidationError) as exc:
+        _cfg()
+    assert "analyzer_ng_workers" in str(exc.value).lower()
+
+
+# --------------------------------------------------------------------------- #
+# Immutability
+# --------------------------------------------------------------------------- #
+
+
+def test_config_is_frozen(env: pytest.MonkeyPatch) -> None:
+    _minimal(env)
+    cfg = _cfg()
+    with pytest.raises(ValidationError):
+        cfg.analyzer_ng_workers = 99  # type: ignore[misc]
+
+
+# --------------------------------------------------------------------------- #
+# Legacy ES/datastore vars: accepted-but-ignored with a WARN (spec §5.1)
+# --------------------------------------------------------------------------- #
+
+
+def test_legacy_es_vars_warn_and_are_ignored(
+    env: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _minimal(env)
+    env.setenv("ES_HOSTS", "http://elasticsearch:9200")
+    env.setenv("ES_USER", "elastic")
+    env.setenv("ES_BOOST_AA", "2.0")
+    env.setenv("DATASTORE_TYPE", "minio")
+    env.setenv("MINIO_ENDPOINT", "minio:9000")
+    with caplog.at_level(logging.WARNING, logger="analyzer_ng.config"):
+        cfg = load_config()
+    # Config still loads successfully.
+    assert cfg.amqp_url == "amqp://rabbitmq:5672"
+    warned = {r.getMessage() for r in caplog.records if r.levelno == logging.WARNING}
+    joined = "\n".join(warned)
+    for name in ("ES_HOSTS", "ES_USER", "ES_BOOST_AA", "DATASTORE_TYPE", "MINIO_ENDPOINT"):
+        assert name in joined
+    # One WARN line per ignored var.
+    assert len(warned) == 5
+
+
+def test_no_warn_when_no_legacy_vars(
+    env: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _minimal(env)
+    with caplog.at_level(logging.WARNING, logger="analyzer_ng.config"):
+        load_config()
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+
+
+# --------------------------------------------------------------------------- #
+# load_config(): fail fast with exit code 2 (spec §5.3)
+# --------------------------------------------------------------------------- #
+
+
+def test_load_config_exits_2_on_invalid(env: pytest.MonkeyPatch) -> None:
+    env.setenv("ANALYZER_PG_DSN", "postgresql://u:p@postgres:5432/analyzer")
+    # AMQP_URL missing -> invalid.
+    with pytest.raises(SystemExit) as exc:
+        load_config()
+    assert exc.value.code == 2
