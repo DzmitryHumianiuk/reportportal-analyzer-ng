@@ -36,6 +36,8 @@ from analyzer_ng.amqp.models import (
     TestItemInfo,
     TrainInfo,
 )
+from analyzer_ng.core import observability as obs
+from analyzer_ng.core.cancellation import TaskTimeout, task_watchdog
 from analyzer_ng.core.handlers import StubHandlers
 
 logger = logging.getLogger(__name__)
@@ -240,8 +242,9 @@ class _NullMetrics:
 
 
 # Errors that must never be retried (§8.2): a bad payload or an unknown key will
-# fail identically on every attempt.
-_NON_RETRYABLE = (ValidationError, UnknownRoutingKey)
+# fail identically on every attempt; a watchdog timeout must not re-run the
+# expensive task three more times.
+_NON_RETRYABLE = (ValidationError, UnknownRoutingKey, TaskTimeout)
 
 
 class WorkerPool:
@@ -264,12 +267,15 @@ class WorkerPool:
         max_retries: int = 3,
         retry_delays: list[float] | None = None,
         metrics: MetricsSink | None = None,
+        task_timeout: float = 600.0,
     ) -> None:
         self._dispatcher = dispatcher
         self._publisher = publisher
         self._workers = max(1, workers)
         self._queue: PriorityQueue[ProcessingItem] = PriorityQueue(maxsize=queue_size)
         self._max_retries = max_retries
+        # Per-task watchdog budget (§8.2); <=0 disables it.
+        self._task_timeout = task_timeout
         # 1 s / 2 s / 4 s by default (§8.2); overridable so tests stay fast.
         self._retry_delays = retry_delays if retry_delays is not None else [1.0, 2.0, 4.0]
         self._metrics: MetricsSink = metrics or _NullMetrics()
@@ -328,11 +334,20 @@ class WorkerPool:
                     self._running.pop(worker_id, None)
 
     def _process(self, item: ProcessingItem) -> None:
+        # Bind the §9.1 log context (correlation_id + routing_key) for this task.
+        with obs.bind_request(item.correlation_id, item.routing_key):
+            self._process_bound(item)
+
+    def _process_bound(self, item: ProcessingItem) -> None:
         started = time.monotonic()
         attempt = 0
         while True:
             try:
-                reply = self._dispatcher.process(item.routing_key, item.body)
+                with task_watchdog(self._task_timeout) as cancel_event:
+                    reply = self._dispatcher.process(item.routing_key, item.body)
+                    # A handler that overran without polling is still a failure (§8.2).
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise TaskTimeout("task exceeded AMQP_HANDLER_TASK_TIMEOUT")
             except UnknownRoutingKey as exc:
                 # Benign: ack + WARN + no reply, no dead-letter (§4.4).
                 logger.warning("Unknown routing key '%s', ignoring", exc.routing_key)
@@ -363,7 +378,12 @@ class WorkerPool:
                 continue
 
             self._publish_reply(item, reply)
+            duration_ms = int((time.monotonic() - started) * 1000)
             self._metrics.observe_request(item.routing_key, "success", time.monotonic() - started)
+            # §9.1 completion line — carries duration_ms plus the bound context fields.
+            logger.info(
+                "handled '%s'", item.routing_key, extra={"duration_ms": duration_ms}
+            )
             return
 
     def _publish_reply(self, item: ProcessingItem, reply: str | None) -> None:
@@ -382,6 +402,7 @@ class WorkerPool:
             item.correlation_id,
             exc,
             exc_info=exc,
+            extra={"duration_ms": int((time.monotonic() - started) * 1000)},
         )
         self._metrics.observe_request(item.routing_key, "failed", time.monotonic() - started)
         self._dead_letter(item, exc)

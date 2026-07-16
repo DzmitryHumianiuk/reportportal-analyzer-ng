@@ -24,6 +24,7 @@ from types import FrameType
 
 from analyzer_ng.api.http import HttpServer
 from analyzer_ng.config import AppConfig, load_config
+from analyzer_ng.core import observability as obs
 from analyzer_ng.db.pool import open_pool
 from analyzer_ng.db.startup import bootstrap_and_migrate_or_exit
 from analyzer_ng.metrics import Metrics
@@ -48,13 +49,19 @@ class _JsonFormatter(logging.Formatter):
         self._app_version = app_version
 
     def format(self, record: logging.LogRecord) -> str:
-        payload = {
+        payload: dict[str, object] = {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),
             "app_version": self._app_version,
         }
+        # §9.1 mandatory fields: correlation_id / routing_key / project (contextvar-
+        # propagated) and duration_ms (on completion lines, carried via extra=).
+        payload.update(obs.current_log_fields())
+        duration_ms = getattr(record, "duration_ms", None)
+        if duration_ms is not None:
+            payload["duration_ms"] = duration_ms
         if record.exc_info:
             payload["exc"] = self.formatException(record.exc_info)
         return json.dumps(payload)
