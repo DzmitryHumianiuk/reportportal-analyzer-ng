@@ -10,6 +10,7 @@ from analyzer_ng.ml.retrain import (
     RETRAIN_EVENT_THRESHOLD,
     NightlyRetrainTimer,
     Retrainer,
+    RetrainScheduler,
 )
 from analyzer_ng.ml.serving import GbmPredictor
 
@@ -149,3 +150,65 @@ def test_timer_fires_trigger_and_stops():
     time.sleep(0.3)
     timer.stop()
     assert fired  # trigger ran at least once
+
+
+# --------------------------------------------------------------------------- #
+# Cold-phase debounce (review Important #2)
+# --------------------------------------------------------------------------- #
+def test_cold_phase_debounces_repeated_train_attempts():
+    # Before any model ships, store.last_trained_at() is None. A second trigger
+    # within the hour must NOT re-run the full fetch+train (which would thrash an
+    # AMQP worker on every feedback message during the cold phase).
+    labels = FakeLabels(synth_frame(n=10, seed=20))  # cold (<50) → train raises
+    store = FakeModelStore()
+    r = Retrainer(labels, store, clock=lambda: NOW)
+
+    first = r.maybe_retrain(reason="events", now=NOW)
+    assert first.reason == "cold"
+    assert labels.fetch_calls == 1  # first attempt fetched + tried to train
+
+    second = r.maybe_retrain(reason="events", now=NOW + timedelta(minutes=10))
+    assert second.reason == "debounced"
+    assert labels.fetch_calls == 1  # debounced: no second fetch/train
+
+    # After the hour elapses, the cold retry is allowed again.
+    third = r.maybe_retrain(reason="events", now=NOW + timedelta(hours=2))
+    assert third.reason == "cold"
+    assert labels.fetch_calls == 2
+
+
+# --------------------------------------------------------------------------- #
+# Single-flight background scheduler (review Important #2)
+# --------------------------------------------------------------------------- #
+def test_scheduler_runs_retrain_off_the_request_thread():
+    labels = FakeLabels(synth_frame(n=300, seed=21))
+    store = FakeModelStore()
+    predictor = GbmPredictor(store, refresh_interval_s=0.0)
+    retrainer = Retrainer(labels, store, predictor)
+    sched = RetrainScheduler(retrainer)
+    sched.start()
+    try:
+        sched.request("route")  # returns immediately
+        assert sched.wait_idle(timeout=30.0)
+    finally:
+        sched.stop()
+    assert store.ship_calls == 1
+    assert predictor.has_model() is True
+    assert sched.outcomes and sched.outcomes[-1].shipped
+
+
+def test_scheduler_single_flight_coalesces_a_burst():
+    # A burst of feedback requests must collapse to a single retrain (debounce +
+    # single-flight), never one train per request.
+    labels = FakeLabels(synth_frame(n=300, seed=22))
+    store = FakeModelStore()
+    retrainer = Retrainer(labels, store)
+    sched = RetrainScheduler(retrainer)
+    sched.start()
+    try:
+        for _ in range(10):
+            sched.request("events")
+        assert sched.wait_idle(timeout=30.0)
+    finally:
+        sched.stop()
+    assert store.ship_calls == 1  # first ships; the rest are debounced/coalesced

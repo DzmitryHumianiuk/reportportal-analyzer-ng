@@ -164,7 +164,9 @@ class AnalyzerService:
         stats = self._handlers.stats
 
         def _trigger() -> None:
-            retrainer.maybe_retrain(reason=REASON_NIGHTLY)
+            # Enqueue on the single-flight scheduler (non-blocking); the retrain runs
+            # off this timer thread and coalesces with any feedback-driven request.
+            self._handlers.request_retrain(REASON_NIGHTLY)
             if stats is not None:
                 try:
                     yesterday = datetime.now(UTC).date() - timedelta(days=1)
@@ -181,6 +183,7 @@ class AnalyzerService:
         self._ready.clear()
         if self._retrain_timer is not None:
             self._retrain_timer.stop()
+        self._handlers.shutdown()  # stop the background retrain scheduler
         for consumer in self._consumers:
             consumer.stop(timeout=drain_timeout)
         self._pool.shutdown(timeout=drain_timeout)

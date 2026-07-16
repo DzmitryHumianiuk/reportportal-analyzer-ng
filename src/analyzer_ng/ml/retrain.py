@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -99,6 +100,10 @@ class Retrainer:
         self._gate = gate
         self._clock = clock
         self._lock = threading.Lock()  # serialize concurrent triggers in one process
+        # Cold-phase debounce: before any model ships, store.last_trained_at() is
+        # None, so nothing else bounds how often a trigger attempts a full train.
+        # Record every attempt time and debounce off it too (spec §6.5 ≥1/hour).
+        self._last_attempt_at: datetime | None = None
 
     def maybe_retrain(
         self, *, reason: str = REASON_EVENTS, now: datetime | None = None
@@ -111,13 +116,20 @@ class Retrainer:
         """
         now = now or self._clock()
         with self._lock:
-            last = self._last_trained_at()
-            if last is not None and (now - last) < self._min_interval:
+            shipped_at = self._last_trained_at()
+            # Debounce off whichever is most recent: a shipped model, or (in the
+            # cold phase, when nothing has shipped) the last attempt we made.
+            debounce_ref = max(
+                (t for t in (shipped_at, self._last_attempt_at) if t is not None),
+                default=None,
+            )
+            if debounce_ref is not None and (now - debounce_ref) < self._min_interval:
                 return RetrainOutcome(STATUS_SKIPPED, "debounced")
-            if reason == REASON_EVENTS and last is not None:
-                new_events = self._labels.count_events_since(last)
+            if reason == REASON_EVENTS and shipped_at is not None:
+                new_events = self._labels.count_events_since(shipped_at)
                 if new_events < self._threshold:
                     return RetrainOutcome(STATUS_SKIPPED, "below_threshold")
+            self._last_attempt_at = now  # record before training so retries debounce
             try:
                 return self._retrain(reason, now)
             except TrainingError as exc:
@@ -147,7 +159,7 @@ class Retrainer:
             return RetrainOutcome(STATUS_SKIPPED, "gate_rejected", n_events=n_events)
 
         version = self._version(now)
-        calibrators = fit_calibrators(rows, model)
+        calibrators = fit_calibrators(rows)
         base_metrics = {
             "reason": reason,
             "trained_at": now.astimezone(UTC).isoformat(),
@@ -197,6 +209,85 @@ class Retrainer:
     @staticmethod
     def _version(now: datetime) -> str:
         return "gbm-" + now.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+
+
+# Reason precedence when coalescing queued requests (higher = kept). A forcing
+# trigger (nightly/route) must not be demoted to a plain event-count check.
+_REASON_RANK = {REASON_EVENTS: 0, REASON_NIGHTLY: 1, REASON_ROUTE: 2}
+
+
+class RetrainScheduler:
+    """Single-flight background runner so triggers never block the caller (§6.5).
+
+    :meth:`request` returns immediately; a daemon worker coalesces requests and
+    runs :meth:`Retrainer.maybe_retrain` off the request thread. At most one
+    retrain runs at a time with at most one more queued — a burst of feedback
+    events collapses to a single follow-up train (single-flight). This keeps the
+    heavy fetch+train+calibrate+ship off the AMQP worker handling ``defect_update``.
+    """
+
+    def __init__(self, retrainer: Retrainer, *, name: str = "retrain-scheduler") -> None:
+        self._retrainer = retrainer
+        self._cv = threading.Condition()
+        self._pending: str | None = None
+        self._running = False
+        self._stopping = False
+        self._started = False
+        self.outcomes: list[RetrainOutcome] = []  # completed runs (audit/tests)
+        self._thread = threading.Thread(target=self._loop, name=name, daemon=True)
+
+    def start(self) -> None:
+        if not self._started:
+            self._started = True
+            self._thread.start()
+
+    def request(self, reason: str = REASON_EVENTS) -> None:
+        """Queue a retrain (non-blocking); coalesces with any pending request."""
+        with self._cv:
+            if self._pending is None or _REASON_RANK.get(reason, 0) > _REASON_RANK.get(
+                self._pending, 0
+            ):
+                self._pending = reason
+            self._cv.notify_all()
+
+    def _loop(self) -> None:
+        while True:
+            with self._cv:
+                while self._pending is None and not self._stopping:
+                    self._cv.wait()
+                if self._stopping:
+                    return
+                reason = self._pending
+                self._pending = None
+                self._running = True
+            try:
+                outcome = self._retrainer.maybe_retrain(reason=reason or REASON_EVENTS)
+                with self._cv:
+                    self.outcomes.append(outcome)
+            except Exception:  # noqa: BLE001 — a failed retrain must not kill the worker
+                logger.exception("background retrain failed")
+            finally:
+                with self._cv:
+                    self._running = False
+                    self._cv.notify_all()
+
+    def wait_idle(self, timeout: float = 10.0) -> bool:
+        """Block until no request is pending or running (for tests/shutdown)."""
+        deadline = time.monotonic() + timeout
+        with self._cv:
+            while self._pending is not None or self._running:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._cv.wait(remaining)
+            return True
+
+    def stop(self, timeout: float = 5.0) -> None:
+        with self._cv:
+            self._stopping = True
+            self._cv.notify_all()
+        if self._started:
+            self._thread.join(timeout)
 
 
 class NightlyRetrainTimer(threading.Thread):

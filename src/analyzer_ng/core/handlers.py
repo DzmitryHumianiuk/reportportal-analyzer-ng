@@ -54,7 +54,12 @@ from analyzer_ng.db.repositories import (
 from analyzer_ng.db.repositories.protocols import KBStore, LabelStore
 from analyzer_ng.ml.artifacts import PgModelStore
 from analyzer_ng.ml.gate import make_ship_gate
-from analyzer_ng.ml.retrain import REASON_EVENTS, REASON_ROUTE, Retrainer
+from analyzer_ng.ml.retrain import (
+    REASON_EVENTS,
+    REASON_ROUTE,
+    Retrainer,
+    RetrainScheduler,
+)
 from analyzer_ng.ml.serving import GbmPredictor
 from analyzer_ng.seeds.loader import SeedKB
 
@@ -186,6 +191,7 @@ class PipelineHandlers(StubHandlers):
         self._model_store: PgModelStore | None = None
         self._predictor: GbmPredictor | None = None
         self._retrainer: Retrainer | None = None
+        self._retrain_scheduler: RetrainScheduler | None = None
 
     def bind(
         self,
@@ -231,6 +237,11 @@ class PipelineHandlers(StubHandlers):
             self._predictor,
             gate=make_ship_gate(self._model_store),
         )
+        # Single-flight background runner: triggers (defect_update counter, route,
+        # nightly) enqueue here so the heavy fetch+train+ship never blocks an AMQP
+        # worker thread (review follow-up Important #2).
+        self._retrain_scheduler = RetrainScheduler(self._retrainer)
+        self._retrain_scheduler.start()
         self._build_engine(retrieval, kb, stats)
 
     def set_seed_kb(self, seed_kb: SeedKB) -> None:
@@ -243,6 +254,16 @@ class PipelineHandlers(StubHandlers):
     def retrainer(self) -> Retrainer | None:
         """The learning-loop retrainer (driven by the service's nightly timer)."""
         return self._retrainer
+
+    def request_retrain(self, reason: str) -> None:
+        """Non-blocking retrain request routed through the single-flight scheduler."""
+        if self._retrain_scheduler is not None:
+            self._retrain_scheduler.request(reason)
+
+    def shutdown(self) -> None:
+        """Stop the background retrain scheduler (called on service shutdown)."""
+        if self._retrain_scheduler is not None:
+            self._retrain_scheduler.stop()
 
     @property
     def stats(self) -> PgStatsStore | None:
@@ -303,20 +324,16 @@ class PipelineHandlers(StubHandlers):
     def train_models(self, info: TrainInfo) -> None:
         """Trigger a retrain (debounced ≥ 1/hour). No reply, ever (spec §4.4).
 
-        This is the real learning-loop entrypoint: the nightly timer and an
-        operator/RP-issued ``train_models`` message both land here. Training reads
-        only stored feature snapshots and ships atomically when it beats the cold
-        state; a cold install (< 50 events) is a logged no-op.
+        This is the real learning-loop entrypoint: an operator/RP-issued
+        ``train_models`` message enqueues a retrain on the single-flight scheduler
+        and returns immediately (no reply). Training reads only stored feature
+        snapshots and ships atomically when it beats the active model via the eval
+        gate; a cold install (< 50 events) is a logged no-op.
         """
-        if self._retrainer is None:
+        if self._retrain_scheduler is None:
             return super().train_models(info)
-        outcome = self._retrainer.maybe_retrain(reason=REASON_ROUTE)
-        logger.info(
-            "train_models: retrain %s (%s%s)",
-            outcome.status,
-            outcome.reason,
-            f", version={outcome.version}" if outcome.version else "",
-        )
+        logger.info("train_models: scheduling background retrain")
+        self._retrain_scheduler.request(REASON_ROUTE)
         return None
 
     # -- deletions --------------------------------------------------------- #
@@ -421,13 +438,12 @@ class PipelineHandlers(StubHandlers):
             self._retrieval.record_feedback_outcome(project, item_id, issue_type)
 
         # 4. Bump the retrain counter (spec §6.5): a defect_update appended new
-        # label_events, so check the 100-new-events trigger (debounced ≥ 1/hour).
-        # A failed/cold retrain must never fail the feedback path.
-        if self._retrainer is not None:
-            try:
-                self._retrainer.maybe_retrain(reason=REASON_EVENTS)
-            except Exception:  # noqa: BLE001
-                logger.exception("retrain trigger after defect_update failed")
+        # label_events, so signal the 100-new-events trigger. The actual train runs
+        # on the single-flight background scheduler (debounced ≥ 1/hour) so this
+        # feedback handler returns immediately without blocking an AMQP worker on a
+        # full fetch+train+ship (review follow-up Important #2).
+        if self._retrain_scheduler is not None:
+            self._retrain_scheduler.request(REASON_EVENTS)
 
         # 5. Reply with the ids not found in analyzer storage (spec §4.5 step 3).
         return not_updated
