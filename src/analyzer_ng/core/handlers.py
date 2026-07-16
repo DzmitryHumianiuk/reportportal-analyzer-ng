@@ -52,6 +52,9 @@ from analyzer_ng.db.repositories import (
     PgStatsStore,
 )
 from analyzer_ng.db.repositories.protocols import KBStore, LabelStore
+from analyzer_ng.ml.artifacts import PgModelStore
+from analyzer_ng.ml.retrain import REASON_EVENTS, REASON_ROUTE, Retrainer
+from analyzer_ng.ml.serving import GbmPredictor
 from analyzer_ng.seeds.loader import SeedKB
 
 logger = logging.getLogger(__name__)
@@ -179,6 +182,9 @@ class PipelineHandlers(StubHandlers):
         self._engine: AnalysisEngine | None = None
         self._seed_kb: SeedKB | None = None
         self._emb_tag = "none"
+        self._model_store: PgModelStore | None = None
+        self._predictor: GbmPredictor | None = None
+        self._retrainer: Retrainer | None = None
 
     def bind(
         self,
@@ -195,7 +201,8 @@ class PipelineHandlers(StubHandlers):
         self._retrieval = retrieval
         kb = PgKBStore(pool)
         self._kb = kb
-        self._label = PgLabelStore(pool)
+        label = PgLabelStore(pool)
+        self._label = label
         stats = PgStatsStore(pool)
         self._stats = stats
         self._pipeline = IndexPipeline(
@@ -209,6 +216,13 @@ class PipelineHandlers(StubHandlers):
         self._emb_tag = emb_model_tag
         if seed_kb is not None:
             self._seed_kb = seed_kb
+        # Learning loop (T3.1): artifact store + atomic-swap GBM serving + retrainer.
+        # The predictor lazily loads the active model on first predict; the retrainer
+        # is driven by the train_models route, the defect_update counter, and the
+        # service's nightly timer (spec §6.5).
+        self._model_store = PgModelStore(pool)
+        self._predictor = GbmPredictor(self._model_store)
+        self._retrainer = Retrainer(label, self._model_store, self._predictor)
         self._build_engine(retrieval, kb, stats)
 
     def set_seed_kb(self, seed_kb: SeedKB) -> None:
@@ -216,6 +230,15 @@ class PipelineHandlers(StubHandlers):
         self._seed_kb = seed_kb
         if self._retrieval is not None and self._kb is not None and self._stats is not None:
             self._build_engine(self._retrieval, self._kb, self._stats)
+
+    @property
+    def retrainer(self) -> Retrainer | None:
+        """The learning-loop retrainer (driven by the service's nightly timer)."""
+        return self._retrainer
+
+    def gbm_version(self) -> str | None:
+        """Version string of the currently served GBM (None when cold)."""
+        return self._predictor.active_version() if self._predictor is not None else None
 
     def _build_engine(
         self, retrieval: PgRetrievalStore, kb: KBStore, stats: object
@@ -228,6 +251,7 @@ class PipelineHandlers(StubHandlers):
             pipeline=self._pipeline,
             seed_kb=self._seed_kb,
             emb_model_tag=self._emb_tag,
+            predictor=self._predictor,
         )
 
     # -- index ------------------------------------------------------------- #
@@ -261,6 +285,26 @@ class PipelineHandlers(StubHandlers):
             return super().search(request)
         obs.set_project(int(request.projectId))
         return self._engine.search(request)
+
+    # -- train_models (real retrain entrypoint, spec §6.5) ----------------- #
+    def train_models(self, info: TrainInfo) -> None:
+        """Trigger a retrain (debounced ≥ 1/hour). No reply, ever (spec §4.4).
+
+        This is the real learning-loop entrypoint: the nightly timer and an
+        operator/RP-issued ``train_models`` message both land here. Training reads
+        only stored feature snapshots and ships atomically when it beats the cold
+        state; a cold install (< 50 events) is a logged no-op.
+        """
+        if self._retrainer is None:
+            return super().train_models(info)
+        outcome = self._retrainer.maybe_retrain(reason=REASON_ROUTE)
+        logger.info(
+            "train_models: retrain %s (%s%s)",
+            outcome.status,
+            outcome.reason,
+            f", version={outcome.version}" if outcome.version else "",
+        )
+        return None
 
     # -- deletions --------------------------------------------------------- #
     def delete(self, project: int) -> int:
@@ -363,5 +407,14 @@ class PipelineHandlers(StubHandlers):
                     self._kb.update_purity(project, mode_id)
             self._retrieval.record_feedback_outcome(project, item_id, issue_type)
 
-        # 3. Reply with the ids not found in analyzer storage (spec §4.5 step 3).
+        # 4. Bump the retrain counter (spec §6.5): a defect_update appended new
+        # label_events, so check the 100-new-events trigger (debounced ≥ 1/hour).
+        # A failed/cold retrain must never fail the feedback path.
+        if self._retrainer is not None:
+            try:
+                self._retrainer.maybe_retrain(reason=REASON_EVENTS)
+            except Exception:  # noqa: BLE001
+                logger.exception("retrain trigger after defect_update failed")
+
+        # 5. Reply with the ids not found in analyzer storage (spec §4.5 step 3).
         return not_updated

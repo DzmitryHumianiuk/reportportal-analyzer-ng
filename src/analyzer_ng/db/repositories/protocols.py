@@ -88,6 +88,9 @@ class KBStore(Protocol):
 
 class LabelStore(Protocol):
     def append_event(self, ev: LabelEventIn) -> int: ...
+    def count_events_since(
+        self, since: datetime | None = None, project_id: int | None = None
+    ) -> int: ...
     def fetch_training_frame(
         self,
         project_id: int | None = None,

@@ -31,6 +31,7 @@ from analyzer_ng.core.handlers import PipelineHandlers
 from analyzer_ng.db.pool import check_pg, pool_in_use
 from analyzer_ng.db.repositories.kb import PgKBStore
 from analyzer_ng.metrics import Metrics
+from analyzer_ng.ml.retrain import REASON_NIGHTLY, NightlyRetrainTimer
 from analyzer_ng.seeds.loader import SeedKB, load_seed_kb
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,9 @@ class AnalyzerService:
             ),
         ]
         self._ready = threading.Event()
+        # Nightly retrain timer (spec §6.5) — started once consumers are up so the
+        # store layer is bound; it fires the retrainer at 02:00 UTC.
+        self._retrain_timer: NightlyRetrainTimer | None = None
 
     def _next_seq(self) -> int:
         with self._seq_lock:
@@ -137,18 +141,33 @@ class AnalyzerService:
         self._pool.start()
         for consumer in self._consumers:
             consumer.start()
+        self._start_retrain_timer()
         self._ready.set()
         logger.info(
             "analyzer-ng %s ready (emb=%s, gbm=%s)",
             self.version,
             self.emb_model_ver,
-            self.gbm_model_ver,
+            self._handlers.gbm_version() or self.gbm_model_ver,
         )
+
+    def _start_retrain_timer(self) -> None:
+        """Start the nightly retrain timer once the store layer is bound (spec §6.5)."""
+        retrainer = self._handlers.retrainer
+        if retrainer is None:
+            return  # store-less (unit) configuration — no learning loop
+
+        def _trigger() -> None:
+            retrainer.maybe_retrain(reason=REASON_NIGHTLY)
+
+        self._retrain_timer = NightlyRetrainTimer(_trigger)
+        self._retrain_timer.start()
 
     def shutdown(self, drain_timeout: float = 30.0) -> None:
         """Graceful shutdown (spec §6): stop consuming, drain workers, flush
         replies, close connections."""
         self._ready.clear()
+        if self._retrain_timer is not None:
+            self._retrain_timer.stop()
         for consumer in self._consumers:
             consumer.stop(timeout=drain_timeout)
         self._pool.shutdown(timeout=drain_timeout)

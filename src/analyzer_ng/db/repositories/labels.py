@@ -33,6 +33,30 @@ class PgLabelStore(StoreBase):
             )
             return int(require_row(cur)[0])
 
+    def count_events_since(
+        self, since: datetime | None = None, project_id: int | None = None
+    ) -> int:
+        """Number of label_events after ``since`` (the retrain counter, spec §6.5).
+
+        ``since=None`` counts every event (used before the first model exists).
+        The retrain trigger fires at ``N=100`` new events per install; this is the
+        cheap check run on every ``defect_update`` ingestion.
+        """
+        clauses: list[str] = []
+        params: list[object] = []
+        if since is not None:
+            clauses.append("ts > %s")
+            params.append(since)
+        if project_id is not None:
+            clauses.append("project_id = %s")
+            params.append(project_id)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        with self._conn() as conn:
+            cur = conn.execute(
+                f"SELECT count(*) FROM analyzer.label_event{where}", params
+            )
+            return int(require_row(cur)[0])
+
     def fetch_training_frame(
         self,
         project_id: int | None = None,
