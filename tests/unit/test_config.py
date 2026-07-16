@@ -191,6 +191,27 @@ def test_discrete_pg_vars_derive_dsn(env: pytest.MonkeyPatch) -> None:
     assert cfg.pg_dsn_effective == "postgresql://rpuser:rppass@db:6543/reports"
 
 
+def test_derived_dsn_url_escapes_credentials(env: pytest.MonkeyPatch) -> None:
+    # A password with URL-significant chars must not corrupt the DSN structure.
+    env.setenv("AMQP_URL", "amqp://rabbitmq:5672")
+    env.setenv("ANALYZER_PG_USER", "user@corp")
+    env.setenv("ANALYZER_PG_PASSWORD", "p@ss:w/rd?x")
+    env.setenv("ANALYZER_PG_HOST", "db")
+    env.setenv("ANALYZER_PG_PORT", "5432")
+    env.setenv("ANALYZER_PG_DB", "analyzer")
+    dsn = _cfg().pg_dsn_effective
+    assert dsn == "postgresql://user%40corp:p%40ss%3Aw%2Frd%3Fx@db:5432/analyzer"
+
+    # psycopg parses it back to the exact original credentials.
+    from psycopg.conninfo import conninfo_to_dict
+
+    parsed = conninfo_to_dict(dsn)
+    assert parsed["user"] == "user@corp"
+    assert parsed["password"] == "p@ss:w/rd?x"
+    assert parsed["host"] == "db"
+    assert parsed["dbname"] == "analyzer"
+
+
 def test_explicit_dsn_wins_over_discrete_vars(env: pytest.MonkeyPatch) -> None:
     env.setenv("AMQP_URL", "amqp://rabbitmq:5672")
     env.setenv("ANALYZER_PG_DSN", "postgresql://a:b@h:5432/main")

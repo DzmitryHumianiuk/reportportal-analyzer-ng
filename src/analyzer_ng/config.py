@@ -16,6 +16,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 from pydantic import BeforeValidator, Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -145,8 +146,12 @@ class AppConfig(BaseSettings):
         """The DSN to connect with: explicit ``ANALYZER_PG_DSN`` wins, else derived."""
         if self.analyzer_pg_dsn.strip():
             return self.analyzer_pg_dsn
+        # URL-escape credentials: passwords routinely contain '@', ':', '/', etc.,
+        # which would otherwise corrupt the userinfo/host boundary of the DSN.
+        user = quote(self.analyzer_pg_user or "", safe="")
+        password = quote(self.analyzer_pg_password or "", safe="")
         return (
-            f"postgresql://{self.analyzer_pg_user}:{self.analyzer_pg_password}"
+            f"postgresql://{user}:{password}"
             f"@{self.analyzer_pg_host}:{self.analyzer_pg_port}/{self.analyzer_pg_db}"
         )
 

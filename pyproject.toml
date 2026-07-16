@@ -52,7 +52,7 @@ analyzer-ng = "analyzer_ng.main:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-analyzer_ng = ["seeds/*.json", "db/migrations/*.sql"]
+analyzer_ng = ["seeds/*.json", "db/migrations/*.sql", "db/bootstrap/*.sql"]
 
 [tool.ruff]
 line-length = 100
