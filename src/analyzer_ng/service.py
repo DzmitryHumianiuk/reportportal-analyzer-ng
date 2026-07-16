@@ -125,6 +125,9 @@ class AnalyzerService:
         """
         kb_store = PgKBStore(self._pg_pool) if self._pg_pool is not None else None
         self.seed_kb = load_seed_kb(kb_store)
+        # Hand the loaded catalog to the analysis routes (T2.3): seed-mode priors
+        # feed the cold decision function and lazy per-project copies.
+        self._handlers.set_seed_kb(self.seed_kb)
         return self.seed_kb
 
     # -- lifecycle --------------------------------------------------------- #

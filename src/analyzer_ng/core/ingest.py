@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from analyzer_ng.amqp.models import (
@@ -32,11 +33,31 @@ from analyzer_ng.db.repositories.models import SignatureIn, TestItemIn
 from analyzer_ng.db.repositories.protocols import Drain3StateStore, RetrievalStore, StatsStore
 from analyzer_ng.ml.drain import DrainManager, load_manager, save_manager
 from analyzer_ng.ml.hashing import to_signed64
+from analyzer_ng.ml.signature import SignatureResult
 from analyzer_ng.preprocessing import pipeline as pp
 
 logger = logging.getLogger(__name__)
 
 DRAIN_CAS_RETRIES = 3
+
+
+@dataclass(frozen=True)
+class ItemAnalysis:
+    """An in-memory analysis of one item (signature + embedding, unpersisted).
+
+    Produced by :meth:`IndexPipeline.build_item_analyses` for the analyze/suggest/
+    cluster/search read paths — it computes signatures/embeddings without mutating
+    persisted Drain3 state (analyze must not create templates).
+    """
+
+    launch: Launch
+    item: TestItem
+    signature: SignatureResult
+    emb: list[float] | None
+    emb_model_ver: int
+    log_count: int
+    start_time: datetime | None
+    clean_msg: str  # unmasked cleaned primary text (seed matching + clusterMessage)
 
 
 def _ts7_to_datetime(ts: object) -> datetime | None:
@@ -244,3 +265,51 @@ class IndexPipeline:
     def _load_template_texts(self, project_id: int) -> list[str]:
         loader = getattr(self._drain_store, "load_template_texts", None)
         return list(loader(project_id)) if loader is not None else []
+
+    # ------------------------------------------------------------------ #
+    # Read-path signature building (analyze/suggest/cluster/search, T2.3)
+    # ------------------------------------------------------------------ #
+    def build_item_analyses(
+        self, project_id: int, entries: list[tuple[Launch, TestItem]]
+    ) -> list[ItemAnalysis]:
+        """Build signatures + embeddings for a batch **without persisting**.
+
+        Loads the project's Drain3 state read-only (never ``save_manager``), so the
+        analyze/suggest paths mine template *hashes* deterministically (content
+        hashes, so they align with indexed signatures) without creating new
+        persisted templates.
+        """
+        manager, _version = load_manager(
+            self._drain_store, project_id, template_loader=self._load_template_texts
+        )
+        out: list[ItemAnalysis] = []
+        for launch, item in entries:
+            raise_if_cancelled()
+            out.append(self._build_one(manager, launch, item))
+        return out
+
+    def _build_one(self, manager: DrainManager, launch: Launch, item: TestItem) -> ItemAnalysis:
+        logs = [pp.LogInput(message=log.message, log_level=log.logLevel) for log in item.logs]
+        kept = pp.filter_item_logs(logs, max_logs=self._max_logs)
+        result = pp.build_item_signature(item.testItemName, logs, manager, in_app_prefixes=None)
+        clean_msg = "\n".join(pp.clean_log(m).msg for m in kept if m.strip())
+
+        emb: list[float] | None = None
+        emb_ver = 0
+        if self._embedder is not None and result.signature_text:
+            emb = self._embedder.embed(result.signature_text).tolist()  # type: ignore[attr-defined]
+            emb_ver = self._emb_model_ver
+        return ItemAnalysis(
+            launch=launch,
+            item=item,
+            signature=result,
+            emb=emb,
+            emb_model_ver=emb_ver,
+            log_count=len(kept),
+            start_time=_ts7_to_datetime(item.startTime),
+            clean_msg=clean_msg,
+        )
+
+    def template_id(self, hash_hex: str) -> int:
+        """Public accessor for the stable signed-bigint template id (spec 02 §2)."""
+        return _template_id(hash_hex)

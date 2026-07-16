@@ -41,6 +41,7 @@ from analyzer_ng.amqp.models import (
     TrainInfo,
 )
 from analyzer_ng.core import observability as obs
+from analyzer_ng.core.analysis import AnalysisEngine
 from analyzer_ng.core.ingest import IndexPipeline
 from analyzer_ng.db.repositories import (
     LabelEventIn,
@@ -50,7 +51,8 @@ from analyzer_ng.db.repositories import (
     PgRetrievalStore,
     PgStatsStore,
 )
-from analyzer_ng.db.repositories.protocols import KBStore, LabelStore, RetrievalStore
+from analyzer_ng.db.repositories.protocols import KBStore, LabelStore
+from analyzer_ng.seeds.loader import SeedKB
 
 logger = logging.getLogger(__name__)
 
@@ -169,10 +171,14 @@ class PipelineHandlers(StubHandlers):
     """
 
     def __init__(self) -> None:
-        self._retrieval: RetrievalStore | None = None
+        self._retrieval: PgRetrievalStore | None = None
         self._kb: KBStore | None = None
         self._label: LabelStore | None = None
         self._pipeline: IndexPipeline | None = None
+        self._stats: PgStatsStore | None = None
+        self._engine: AnalysisEngine | None = None
+        self._seed_kb: SeedKB | None = None
+        self._emb_tag = "none"
 
     def bind(
         self,
@@ -180,20 +186,48 @@ class PipelineHandlers(StubHandlers):
         *,
         embedder: object | None = None,
         emb_model_ver: int = 0,
+        emb_model_tag: str = "none",
         max_logs: int = 20,
+        seed_kb: SeedKB | None = None,
     ) -> None:
         """Attach the store layer once the PostgreSQL pool is open (spec 01 §6)."""
         retrieval = PgRetrievalStore(pool)
         self._retrieval = retrieval
-        self._kb = PgKBStore(pool)
+        kb = PgKBStore(pool)
+        self._kb = kb
         self._label = PgLabelStore(pool)
+        stats = PgStatsStore(pool)
+        self._stats = stats
         self._pipeline = IndexPipeline(
             retrieval,
-            PgStatsStore(pool),
+            stats,
             PgDrain3StateStore(pool),
             embedder=embedder,
             emb_model_ver=emb_model_ver,
             max_logs=max_logs,
+        )
+        self._emb_tag = emb_model_tag
+        if seed_kb is not None:
+            self._seed_kb = seed_kb
+        self._build_engine(retrieval, kb, stats)
+
+    def set_seed_kb(self, seed_kb: SeedKB) -> None:
+        """Bind the loaded seed KB (spec 01 §6 step 6, after the pool is open)."""
+        self._seed_kb = seed_kb
+        if self._retrieval is not None and self._kb is not None and self._stats is not None:
+            self._build_engine(self._retrieval, self._kb, self._stats)
+
+    def _build_engine(
+        self, retrieval: PgRetrievalStore, kb: KBStore, stats: object
+    ) -> None:
+        assert self._pipeline is not None
+        self._engine = AnalysisEngine(
+            retrieval=retrieval,
+            kb=kb,
+            stats=stats,
+            pipeline=self._pipeline,
+            seed_kb=self._seed_kb,
+            emb_model_tag=self._emb_tag,
         )
 
     # -- index ------------------------------------------------------------- #
@@ -201,6 +235,32 @@ class PipelineHandlers(StubHandlers):
         if self._pipeline is None:
             return super().index(launches)
         return self._pipeline.index_launches(launches)
+
+    # -- analysis routes (T2.3) -------------------------------------------- #
+    def analyze(self, launches: list[Launch]) -> list[AnalysisResult]:
+        if self._engine is None:
+            return super().analyze(launches)
+        if launches:
+            obs.set_project(int(launches[0].project))
+        return self._engine.analyze(launches)
+
+    def suggest(self, info: TestItemInfo) -> list[SuggestAnalysisResult]:
+        if self._engine is None:
+            return super().suggest(info)
+        obs.set_project(int(info.project))
+        return self._engine.suggest(info)
+
+    def cluster(self, info: LaunchInfoForClustering) -> ClusterResult:
+        if self._engine is None:
+            return super().cluster(info)
+        obs.set_project(int(info.project))
+        return self._engine.cluster(info)
+
+    def search(self, request: SearchLogs) -> list[SearchLogInfo]:
+        if self._engine is None:
+            return super().search(request)
+        obs.set_project(int(request.projectId))
+        return self._engine.search(request)
 
     # -- deletions --------------------------------------------------------- #
     def delete(self, project: int) -> int:
