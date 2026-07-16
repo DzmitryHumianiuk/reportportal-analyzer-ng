@@ -187,5 +187,153 @@
     "status_codes": [],
     "is_assertion": false,
     "has_stacktrace": false
+  },
+  "AppiumIosTest.tapContinue": {
+    "signature_text": "TEST: AppiumIosTest.tapContinue tap Continue\nEXC: org.openqa.selenium.TimeoutException\nMSG: org.openqa.selenium.TimeoutException: Expected condition failed: waiting for presence of element located by: AppiumBy.iOSNsPredicate: label CONTAINS[c] \"Continue\" (tried for <NUM> second(s) with <NUM> milliseconds interval)\nFRAMES: com.example.e2eui.element.DynamicElement.tap com.example.e2eui.steps.ChangeDeviceSteps.changeDevice\nTEMPLATES: 5cbbd2646c8582ed",
+    "exception_fp": -3965515599298181207,
+    "error_hash": -485059926323141066,
+    "exc_classes": [
+      "org.openqa.selenium.TimeoutException"
+    ],
+    "frames": [
+      "com.example.e2eui.element.DynamicElement.tap",
+      "com.example.e2eui.steps.ChangeDeviceSteps.changeDevice"
+    ],
+    "template_hashes": [
+      "5cbbd2646c8582ed"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": true
+  },
+  "JsCodeceptTest.resultVisible": {
+    "signature_text": "TEST: JsCodeceptTest.resultVisible result Visible\nEXC: AssertionError\nMSG: AssertionError: 'srl-item-title' is not visible: expected false to deeply equal true\nFRAMES: Object.handleEventually\nTEMPLATES: 5369c06ec02623cf",
+    "exception_fp": -5888378977668139198,
+    "error_hash": 3289677144859854371,
+    "exc_classes": [
+      "AssertionError"
+    ],
+    "frames": [
+      "Object.handleEventually"
+    ],
+    "template_hashes": [
+      "5369c06ec02623cf"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": true
+  },
+  "DotnetVerifyTest.remindersStatus": {
+    "signature_text": "TEST: DotnetVerifyTest.remindersStatus reminders Status\nEXC: InternalServerError\nMSG: Verify that Response Codes are equal - Expected <VAL>   Expected <VAL>   But was <VAL>\nFRAMES: Core.Common.VerifyThat.AreEqual Tests.User.GetUserRemindersTests.TestGetRemindersNotLoggedInUser\nTEMPLATES: d8e8c1f0aeca1a9d 20a053d01a040898 489a22ecfaeb5148",
+    "exception_fp": -5216417839144008152,
+    "error_hash": -3247193554110286141,
+    "exc_classes": [
+      "InternalServerError"
+    ],
+    "frames": [
+      "Core.Common.VerifyThat.AreEqual",
+      "Tests.User.GetUserRemindersTests.TestGetRemindersNotLoggedInUser"
+    ],
+    "template_hashes": [
+      "d8e8c1f0aeca1a9d",
+      "20a053d01a040898",
+      "489a22ecfaeb5148"
+    ],
+    "status_codes": [],
+    "is_assertion": true,
+    "has_stacktrace": true
+  },
+  "RpClusterTest.noAnalyzer": {
+    "signature_text": "TEST: RpClusterTest.noAnalyzer no Analyzer\nEXC: com.epam.ta.reportportal.exception.ReportPortalException\nMSG: com.epam.ta.reportportal.exception.ReportPortalException: Impossible interact with integration. There are no analyzer services are deployed.\nFRAMES: com.epam.ta.reportportal.commons.validation.ErrorTypeBasedRuleValidator.verify com.epam.ta.reportportal.core.launch.cluster.UniqueErrorGenerator.generate\nTEMPLATES: dc3a818b683ea734",
+    "exception_fp": -439889782501079325,
+    "error_hash": 3855634493845729566,
+    "exc_classes": [
+      "com.epam.ta.reportportal.exception.ReportPortalException"
+    ],
+    "frames": [
+      "com.epam.ta.reportportal.commons.validation.ErrorTypeBasedRuleValidator.verify",
+      "com.epam.ta.reportportal.core.launch.cluster.UniqueErrorGenerator.generate"
+    ],
+    "template_hashes": [
+      "dc3a818b683ea734"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": true
+  },
+  "RestAssuredTest.statusCode500": {
+    "signature_text": "TEST: RestAssuredTest.statusCode500 status Code500\nEXC: java.lang.AssertionError\nMSG: java.lang.AssertionError: <NUM> expectation failed. Expected <VAL>\nFRAMES: com.example.api.UserApiTest.shouldRejectBadRequest\nTEMPLATES: 26d43d208041e2dd 121e0dea8c3b06ab\nCODES: HTTP_400 HTTP_500",
+    "exception_fp": -228254178626750529,
+    "error_hash": 7442391498708786822,
+    "exc_classes": [
+      "java.lang.AssertionError"
+    ],
+    "frames": [
+      "com.example.api.UserApiTest.shouldRejectBadRequest"
+    ],
+    "template_hashes": [
+      "26d43d208041e2dd",
+      "121e0dea8c3b06ab"
+    ],
+    "status_codes": [
+      "400",
+      "500"
+    ],
+    "is_assertion": true,
+    "has_stacktrace": true
+  },
+  "RedisTest.connectionRefused": {
+    "signature_text": "TEST: RedisTest.connectionRefused connection Refused\nEXC: redis.clients.jedis.exceptions.JedisConnectionException\nMSG: redis.clients.jedis.exceptions.JedisConnectionException: Failed connecting to host redis-master:<NUM>\nFRAMES: redis.clients.jedis.Connection.connect com.example.cache.PriceCache.load",
+    "exception_fp": -8315843479079989482,
+    "error_hash": -3716349596180806162,
+    "exc_classes": [
+      "redis.clients.jedis.exceptions.JedisConnectionException"
+    ],
+    "frames": [
+      "redis.clients.jedis.Connection.connect",
+      "com.example.cache.PriceCache.load"
+    ],
+    "template_hashes": [],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": true
+  },
+  "TlsTest.handshake": {
+    "signature_text": "TEST: TlsTest.handshake handshake\nEXC: javax.net.ssl.SSLHandshakeException sun.security.ssl.Alert.createSSLException\nMSG: javax.net.ssl.SSLHandshakeException: PKIX path building failed: unable to find valid certification path to requested target\nFRAMES: sun.security.ssl.Alert.createSSLException com.example.http.SecureClient.get\nTEMPLATES: 8f4d75a12d5180e9",
+    "exception_fp": 1424464649902590506,
+    "error_hash": 3117764234644260490,
+    "exc_classes": [
+      "javax.net.ssl.SSLHandshakeException",
+      "sun.security.ssl.Alert.createSSLException"
+    ],
+    "frames": [
+      "sun.security.ssl.Alert.createSSLException",
+      "com.example.http.SecureClient.get"
+    ],
+    "template_hashes": [
+      "8f4d75a12d5180e9"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": true
+  },
+  "PyFileNotFoundTest.loadFixture": {
+    "signature_text": "TEST: PyFileNotFoundTest.loadFixture load Fixture\nEXC: FileNotFoundError\nMSG: FileNotFoundError: [Errno <NUM>] No such file or directory: '<PATH>'\nFRAMES: conftest.load_fixture\nTEMPLATES: 6279938e6082b363 414cd3b081c0cce6 03f0a8969f5600b3",
+    "exception_fp": 4497310551695664378,
+    "error_hash": 2400061978706511917,
+    "exc_classes": [
+      "FileNotFoundError"
+    ],
+    "frames": [
+      "conftest.load_fixture"
+    ],
+    "template_hashes": [
+      "6279938e6082b363",
+      "414cd3b081c0cce6",
+      "03f0a8969f5600b3"
+    ],
+    "status_codes": [],
+    "is_assertion": false,
+    "has_stacktrace": true
   }
 }

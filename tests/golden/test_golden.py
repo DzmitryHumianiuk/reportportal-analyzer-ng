@@ -132,6 +132,115 @@ FIXTURES: list[tuple[str, list[tuple[str, int]]]] = [
             )
         ],
     ),
+    # --- authentic-style fixtures adapted from legacy test_res/test_logs -----
+    (
+        "AppiumIosTest.tapContinue",
+        [
+            (
+                "org.openqa.selenium.TimeoutException: Expected condition failed: waiting for "
+                "presence of element located by: AppiumBy.iOSNsPredicate: label CONTAINS[c] "
+                '"Continue" (tried for 10 second(s) with 500 milliseconds interval)\n'
+                "\tat org.openqa.selenium.support.ui.FluentWait.until(FluentWait.java:228)\n"
+                "\tat com.example.e2eui.element.DynamicElement.tap(DynamicElement.java:617)\n"
+                "\tat com.example.e2eui.steps.ChangeDeviceSteps."
+                "changeDevice(ChangeDeviceSteps.java:344)",
+                40000,
+            )
+        ],
+    ),
+    (
+        "JsCodeceptTest.resultVisible",
+        [
+            (
+                "AssertionError: 'srl-item-title' is not visible: expected false to deeply "
+                "equal true\n"
+                "    at Object.handleEventually (node_modules/@pr/aura/lib/common.js:42:11)\n"
+                "    at async ElementsHelper.seeVisibleElement "
+                "(node_modules/@pr/aura/lib/elementsHelper.js:38:13)",
+                40000,
+            )
+        ],
+    ),
+    (
+        "DotnetVerifyTest.remindersStatus",
+        [
+            (
+                "Verify that Response Codes are equal - Expected: 'BadRequest'; Actual: "
+                "'InternalServerError'\n"
+                "  Expected: BadRequest\n"
+                "  But was:  InternalServerError\n"
+                "   at Core.Common.VerifyThat.AreEqual(Object expected, Object actual) in "
+                "D:\\src\\TestFramework\\Core\\Common\\VerifyThat.cs:line 168\n"
+                "   at Tests.User.GetUserRemindersTests.TestGetRemindersNotLoggedInUser() in "
+                "D:\\src\\TestFramework\\Tests\\User\\GetUserRemindersTests.cs:line 115",
+                40000,
+            )
+        ],
+    ),
+    (
+        "RpClusterTest.noAnalyzer",
+        [
+            (
+                "com.epam.ta.reportportal.exception.ReportPortalException: Impossible interact "
+                "with integration. There are no analyzer services are deployed.\n"
+                "\tat com.epam.ta.reportportal.commons.validation.ErrorTypeBasedRuleValidator."
+                "verify(ErrorTypeBasedRuleValidator.java:32)\n"
+                "\tat com.epam.ta.reportportal.core.launch.cluster.UniqueErrorGenerator."
+                "generate(UniqueErrorGenerator.java:60)",
+                40000,
+            )
+        ],
+    ),
+    (
+        "RestAssuredTest.statusCode500",
+        [
+            (
+                "java.lang.AssertionError: 1 expectation failed.\n"
+                "Expected status code <400> but was <500>.\n"
+                "\tat java.base/jdk.internal.reflect.NativeConstructorAccessorImpl."
+                "newInstance0(Native Method)\n"
+                "\tat com.example.api.UserApiTest.shouldRejectBadRequest(UserApiTest.java:88)",
+                40000,
+            )
+        ],
+    ),
+    (
+        "RedisTest.connectionRefused",
+        [
+            (
+                "redis.clients.jedis.exceptions.JedisConnectionException: Failed connecting to "
+                "host redis-master:6379\n"
+                "\tat redis.clients.jedis.Connection.connect(Connection.java:207)\n"
+                "\tat com.example.cache.PriceCache.load(PriceCache.java:54)",
+                40000,
+            )
+        ],
+    ),
+    (
+        "TlsTest.handshake",
+        [
+            (
+                "javax.net.ssl.SSLHandshakeException: PKIX path building failed: unable to find "
+                "valid certification path to requested target\n"
+                "\tat sun.security.ssl.Alert.createSSLException(Alert.java:131)\n"
+                "\tat com.example.http.SecureClient.get(SecureClient.java:77)",
+                40000,
+            )
+        ],
+    ),
+    (
+        "PyFileNotFoundTest.loadFixture",
+        [
+            (
+                "Traceback (most recent call last):\n"
+                '  File "/app/tests/conftest.py", line 22, in load_fixture\n'
+                "    with open(path) as fh:\n"
+                "FileNotFoundError: [Errno 2] No such file or directory: "
+                "'/app/tests/data/users.json'",
+                40000,
+            )
+        ],
+    ),
 ]
 
 # Raw single logs for the preprocessing golden (cleaned views + features).
@@ -154,6 +263,101 @@ PREPROC_FIXTURES: dict[str, str] = {
         "\tat com.example.Page.wait(Page.java:5)"
     ),
     "uuid_hex": ("Session 550e8400-e29b-41d4-a716-446655440000 with token 0xdeadbeef1234 expired"),
+    "java_iae": (
+        "2024-05-02 09:12:33 ERROR - java.lang.IllegalArgumentException: id must be positive\n"
+        "\tat com.example.Repo.find(Repo.java:12)\n"
+        "\tat com.example.Ctrl.get(Ctrl.java:30)"
+    ),
+    "java_caused_by": (
+        "com.example.ServiceException: wrapper\n"
+        "Caused by: java.sql.SQLException: connection reset\n"
+        "\tat com.example.Db.query(Db.java:9)"
+    ),
+    "dotnet_nunit": (
+        "Verify Response Codes are equal - Expected: 'BadRequest'; Actual: 'InternalServerError'\n"
+        "  Expected: BadRequest\n"
+        "  But was:  InternalServerError\n"
+        "   at Core.Common.VerifyThat.AreEqual(Object expected, Object actual) in "
+        "D:\\src\\Common\\VerifyThat.cs:line 168"
+    ),
+    "js_assert": (
+        "AssertionError: expected false to deeply equal true\n"
+        "    at Object.handleEventually (node_modules/@pr/aura/lib/common.js:42:11)"
+    ),
+    "appium_timeout": (
+        "org.openqa.selenium.TimeoutException: Expected condition failed: waiting for element\n"
+        "\tat org.openqa.selenium.support.ui.FluentWait.until(FluentWait.java:228)\n"
+        "\tat com.example.e2eui.element.DynamicElement.tap(DynamicElement.java:617)"
+    ),
+    "markdown_mode": (
+        "!!!MARKDOWN_MODE!!!\nElement should be visible\n```\nAssertionError: not visible\n```"
+    ),
+    "conn_refused": (
+        "java.net.ConnectException: Connection refused (Connection refused)\n"
+        "\tat java.base/java.net.Socket.connect(Socket.java:633)"
+    ),
+    "dns_unknown_host": (
+        "java.net.UnknownHostException: api.internal.svc: Name or service not known"
+    ),
+    "oom_heap": (
+        "java.lang.OutOfMemoryError: Java heap space\n"
+        "\tat com.example.report.Builder.build(Builder.java:200)"
+    ),
+    "stack_overflow": "java.lang.StackOverflowError\n\tat com.example.Rec.walk(Rec.java:5)",
+    "db_pool": (
+        "org.springframework.jdbc.CannotGetJdbcConnectionException: HikariPool-1 - Connection "
+        "is not available, request timed out after 30000ms"
+    ),
+    "kafka_broker": (
+        "org.apache.kafka.common.errors.TimeoutException: Topic orders not present in metadata "
+        "after 60000 ms"
+    ),
+    "redis_conn": (
+        "redis.clients.jedis.exceptions.JedisConnectionException: Failed connecting to host "
+        "redis-master:6379"
+    ),
+    "tls_cert": (
+        "javax.net.ssl.SSLHandshakeException: PKIX path building failed: unable to find valid "
+        "certification path to requested target"
+    ),
+    "py_keyerror": (
+        "Traceback (most recent call last):\n"
+        '  File "/srv/app/handler.py", line 55, in dispatch\n'
+        "KeyError: 'user_id'"
+    ),
+    "py_filenotfound": (
+        "Traceback (most recent call last):\n"
+        '  File "/app/tests/conftest.py", line 22, in load_fixture\n'
+        "FileNotFoundError: [Errno 2] No such file or directory: '/app/tests/data/users.json'"
+    ),
+    "npe_typeerror_js": (
+        "TypeError: Cannot read properties of undefined (reading 'id')\n"
+        "    at Cart.total (/app/src/cart.js:17:9)"
+    ),
+    "stale_element": (
+        "org.openqa.selenium.StaleElementReferenceException: stale element reference: element "
+        "is not attached to the page document\n"
+        "\tat com.example.pages.LoginPage.submit(LoginPage.java:55)"
+    ),
+    "assertion_expected_actual": (
+        "org.junit.ComparisonFailure: expected:<[ACTIVE]> but was:<[DISABLED]>\n"
+        "\tat com.example.StatusTest.shouldBeActive(StatusTest.java:41)"
+    ),
+    "docker_testcontainers": (
+        "org.testcontainers.containers.ContainerLaunchException: Could not find a valid Docker "
+        "environment. Please see logs and check configuration"
+    ),
+    "disk_full": (
+        "java.io.IOException: No space left on device\n\tat com.example.Log.write(Log.java:3)"
+    ),
+    "permission_denied": (
+        "PermissionError: [Errno 13] Permission denied: '/var/lib/app/cache/index.lock'"
+    ),
+    "webdriver_screenshot": (
+        "org.openqa.selenium.NoSuchElementException: no such element: Unable to locate element\n"
+        "Webdriver screenshot captured: screenshot-123.png\n"
+        "\tat com.example.pages.Home.open(Home.java:20)"
+    ),
 }
 
 

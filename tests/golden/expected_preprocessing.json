@@ -61,5 +61,286 @@
     "urls": [],
     "paths": [],
     "has_stacktrace": false
+  },
+  "java_iae": {
+    "unified": "java.lang.IllegalArgumentException: id must be positive\nat com.example.Repo.find(Repo.java:12)\nat com.example.Ctrl.get(Ctrl.java:30)",
+    "msg": "java.lang.IllegalArgumentException: id must be positive",
+    "stack": "at com.example.Repo.find\nat com.example.Ctrl.get",
+    "exceptions": [
+      "java.lang.IllegalArgumentException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": true
+  },
+  "java_caused_by": {
+    "unified": "com.example.ServiceException: wrapper\nCaused by: java.sql.SQLException: connection reset\nat com.example.Db.query(Db.java:9)",
+    "msg": "com.example.ServiceException: wrapper\nCaused by: java.sql.SQLException: connection reset",
+    "stack": "at com.example.Db.query",
+    "exceptions": [
+      "com.example.ServiceException",
+      "java.sql.SQLException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": true
+  },
+  "dotnet_nunit": {
+    "unified": "Verify Response Codes are equal - Expected: 'BadRequest'; Actual: 'InternalServerError'\n  Expected: BadRequest\n  But was:  InternalServerError\n   at Core.Common.VerifyThat.AreEqual(Object expected, Object actual) in D:\\src\\Common\\VerifyThat.cs:line 168",
+    "msg": "Verify Response Codes are equal - Expected: 'BadRequest'; Actual: 'InternalServerError'\n  Expected: BadRequest\n  But was:  InternalServerError",
+    "stack": "   at Core.Common.VerifyThat.AreEqual in D:\\src\\Common\\VerifyThat.cs:line SPECIALNUMBER",
+    "exceptions": [
+      "InternalServerError"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": true
+  },
+  "js_assert": {
+    "unified": "AssertionError: expected false to deeply equal true\n    at Object.handleEventually (node_modules/@pr/aura/lib/common.js:42:11)",
+    "msg": "AssertionError: expected false to deeply equal true\n    at Object.handleEventually (node_modules/@pr/aura/lib/common.js:42:11)",
+    "stack": "",
+    "exceptions": [
+      "AssertionError"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "appium_timeout": {
+    "unified": "org.openqa.selenium.TimeoutException: Expected condition failed: waiting for element\nat org.openqa.selenium.support.ui.FluentWait.until(FluentWait.java:228)\nat com.example.e2eui.element.DynamicElement.tap(DynamicElement.java:617)",
+    "msg": "org.openqa.selenium.TimeoutException: Expected condition failed: waiting for element",
+    "stack": "at org.openqa.selenium.support.ui.FluentWait.until\nat com.example.eeui.element.DynamicElement.tap",
+    "exceptions": [
+      "org.openqa.selenium.TimeoutException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": true
+  },
+  "markdown_mode": {
+    "unified": "Element should be visible TEXTDELIMITER\nAssertionError: not visible TEXTDELIMITER",
+    "msg": "Element should be visible TEXTDELIMITER\nAssertionError: not visible TEXTDELIMITER",
+    "stack": "",
+    "exceptions": [
+      "AssertionError"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "conn_refused": {
+    "unified": "java.net.ConnectException: Connection refused (Connection refused)\nat java.base/java.net.Socket.connect(Socket.java:633)",
+    "msg": "java.net.ConnectException: Connection refused (Connection refused)\nat java.base/java.net.Socket.connect(Socket.java:633)",
+    "stack": "",
+    "exceptions": [
+      "java.net.ConnectException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "dns_unknown_host": {
+    "unified": "java.net.UnknownHostException: api.internal.svc: Name or service not known",
+    "msg": "java.net.UnknownHostException: api.internal.svc: Name or service not known",
+    "stack": "",
+    "exceptions": [
+      "java.net.UnknownHostException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "oom_heap": {
+    "unified": "java.lang.OutOfMemoryError: Java heap space\nat com.example.report.Builder.build(Builder.java:200)",
+    "msg": "java.lang.OutOfMemoryError: Java heap space\nat com.example.report.Builder.build(Builder.java:200)",
+    "stack": "",
+    "exceptions": [
+      "java.lang.OutOfMemoryError"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "stack_overflow": {
+    "unified": "java.lang.StackOverflowError\nat com.example.Rec.walk(Rec.java:5)",
+    "msg": "java.lang.StackOverflowError\nat com.example.Rec.walk(Rec.java:5)",
+    "stack": "",
+    "exceptions": [
+      "java.lang.StackOverflowError"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "db_pool": {
+    "unified": "org.springframework.jdbc.CannotGetJdbcConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms",
+    "msg": "org.springframework.jdbc.CannotGetJdbcConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms",
+    "stack": "",
+    "exceptions": [
+      "org.springframework.jdbc.CannotGetJdbcConnectionException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "kafka_broker": {
+    "unified": "org.apache.kafka.common.errors.TimeoutException: Topic orders not present in metadata after 60000 ms",
+    "msg": "org.apache.kafka.common.errors.TimeoutException: Topic orders not present in metadata after 60000 ms",
+    "stack": "",
+    "exceptions": [
+      "org.apache.kafka.common.errors.TimeoutException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "redis_conn": {
+    "unified": "redis.clients.jedis.exceptions.JedisConnectionException: Failed connecting to host redis-master:6379",
+    "msg": "redis.clients.jedis.exceptions.JedisConnectionException: Failed connecting to host redis-master:6379",
+    "stack": "",
+    "exceptions": [
+      "redis.clients.jedis.exceptions.JedisConnectionException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "tls_cert": {
+    "unified": "javax.net.ssl.SSLHandshakeException: PKIX path building failed: unable to find valid certification path to requested target",
+    "msg": "javax.net.ssl.SSLHandshakeException: PKIX path building failed: unable to find valid certification path to requested target",
+    "stack": "",
+    "exceptions": [
+      "javax.net.ssl.SSLHandshakeException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "py_keyerror": {
+    "unified": "Traceback (most recent call last):\n  File \"/srv/app/handler.py\", line 55, in dispatch\nKeyError: 'user_id'",
+    "msg": "KeyError: 'user_id'",
+    "stack": "Traceback :\n  File \"/srv/app/handler.py\", line SPECIALNUMBER, in dispatch",
+    "exceptions": [
+      "KeyError"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": true
+  },
+  "py_filenotfound": {
+    "unified": "Traceback (most recent call last):\n  File \"/app/tests/conftest.py\", line 22, in load_fixture\nFileNotFoundError: [Errno 2] No such file or directory: '/app/tests/data/users.json'",
+    "msg": "FileNotFoundError: [Errno 2] No such file or directory: '/app/tests/data/users.json'",
+    "stack": "Traceback :\n  File \"/app/tests/conftest.py\", line SPECIALNUMBER, in load_fixture",
+    "exceptions": [
+      "FileNotFoundError"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [
+      "'/app/tests/data/users.json'"
+    ],
+    "has_stacktrace": true
+  },
+  "npe_typeerror_js": {
+    "unified": "TypeError: Cannot read properties of undefined (reading 'id')\n    at Cart.total (/app/src/cart.js:17:9)",
+    "msg": "TypeError: Cannot read properties of undefined (reading 'id')\n    at Cart.total (/app/src/cart.js:17:9)",
+    "stack": "",
+    "exceptions": [
+      "TypeError"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "stale_element": {
+    "unified": "org.openqa.selenium.StaleElementReferenceException: stale element reference: element is not attached to the page document\nat com.example.pages.LoginPage.submit(LoginPage.java:55)",
+    "msg": "org.openqa.selenium.StaleElementReferenceException: stale element reference: element is not attached to the page document\nat com.example.pages.LoginPage.submit(LoginPage.java:55)",
+    "stack": "",
+    "exceptions": [
+      "org.openqa.selenium.StaleElementReferenceException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "assertion_expected_actual": {
+    "unified": "org.junit.ComparisonFailure: expected:<[ACTIVE]> but was:<[DISABLED]>\nat com.example.StatusTest.shouldBeActive(StatusTest.java:41)",
+    "msg": "org.junit.ComparisonFailure: expected:<[ACTIVE]> but was:<[DISABLED]>\nat com.example.StatusTest.shouldBeActive(StatusTest.java:41)",
+    "stack": "",
+    "exceptions": [
+      "org.junit.ComparisonFailure"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "docker_testcontainers": {
+    "unified": "org.testcontainers.containers.ContainerLaunchException: Could not find a valid Docker environment. Please see logs and check configuration",
+    "msg": "org.testcontainers.containers.ContainerLaunchException: Could not find a valid Docker environment. Please see logs and check configuration",
+    "stack": "",
+    "exceptions": [
+      "org.testcontainers.containers.ContainerLaunchException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "disk_full": {
+    "unified": "java.io.IOException: No space left on device\nat com.example.Log.write(Log.java:3)",
+    "msg": "java.io.IOException: No space left on device\nat com.example.Log.write(Log.java:3)",
+    "stack": "",
+    "exceptions": [
+      "java.io.IOException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
+  },
+  "permission_denied": {
+    "unified": "PermissionError: [Errno 13] Permission denied: '/var/lib/app/cache/index.lock'",
+    "msg": "PermissionError: [Errno 13] Permission denied: '/var/lib/app/cache/index.lock'",
+    "stack": "",
+    "exceptions": [
+      "PermissionError"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [
+      "'/var/lib/app/cache/index.lock'"
+    ],
+    "has_stacktrace": false
+  },
+  "webdriver_screenshot": {
+    "unified": "org.openqa.selenium.NoSuchElementException: no such element: Unable to locate element\nat com.example.pages.Home.open(Home.java:20)",
+    "msg": "org.openqa.selenium.NoSuchElementException: no such element: Unable to locate element\nat com.example.pages.Home.open(Home.java:20)",
+    "stack": "",
+    "exceptions": [
+      "org.openqa.selenium.NoSuchElementException"
+    ],
+    "status_codes": [],
+    "urls": [],
+    "paths": [],
+    "has_stacktrace": false
   }
 }
