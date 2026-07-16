@@ -53,4 +53,8 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen --extra dev
       - name: Integration tests
+        # Stock Docker daemon on the runner: keep the Ryuk reaper enabled
+        # (the conftest disables it only as a local default for Colima).
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: "false"
         run: uv run pytest -m integration

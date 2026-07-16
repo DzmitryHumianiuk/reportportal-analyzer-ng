@@ -71,5 +71,5 @@ markers = [
 filterwarnings = [
     # Third-party: testcontainers' rabbitmq module uses a deprecated internal
     # decorator. Not actionable from this repo; ignore to keep output clean.
-    "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning",
+    "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning:testcontainers.*",
 ]
