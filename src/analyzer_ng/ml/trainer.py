@@ -21,7 +21,13 @@ from dataclasses import dataclass, field
 import numpy as np
 from lightgbm import Booster, LGBMClassifier
 
-from analyzer_ng.core.features import BASE_LABELS, FEATURE_SCHEMA_VER, FEATURES, to_vector
+from analyzer_ng.core.features import (
+    BASE_LABELS,
+    FEATURE_SCHEMA_VER,
+    FEATURES,
+    base_group,
+    to_vector,
+)
 from analyzer_ng.ml.calibration import CALIB_MIN_EVENTS, IsotonicCalibrator
 
 # Fixed v1 hyperparameters (spec §6.5). ``min_child_samples`` == min_data_in_leaf;
@@ -51,11 +57,13 @@ class TrainingError(RuntimeError):
 
 
 def base_label(locator: str | None) -> str | None:
-    """Base issue-type group of a locator ('pb001'→'pb'); None if not a GBM class."""
-    if not locator:
-        return None
-    prefix = "".join(c for c in locator[:2] if c.isalpha()).lower()
-    return prefix if prefix in BASE_LABELS else None
+    """Base issue-type group of a locator ('pb001'→'pb'); None if not a GBM class.
+
+    Thin alias over :func:`analyzer_ng.core.features.base_group` — one mapping
+    source shared by the trainer, the eval harness, and feature extraction so a
+    custom subtype folds to its base group identically everywhere (spec §6.5).
+    """
+    return base_group(locator)
 
 
 def _dedup_latest(rows: list[dict]) -> list[dict]:
@@ -152,6 +160,23 @@ class GbmModel:
         )
 
 
+# Cross-validation folds for out-of-sample (out-of-fold) calibration scoring.
+# Deterministic fold assignment (row index % K) keeps calibration reproducible
+# given the seeded booster.
+CALIB_FOLDS = 5
+
+
+def _fit_booster(x: np.ndarray, y: list[str]) -> GbmModel:
+    """Fit one deterministic multiclass booster from a materialized (X, y)."""
+    clf = LGBMClassifier(**GBM_PARAMS)
+    clf.fit(x, y)
+    return GbmModel(
+        booster_text=clf.booster_.model_to_string(),
+        classes=[str(c) for c in clf.classes_],
+        feature_schema_ver=FEATURE_SCHEMA_VER,
+    )
+
+
 def train_gbm(rows: list[dict]) -> GbmModel:
     """Train the install-wide multiclass GBM from stored feature snapshots.
 
@@ -163,48 +188,64 @@ def train_gbm(rows: list[dict]) -> GbmModel:
         raise TrainingError(f"cold model: {len(y)} events < {GBM_MIN_EVENTS}")
     if len(set(y)) < 2:
         raise TrainingError("need ≥ 2 label classes to train a multiclass model")
-    clf = LGBMClassifier(**GBM_PARAMS)
-    clf.fit(x, y)
-    return GbmModel(
-        booster_text=clf.booster_.model_to_string(),
-        classes=[str(c) for c in clf.classes_],
-        feature_schema_ver=FEATURE_SCHEMA_VER,
-    )
+    return _fit_booster(x, y)
 
 
-def fit_calibrators(
-    rows: list[dict], model: GbmModel
-) -> dict[int | None, IsotonicCalibrator]:
-    """Fit isotonic calibrators keyed by project_id (``None`` = install-wide).
+def _oof_scores(
+    rows: list[dict], *, k: int = CALIB_FOLDS
+) -> tuple[list[float], list[int], list[int]]:
+    """Out-of-fold ``(raw_max_prob, correct, project_id)`` via K-fold cross-fit.
 
-    Per-project calibration requires ≥ 300 events for that project; the install-
-    wide calibrator is fitted from all events when there are ≥ 300 (spec §6.5).
-    Projects below threshold get no per-project entry and fall back to install-
-    wide (or, absent that, raw softmax) at serving time.
+    Fixing calibration on in-sample predictions over-reports ``p*`` — the booster
+    is optimistic on rows it trained on — which would inflate the ``τ_auto`` auto
+    band. So each row is scored by a booster trained on the *other* folds only
+    (spec §6 calibration intent). Fold assignment is ``index % k`` (deterministic)
+    and the booster is seeded, so the calibrators are reproducible. Folds whose
+    train slice is single-class are skipped (their rows contribute no calibration
+    signal) rather than trained degenerately.
     """
     x, y, projects = build_xy(rows)
-    if len(y) == 0:
-        return {}
-    matrix = model.predict_matrix(x)
-    cls_index = {c: i for i, c in enumerate(model.classes)}
+    n = len(y)
+    if n == 0:
+        return [], [], []
+    k = max(2, min(k, n))
+    raws: list[float] = []
+    corrects: list[int] = []
+    projs: list[int] = []
+    for f in range(k):
+        train_idx = [i for i in range(n) if i % k != f]
+        test_idx = [i for i in range(n) if i % k == f]
+        y_train = [y[i] for i in train_idx]
+        if not test_idx or len(set(y_train)) < 2:
+            continue
+        fold_model = _fit_booster(x[train_idx], y_train)
+        for i in test_idx:
+            label, raw, _probs = fold_model.predict_label(list(x[i]))
+            raws.append(raw)
+            corrects.append(1 if label == y[i] else 0)
+            projs.append(projects[i])
+    return raws, corrects, projs
 
-    raw_all: list[float] = []
-    correct_all: list[int] = []
+
+def fit_calibrators(rows: list[dict]) -> dict[int | None, IsotonicCalibrator]:
+    """Fit isotonic calibrators keyed by project_id (``None`` = install-wide).
+
+    Calibration is fit on **out-of-sample** (out-of-fold) predictions so ``p*`` is
+    honest — never on the model's own training rows (spec §6). Per-project
+    calibration requires ≥ 300 events for that project; the install-wide calibrator
+    is fitted from all events when there are ≥ 300 (spec §6.5). Projects below
+    threshold get no per-project entry and fall back to install-wide (or, absent
+    that, raw softmax) at serving time.
+    """
+    raw_all, correct_all, projs = _oof_scores(rows)
+    if not raw_all:
+        return {}
     by_project: dict[int, tuple[list[float], list[int]]] = {}
-    for i, true_label in enumerate(y):
-        row = matrix[i]
-        argmax_i = int(np.argmax(row))
-        pred_label = model.classes[argmax_i] if argmax_i < len(model.classes) else ""
-        raw = float(row[argmax_i])
-        correct = 1 if pred_label == true_label else 0
-        raw_all.append(raw)
-        correct_all.append(correct)
-        pr = projects[i]
+    for raw, correct, pr in zip(raw_all, correct_all, projs, strict=True):
         bucket = by_project.setdefault(pr, ([], []))
         bucket[0].append(raw)
         bucket[1].append(correct)
 
-    _ = cls_index  # documented: columns align to model.classes
     out: dict[int | None, IsotonicCalibrator] = {}
     if len(raw_all) >= CALIB_MIN_EVENTS:
         out[None] = IsotonicCalibrator.fit(raw_all, correct_all)

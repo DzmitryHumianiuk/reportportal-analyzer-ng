@@ -103,11 +103,24 @@ def decay(days: float) -> float:
     return math.exp(-_LN2 * days / 90.0)
 
 
-def _base(issue_type: str | None) -> str | None:
+def base_group(issue_type: str | None) -> str | None:
+    """Base issue-type group of an RP locator, or ``None`` if not a GBM class.
+
+    The single source of truth for locator → base group (spec §6.5: "custom
+    subtypes map to their base group"). RP locators — standard (``pb001``) and
+    **custom** (``pb_myCustom``, ``PB_Regression``) — carry the two-letter group
+    prefix, so the base is the leading (case-folded) alpha pair. ``ti`` is the
+    abstain outcome and everything unrecognised returns ``None`` (dropped).
+    """
     if not issue_type:
         return None
-    prefix = "".join(c for c in issue_type[:2] if c.isalpha())
+    prefix = "".join(c for c in issue_type[:2] if c.isalpha()).lower()
     return prefix if prefix in BASE_LABELS else None
+
+
+def _base(issue_type: str | None) -> str | None:
+    """Internal alias kept for readability at call sites; see :func:`base_group`."""
+    return base_group(issue_type)
 
 
 @dataclass(frozen=True)

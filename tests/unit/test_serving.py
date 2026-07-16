@@ -82,7 +82,7 @@ def _deactivate(r: ArtifactRecord) -> ArtifactRecord:
 
 def _ship(store: FakeModelStore, rows: list[dict], version: str) -> None:
     model = train_gbm(rows)
-    cals = fit_calibrators(rows, model)
+    cals = fit_calibrators(rows)
     calib_specs = [
         ArtifactSpec(
             kind=KIND_CALIB,

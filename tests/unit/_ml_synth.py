@@ -58,6 +58,32 @@ def synth_frame(n: int = 600, *, seed: int = 0, project_ids: tuple[int, ...] = (
     return rows
 
 
+def synth_random_frame(n: int = 400, *, seed: int = 0) -> list[dict]:
+    """A NON-predictive frame: random features, label independent of them.
+
+    A booster can partially memorize the train rows (optimistic in-sample), but
+    out-of-fold accuracy is ~chance (0.25 over 4 classes). Used to prove
+    calibration is fit out-of-sample: an honest calibrator maps even a high raw
+    max-prob to ~0.25, whereas an in-sample fit would map it near 1.0.
+    """
+    rng = random.Random(seed)
+    rows: list[dict] = []
+    for i in range(n):
+        values = {f.name: f.default for f in FEATURES}
+        for f in FEATURES:
+            values[f.name] = round(rng.random(), 4)
+        label = BASE[rng.randrange(4)]  # label independent of features
+        rows.append(
+            {
+                "project_id": 1,
+                "item_id": 2000 + i,
+                "new_label": _LOCATOR[label],
+                "features": values,
+            }
+        )
+    return rows
+
+
 def base_of(locator: str) -> str:
     return locator[:2]
 
@@ -207,8 +233,10 @@ class FakeLabels:
     def __init__(self, rows: list[dict] | None = None, *, new_events: int = 0) -> None:
         self._rows = rows or []
         self.new_events = new_events
+        self.fetch_calls = 0  # how many times a full training frame was pulled
 
     def fetch_training_frame(self) -> list[dict]:
+        self.fetch_calls += 1
         return list(self._rows)
 
     def count_events_since(

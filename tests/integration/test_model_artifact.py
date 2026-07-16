@@ -142,7 +142,7 @@ def test_ship_persists_and_loads_gbm_plus_calibrators(pool: ConnectionPool) -> N
     store = PgModelStore(pool)
     rows = _frame(n=300, seed=1)
     model = train_gbm(rows)
-    cals = fit_calibrators(rows, model)
+    cals = fit_calibrators(rows)
     calib_specs = [
         _spec(KIND_CALIB, pid, "gbm-v1", cal.to_bytes()) for pid, cal in cals.items()
     ]
@@ -181,7 +181,7 @@ def test_predictor_serves_model_loaded_from_real_pg(pool: ConnectionPool) -> Non
     store = PgModelStore(pool)
     rows = _frame(n=300, seed=4)
     model = train_gbm(rows)
-    cals = fit_calibrators(rows, model)
+    cals = fit_calibrators(rows)
     store.ship(
         _spec(KIND_GBM, None, "gbm-v1", model.to_bytes(), n_events=len(rows)),
         [_spec(KIND_CALIB, pid, "gbm-v1", cal.to_bytes()) for pid, cal in cals.items()],

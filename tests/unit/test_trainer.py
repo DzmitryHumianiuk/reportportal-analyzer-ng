@@ -9,7 +9,7 @@ installs (< 50 events) refuse to train; calibrators honour the ≥300 threshold.
 from __future__ import annotations
 
 import pytest
-from _ml_synth import base_of, synth_frame
+from _ml_synth import base_of, synth_frame, synth_random_frame
 
 from analyzer_ng.core.decision import DecisionInputs, decide
 from analyzer_ng.core.features import to_vector
@@ -31,6 +31,21 @@ def test_base_label_folds_locators_and_drops_non_classes():
     assert base_label("ti001") is None  # ti is the abstain outcome, never a class
     assert base_label(None) is None
     assert base_label("zz001") is None
+
+
+def test_base_label_folds_custom_subtypes_to_base_group():
+    # spec §6.5: custom subtypes map to their base group (not silently dropped).
+    assert base_label("pb_myCustom") == "pb"
+    assert base_label("AB_Regression") == "ab"
+    assert base_label("si_flaky_env") == "si"
+
+
+def test_base_label_is_the_single_features_mapping_source():
+    # Minor: one mapping source shared with core.features (no divergent copy).
+    from analyzer_ng.core.features import base_group
+
+    for loc in ("pb001", "ab_custom", "SI_x", "ti001", "zz", None, ""):
+        assert base_label(loc) == base_group(loc)
 
 
 def test_build_xy_skips_rows_without_snapshot_or_class():
@@ -128,8 +143,7 @@ def test_calibrators_honour_per_project_and_install_thresholds():
         for i in range(50)
     ]
     rows = big + small
-    model = train_gbm(rows)
-    cals = fit_calibrators(rows, model)
+    cals = fit_calibrators(rows)
     assert None in cals  # install-wide (≥300 total)
     assert 1 in cals  # project 1 over threshold
     assert 2 not in cals  # project 2 below threshold → falls back to install-wide
@@ -137,6 +151,30 @@ def test_calibrators_honour_per_project_and_install_thresholds():
 
 def test_calibrators_absent_when_below_install_threshold():
     rows = synth_frame(n=GBM_MIN_EVENTS + 10, seed=7)  # ~60, well under 300
-    model = train_gbm(rows)
-    cals = fit_calibrators(rows, model)
+    cals = fit_calibrators(rows)
     assert cals == {}  # no calibrator at all → serving uses raw softmax
+
+
+def test_calibration_is_out_of_sample_not_overconfident():
+    # Review Important #1: fit calibration on OUT-OF-sample predictions. On a
+    # non-predictive frame, out-of-fold accuracy is ~chance (0.25/4-class), so an
+    # honest calibrator maps even a high raw max-prob well below 1.0. An in-sample
+    # fit (the flagged bug) would map the memorized high-confidence rows near 1.0.
+    rows = synth_random_frame(n=400, seed=11)
+    cals = fit_calibrators(rows)
+    assert None in cals
+    cal = cals[None]
+    # A high raw max-prob must not be reported as near-certain when it does not
+    # generalize: honest out-of-sample p* stays well below the ~1.0 an in-sample
+    # (memorized) fit would report — the flagged bug fails this.
+    assert cal.predict(0.9) < 0.7
+    assert cal.predict(0.99) < 0.7
+
+
+def test_calibration_is_deterministic():
+    rows = synth_frame(n=400, seed=12)
+    a = fit_calibrators(rows)
+    b = fit_calibrators(rows)
+    assert a.keys() == b.keys()
+    for k in a:
+        assert a[k].to_bytes() == b[k].to_bytes()
