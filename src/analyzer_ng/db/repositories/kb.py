@@ -214,6 +214,24 @@ class PgKBStore(StoreBase):
 
     def merge_modes(self, project_id: int, src_mode_id: int, dst_mode_id: int) -> None:
         with self._conn() as conn, conn.transaction():
+            dst_c, dst_sup, dst_ver = require_row(
+                conn.execute(
+                    "SELECT centroid::text, support, emb_model_ver "
+                    "FROM analyzer.failure_mode WHERE project_id=%s AND mode_id=%s",
+                    (project_id, dst_mode_id),
+                )
+            )
+            src_c, src_sup, src_ver = require_row(
+                conn.execute(
+                    "SELECT centroid::text, support, emb_model_ver "
+                    "FROM analyzer.failure_mode WHERE project_id=%s AND mode_id=%s",
+                    (project_id, src_mode_id),
+                )
+            )
+            new_centroid, new_ver = self._merged_centroid(
+                dst_c, dst_sup, dst_ver, src_c, src_sup, src_ver
+            )
+
             conn.execute(
                 """
                 INSERT INTO analyzer.mode_membership
@@ -239,14 +257,48 @@ class PgKBStore(StoreBase):
                     representative_template_ids = ARRAY(SELECT DISTINCT unnest(
                         dst.representative_template_ids || src.representative_template_ids)),
                     support = dst.support + src.support,
+                    centroid = %s::halfvec(384),
+                    emb_model_ver = %s,
                     updated_at = now()
                 FROM analyzer.failure_mode src
                 WHERE dst.project_id = %s AND dst.mode_id = %s
                   AND src.project_id = %s AND src.mode_id = %s
                 """,
-                (project_id, dst_mode_id, project_id, src_mode_id),
+                (new_centroid, new_ver, project_id, dst_mode_id, project_id, src_mode_id),
             )
             self._retire(conn, project_id, src_mode_id)
+
+    @staticmethod
+    def _merged_centroid(
+        dst_text: str | None,
+        dst_support: int,
+        dst_ver: int | None,
+        src_text: str | None,
+        src_support: int,
+        src_ver: int | None,
+    ) -> tuple[str | None, int | None]:
+        """Support-weighted centroid average for a mode merge (spec 02 §4.3).
+
+        ``centroid = (dst*dst_support + src*src_support) / (dst_support+src_support)``.
+        Versions are never mixed (CONTEXT §3): if the two centroids carry different
+        ``emb_model_ver`` the destination's centroid/version is kept. A missing
+        centroid contributes nothing; zero total support falls back to equal weight.
+        """
+        dst_vec, src_vec = parse_vector(dst_text), parse_vector(src_text)
+        if dst_vec is None and src_vec is None:
+            return None, dst_ver
+        if dst_vec is None:
+            return halfvec_literal(src_vec), src_ver  # type: ignore[arg-type]
+        if src_vec is None:
+            return halfvec_literal(dst_vec), dst_ver
+        if dst_ver != src_ver:
+            return halfvec_literal(dst_vec), dst_ver  # do not blend across versions
+        wd, ws = max(dst_support, 0), max(src_support, 0)
+        if wd + ws == 0:
+            wd = ws = 1
+        total = wd + ws
+        blended = [(d * wd + s * ws) / total for d, s in zip(dst_vec, src_vec, strict=True)]
+        return halfvec_literal(blended), dst_ver
 
     def split_mode(
         self, project_id: int, mode_id: int, partition: dict[int, list[int]]

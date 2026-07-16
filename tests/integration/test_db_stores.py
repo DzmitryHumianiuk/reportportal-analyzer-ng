@@ -358,6 +358,59 @@ def test_mode_matching_fp_first_and_cosine(pool: ConnectionPool) -> None:
     assert centroid_hit.cosine is not None and centroid_hit.cosine > 0.9
 
 
+def test_merge_modes_support_weighted_centroid(pool: ConnectionPool) -> None:
+    # Two centroids differing on the first two dims, with supports 3 and 1: the
+    # merged centroid must be the support-weighted average (spec 02 §4.3).
+    kb = PgKBStore(pool)
+    dst_vec = [0.0] * _DIMS
+    dst_vec[0], dst_vec[1] = 1.0, 0.0
+    src_vec = [0.0] * _DIMS
+    src_vec[0], src_vec[1] = 0.0, 1.0
+    dst = kb.spawn_candidate_mode(
+        ModeIn(
+            project_id=1,
+            status="confirmed",
+            label="pb001",
+            centroid=dst_vec,
+            emb_model_ver=1,
+            exception_fps=[1],
+        ),
+        seed_item_ids=[],
+    )
+    src = kb.spawn_candidate_mode(
+        ModeIn(
+            project_id=1,
+            status="confirmed",
+            label="pb001",
+            centroid=src_vec,
+            emb_model_ver=1,
+            exception_fps=[2],
+        ),
+        seed_item_ids=[],
+    )
+    # Set known supports directly (weights of the average).
+    with pool.connection() as conn:
+        conn.execute("UPDATE analyzer.failure_mode SET support=3 WHERE mode_id=%s", (dst,))
+        conn.execute("UPDATE analyzer.failure_mode SET support=1 WHERE mode_id=%s", (src,))
+
+    kb.merge_modes(1, src_mode_id=src, dst_mode_id=dst)
+
+    with pool.connection() as conn:
+        centroid_text, support, status_src = conn.execute(
+            "SELECT centroid::text, support, "
+            "(SELECT status FROM analyzer.failure_mode WHERE mode_id=%s) "
+            "FROM analyzer.failure_mode WHERE mode_id=%s",
+            (src, dst),
+        ).fetchone()
+    merged = [float(x) for x in centroid_text.strip("[]").split(",")]
+    # weighted avg: (dst*3 + src*1) / 4  ->  dim0 = 3/4, dim1 = 1/4
+    assert merged[0] == pytest.approx(0.75, abs=1e-2)
+    assert merged[1] == pytest.approx(0.25, abs=1e-2)
+    assert all(abs(v) < 1e-2 for v in merged[2:])
+    assert support == 4  # supports summed
+    assert status_src == "retired"  # source retired
+
+
 # --------------------------------------------------------------------------- #
 # #11 tenancy — no cross-project leakage
 # --------------------------------------------------------------------------- #
@@ -365,19 +418,44 @@ def test_tenancy_no_cross_project_leakage(pool: ConnectionPool) -> None:
     store = PgRetrievalStore(pool)
     _seed_hybrid_fixture(store, project_id=1)
     _seed_hybrid_fixture(store, project_id=2)
+    # A project-2-ONLY marker item with an item_id that does not exist in project
+    # 1, and content identical to the query. If retrieval leaked across tenants it
+    # would be a top hit for project 1; its distinct id makes a leak detectable
+    # (the colliding 1..50 ids in the shared fixture cannot).
+    marker_id = 999_002
+    store.upsert_items(
+        [TestItemIn(item_id=marker_id, project_id=2, launch_id=100, issue_type="pb001")]
+    )
+    store.upsert_signatures(
+        [
+            SignatureIn(
+                project_id=2,
+                item_id=marker_id,
+                exception_fp=501,
+                error_hash=9001,
+                template_ids=[1, 2, 3],
+                exc_text="NullPointerException",
+                msg_text="connection pool timeout exhausted",
+                frames_text="com.foo.Bar.baz",
+                emb=NEAR_VEC,
+                emb_model_ver=1,
+            )
+        ]
+    )
     q = _query()
     a = store.find_candidates(1, q, k=50)
-    # Every stage-B candidate must be an item that exists in project 1 only. We
-    # assert by re-reading each item_id's project via the store's own tables.
+    returned = {c.item_id for c in a if c.item_id is not None}
+    assert returned, "project 1 retrieval returned nothing (fixture sanity)"
+    # The project-2-only marker must never surface in project-1 results.
+    assert marker_id not in returned
+    # And every returned stage-B item must belong to project 1.
     with pool.connection() as conn:
-        for c in a:
-            if c.item_id is None:
-                continue
+        for item_id in returned:
             owner = conn.execute(
-                "SELECT project_id FROM analyzer.test_item WHERE item_id=%s AND project_id=1",
-                (c.item_id,),
+                "SELECT 1 FROM analyzer.test_item WHERE item_id=%s AND project_id=1",
+                (item_id,),
             ).fetchone()
-            assert owner is not None, f"item {c.item_id} not owned by project 1"
+            assert owner is not None, f"item {item_id} not owned by project 1"
 
     # llm_cache is keyed by project_id: A's key never returns B's row.
     cache = PgLlmCacheStore(pool)
