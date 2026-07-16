@@ -1,0 +1,214 @@
+"""LightGBM multiclass trainer over stored feature snapshots (spec 03 §6.5).
+
+The trainer reads **only** the feature vectors that were snapshotted into
+``suggestion.features`` at serving time (spec §6.4 / risk register #5) — it never
+recomputes features from raw logs, so the training distribution matches serving by
+construction. Ground truth is the base issue-type group of the ``label_event``
+locator (custom sub-types fold to their base group); ``ti`` is never a class — it
+is the abstain outcome, so ``ti`` events are dropped from the training set.
+
+Determinism (spec §6.5): fixed hyperparameters, ``seed=42``, ``deterministic=true``,
+single-threaded, row-wise histogram — the same rows produce the same booster bytes.
+The trained model serializes to a self-contained JSON blob (booster text + class
+order + feature-schema version), independent of any pickle format.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+
+import numpy as np
+from lightgbm import Booster, LGBMClassifier
+
+from analyzer_ng.core.features import BASE_LABELS, FEATURE_SCHEMA_VER, FEATURES, to_vector
+from analyzer_ng.ml.calibration import CALIB_MIN_EVENTS, IsotonicCalibrator
+
+# Fixed v1 hyperparameters (spec §6.5). ``min_child_samples`` == min_data_in_leaf;
+# ``colsample_bytree`` == feature_fraction. Single-thread + deterministic +
+# row-wise histogram make the booster bytes reproducible.
+GBM_PARAMS: dict = {
+    "objective": "multiclass",
+    "num_leaves": 31,
+    "n_estimators": 200,
+    "learning_rate": 0.05,
+    "min_child_samples": 20,
+    "colsample_bytree": 0.9,
+    "class_weight": "balanced",
+    "random_state": 42,
+    "n_jobs": 1,
+    "deterministic": True,
+    "force_row_wise": True,
+    "verbosity": -1,
+}
+
+# spec §6.5 cold model: with < 50 label_events install-wide, skip GBM entirely.
+GBM_MIN_EVENTS = 50
+
+
+class TrainingError(RuntimeError):
+    """Not enough usable data to train a model (caller falls back to rules)."""
+
+
+def base_label(locator: str | None) -> str | None:
+    """Base issue-type group of a locator ('pb001'→'pb'); None if not a GBM class."""
+    if not locator:
+        return None
+    prefix = "".join(c for c in locator[:2] if c.isalpha()).lower()
+    return prefix if prefix in BASE_LABELS else None
+
+
+def _dedup_latest(rows: list[dict]) -> list[dict]:
+    """Keep the latest label_event per (project_id, item_id) — spec §6.5.
+
+    ``fetch_training_frame`` returns rows ordered by ``ts DESC``, so the first
+    occurrence of each item is its final label; later corrections supersede.
+    """
+    seen: set[tuple[int, int]] = set()
+    out: list[dict] = []
+    for r in rows:
+        key = (int(r.get("project_id", 0)), int(r.get("item_id", 0)))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
+
+
+def build_xy(rows: list[dict]) -> tuple[np.ndarray, list[str], list[int]]:
+    """Materialize (X, y, project_ids) from deduped training-frame rows.
+
+    Rows without a stored feature snapshot or whose label is not a GBM class
+    (``ti``/unknown) are dropped — training is snapshot-only (§6.4).
+    """
+    x_rows: list[list[float]] = []
+    y: list[str] = []
+    projects: list[int] = []
+    for r in _dedup_latest(rows):
+        features = r.get("features")
+        if not features:
+            continue
+        label = base_label(r.get("new_label"))
+        if label is None:
+            continue
+        x_rows.append(to_vector(features))
+        y.append(label)
+        projects.append(int(r.get("project_id", 0)))
+    if not x_rows:
+        return np.empty((0, len(FEATURES)), dtype=np.float64), [], []
+    return np.asarray(x_rows, dtype=np.float64), y, projects
+
+
+@dataclass
+class GbmModel:
+    """A trained multiclass GBM, serialized as a self-contained JSON blob.
+
+    ``classes`` is the label order of the booster's probability columns (a subset
+    of :data:`BASE_LABELS`, in the order scikit-learn assigned). Prediction always
+    returns a full distribution over ``BASE_LABELS`` (absent classes → 0.0).
+    """
+
+    booster_text: str
+    classes: list[str]
+    feature_schema_ver: int = FEATURE_SCHEMA_VER
+    _booster: Booster | None = field(default=None, repr=False, compare=False)
+
+    def _get_booster(self) -> Booster:
+        if self._booster is None:
+            self._booster = Booster(model_str=self.booster_text)
+        return self._booster
+
+    def predict_matrix(self, x: np.ndarray) -> np.ndarray:
+        """Class-probability matrix (n, len(classes)) aligned to ``self.classes``."""
+        proba = np.asarray(self._get_booster().predict(x))
+        if proba.ndim == 1:  # a single-class degenerate booster returns a vector
+            proba = proba.reshape(-1, 1)
+        return proba
+
+    def predict_label(self, vector: list[float]) -> tuple[str, float, dict[str, float]]:
+        """(argmax base label, raw max-prob, full distribution over BASE_LABELS)."""
+        row = self.predict_matrix(np.asarray([vector], dtype=np.float64))[0]
+        probs: dict[str, float] = dict.fromkeys(BASE_LABELS, 0.0)
+        for cls, p in zip(self.classes, row, strict=False):
+            probs[cls] = float(p)
+        label = max(BASE_LABELS, key=lambda b: probs[b])
+        return label, probs[label], probs
+
+    def to_bytes(self) -> bytes:
+        payload = {
+            "booster": self.booster_text,
+            "classes": list(self.classes),
+            "feature_schema_ver": self.feature_schema_ver,
+        }
+        return json.dumps(payload).encode("utf-8")
+
+    @classmethod
+    def from_bytes(cls, blob: bytes) -> GbmModel:
+        data = json.loads(blob.decode("utf-8"))
+        return cls(
+            booster_text=data["booster"],
+            classes=list(data["classes"]),
+            feature_schema_ver=int(data["feature_schema_ver"]),
+        )
+
+
+def train_gbm(rows: list[dict]) -> GbmModel:
+    """Train the install-wide multiclass GBM from stored feature snapshots.
+
+    Raises :class:`TrainingError` when there are too few events (< 50, §6.5 cold
+    model) or fewer than two classes to separate (no multiclass boundary).
+    """
+    x, y, _ = build_xy(rows)
+    if len(y) < GBM_MIN_EVENTS:
+        raise TrainingError(f"cold model: {len(y)} events < {GBM_MIN_EVENTS}")
+    if len(set(y)) < 2:
+        raise TrainingError("need ≥ 2 label classes to train a multiclass model")
+    clf = LGBMClassifier(**GBM_PARAMS)
+    clf.fit(x, y)
+    return GbmModel(
+        booster_text=clf.booster_.model_to_string(),
+        classes=[str(c) for c in clf.classes_],
+        feature_schema_ver=FEATURE_SCHEMA_VER,
+    )
+
+
+def fit_calibrators(
+    rows: list[dict], model: GbmModel
+) -> dict[int | None, IsotonicCalibrator]:
+    """Fit isotonic calibrators keyed by project_id (``None`` = install-wide).
+
+    Per-project calibration requires ≥ 300 events for that project; the install-
+    wide calibrator is fitted from all events when there are ≥ 300 (spec §6.5).
+    Projects below threshold get no per-project entry and fall back to install-
+    wide (or, absent that, raw softmax) at serving time.
+    """
+    x, y, projects = build_xy(rows)
+    if len(y) == 0:
+        return {}
+    matrix = model.predict_matrix(x)
+    cls_index = {c: i for i, c in enumerate(model.classes)}
+
+    raw_all: list[float] = []
+    correct_all: list[int] = []
+    by_project: dict[int, tuple[list[float], list[int]]] = {}
+    for i, true_label in enumerate(y):
+        row = matrix[i]
+        argmax_i = int(np.argmax(row))
+        pred_label = model.classes[argmax_i] if argmax_i < len(model.classes) else ""
+        raw = float(row[argmax_i])
+        correct = 1 if pred_label == true_label else 0
+        raw_all.append(raw)
+        correct_all.append(correct)
+        pr = projects[i]
+        bucket = by_project.setdefault(pr, ([], []))
+        bucket[0].append(raw)
+        bucket[1].append(correct)
+
+    _ = cls_index  # documented: columns align to model.classes
+    out: dict[int | None, IsotonicCalibrator] = {}
+    if len(raw_all) >= CALIB_MIN_EVENTS:
+        out[None] = IsotonicCalibrator.fit(raw_all, correct_all)
+    for pr, (praw, pcorrect) in by_project.items():
+        if len(praw) >= CALIB_MIN_EVENTS:
+            out[pr] = IsotonicCalibrator.fit(praw, pcorrect)
+    return out
