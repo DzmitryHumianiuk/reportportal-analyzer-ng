@@ -32,7 +32,6 @@ from analyzer_ng.amqp.models import (
     LaunchInfoForClustering,
     RemoveByDatesRequest,
     SearchLogs,
-    SuggestAnalysisResult,
     TestItemInfo,
     TrainInfo,
 )
@@ -103,10 +102,6 @@ def _adapt_launches(body: Any) -> list[Launch]:
     return [Launch(**launch) for launch in body]
 
 
-def _adapt_suggest_info_list(body: Any) -> list[SuggestAnalysisResult]:
-    return [SuggestAnalysisResult(**item) for item in body]
-
-
 def _identity(body: Any) -> Any:
     return body
 
@@ -138,7 +133,7 @@ class Handlers(Protocol):
     def train_models(self, info: TrainInfo) -> Any: ...
     def suggest_patterns(self, project: int) -> Any: ...
     def namespace_finder(self, launches: list[Launch]) -> Any: ...
-    def index_suggest_info(self, items: list[SuggestAnalysisResult]) -> Any: ...
+    def index_suggest_info(self, items: Any) -> Any: ...
     def remove_suggest_info(self, value: int) -> Any: ...
     def update_suggest_info(self, payload: Any) -> Any: ...
     def remove_models(self, payload: Any) -> Any: ...
@@ -183,9 +178,10 @@ def build_routes(handlers: Handlers) -> dict[str, RouteSpec]:
         "train_models": RouteSpec(lambda b: TrainInfo(**b), handlers.train_models, None),
         "suggest_patterns": RouteSpec(int, handlers.suggest_patterns, serialize_model),
         "namespace_finder": RouteSpec(_adapt_launches, handlers.namespace_finder, None),
-        "index_suggest_info": RouteSpec(
-            _adapt_suggest_info_list, handlers.index_suggest_info, serialize_json
-        ),
+        # Deprecated: must ALWAYS reply {} (spec 01 §4.4). Parse leniently (identity)
+        # so a malformed payload can never raise ValidationError → DLQ-without-reply;
+        # the handler ignores the shape and returns {} unconditionally.
+        "index_suggest_info": RouteSpec(_identity, handlers.index_suggest_info, serialize_json),
         "remove_suggest_info": RouteSpec(int, handlers.remove_suggest_info, serialize_scalar_str),
         "update_suggest_info": RouteSpec(_identity, handlers.update_suggest_info, serialize_json),
         "remove_models": RouteSpec(_identity, handlers.remove_models, None),

@@ -128,9 +128,16 @@ class StubHandlers:
         )
         return None
 
-    def index_suggest_info(self, items: list[SuggestAnalysisResult]) -> dict[str, Any]:
-        json_str = json.dumps([item.model_dump() for item in items])
-        logger.warning("Deprecated 'index_suggest_info' route called with: " + json_str)
+    def index_suggest_info(self, items: Any) -> dict[str, Any]:
+        # Deprecated: mirror legacy exactly — WARN and reply {} for ANY payload.
+        # The body is parsed leniently (identity) upstream so a malformed shape can
+        # never raise into the transport (no DLQ-without-reply); we defensively
+        # stringify whatever arrived for the WARN (spec 01 §4.4).
+        try:
+            rendered = json.dumps(items, default=str)
+        except (TypeError, ValueError):
+            rendered = repr(items)
+        logger.warning("Deprecated 'index_suggest_info' route called with: " + rendered)
         return {}
 
     def remove_suggest_info(self, value: int) -> int:

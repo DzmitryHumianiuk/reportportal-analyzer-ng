@@ -104,6 +104,16 @@ def test_index_suggest_info_deprecated_replies_empty_object(
     )
 
 
+def test_index_suggest_info_replies_empty_object_for_malformed_payload(
+    dispatcher: Dispatcher, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A malformed payload must NOT raise (no ValidationError -> DLQ-without-reply);
+    # the deprecated route always replies {} (spec 01 §4.4).
+    for body in ({"not": "a list"}, [{"garbage": 1}], "totally wrong", 12345):
+        with caplog.at_level("WARNING"):
+            assert dispatcher.process("index_suggest_info", body) == "{}"
+
+
 def test_remove_suggest_info_echoes_int(dispatcher: Dispatcher) -> None:
     assert dispatcher.process("remove_suggest_info", 42) == "42"
 
