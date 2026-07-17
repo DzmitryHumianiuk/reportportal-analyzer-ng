@@ -71,6 +71,60 @@ class Metrics:
             "Connections currently checked out of the PostgreSQL pool.",
             registry=self.registry,
         )
+        # ---- Optional LLM sidecar (spec 04 §6.3) ---- #
+        self.llm_calls_total = Counter(
+            "analyzer_llm_calls_total",
+            "LLM role calls by role and outcome.",
+            ["role", "outcome"],
+            registry=self.registry,
+        )
+        self.llm_latency_ms = Histogram(
+            "analyzer_llm_latency_ms",
+            "LLM call latency in milliseconds, by role.",
+            ["role"],
+            buckets=(50, 100, 250, 500, 1000, 2500, 5000, 10000, 20000, 40000),
+            registry=self.registry,
+        )
+        self.llm_breaker_state = Gauge(
+            "analyzer_llm_breaker_state",
+            "LLM circuit-breaker state (0=closed, 1=open, 2=half_open).",
+            registry=self.registry,
+        )
+        self.llm_breaker_open_total = Counter(
+            "analyzer_llm_breaker_open_total",
+            "Number of times the LLM circuit breaker transitioned to open.",
+            registry=self.registry,
+        )
+        self.llm_dropped_total = Counter(
+            "analyzer_llm_dropped_total",
+            "LLM jobs dropped before execution, by reason.",
+            ["reason"],
+            registry=self.registry,
+        )
+        self.llm_role_disabled = Gauge(
+            "analyzer_llm_role_disabled",
+            "1 if an LLM role is auto-disabled (globally), by role.",
+            ["role"],
+            registry=self.registry,
+        )
+
+    _BREAKER_STATE_VALUE = {"closed": 0, "open": 1, "half_open": 2}
+
+    def observe_llm_call(self, role: str, outcome: str, latency_ms: int | None) -> None:
+        """Record one LLM role call (satisfies the engine's metrics port)."""
+        self.llm_calls_total.labels(role=role, outcome=outcome).inc()
+        if latency_ms is not None:
+            self.llm_latency_ms.labels(role=role).observe(latency_ms)
+
+    def observe_llm_drop(self, reason: str) -> None:
+        self.llm_dropped_total.labels(reason=reason).inc()
+
+    def set_breaker_state(self, state: str) -> None:
+        """Set the breaker gauge; count transitions into 'open'."""
+        value = self._BREAKER_STATE_VALUE.get(state, 0)
+        self.llm_breaker_state.set(value)
+        if state == "open":
+            self.llm_breaker_open_total.inc()
 
     def observe_request(self, routing_key: str, outcome: str, seconds: float) -> None:
         """Record one processed request (satisfies ``dispatcher.MetricsSink``)."""

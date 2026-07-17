@@ -71,17 +71,18 @@ def test_init_migration_splits_without_error() -> None:
 
 
 def test_discover_real_migrations() -> None:
-    # 0004 is reserved by the (unmerged) Phase-4 branch, so develop skips to 0005.
     migrations = discover_migrations()
-    assert [m.version for m in migrations] == [1, 2, 3, 5]
+    assert [m.version for m in migrations] == [1, 2, 3, 4, 5]
     assert migrations[0].filename == "0001_init.sql"
     assert migrations[0].no_transaction is False
     assert migrations[1].filename == "0002_failure_mode_seed_key.sql"
     assert migrations[1].no_transaction is False
     assert migrations[2].filename == "0003_model_artifact.sql"
     assert migrations[2].no_transaction is False
-    assert migrations[3].filename == "0005_metrics_daily_ext.sql"
+    assert migrations[3].filename == "0004_llm.sql"
     assert migrations[3].no_transaction is False
+    assert migrations[4].filename == "0005_metrics_daily_ext.sql"
+    assert migrations[4].no_transaction is False
 
 
 def test_discover_tolerates_reserved_version_gap(tmp_path: Path) -> None:

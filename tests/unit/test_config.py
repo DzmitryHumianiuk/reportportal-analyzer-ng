@@ -102,8 +102,12 @@ def test_defaults_match_spec(env: pytest.MonkeyPatch) -> None:
     assert cfg.analyzer_time_decay == 0.999
     assert cfg.analyzer_llm_enabled is False
     assert cfg.ollama_url == "http://ollama:11434"
-    assert cfg.analyzer_llm_model == "qwen3:4b"
-    assert cfg.analyzer_llm_judge_tau == 0.5
+    assert cfg.analyzer_llm_model == "qwen3:4b-q4_K_M"
+    assert cfg.analyzer_llm_judge_tau == 0.75
+    assert cfg.analyzer_llm_api == "ollama"
+    assert cfg.analyzer_llm_timeout_s == 20
+    assert cfg.analyzer_llm_queue_max == 500
+    assert cfg.analyzer_llm_num_ctx == 4096
     assert cfg.analyzer_seed_kb_path == "/opt/analyzer/seeds/failure_modes.json"
 
 
