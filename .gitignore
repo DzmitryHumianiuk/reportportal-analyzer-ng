@@ -11,3 +11,4 @@ build/
 models/
 tests/golden/**/*.actual.json
 .claude/
+.DS_Store
