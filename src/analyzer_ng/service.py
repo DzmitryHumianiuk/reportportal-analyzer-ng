@@ -66,7 +66,9 @@ class AnalyzerService:
         self._config = config
         self.version = app_version
         self.emb_model_ver = emb_model_ver
-        self.gbm_model_ver = gbm_model_ver
+        # Static fallback only; the live version is served by the ``gbm_model_ver``
+        # property below (a model shipped after startup must show up on /health).
+        self._gbm_model_ver_injected = gbm_model_ver
         self._pg_pool = pg_pool
         self._metrics = metrics or Metrics()
         self.seed_kb: SeedKB | None = None
@@ -131,6 +133,20 @@ class AnalyzerService:
         # Nightly retrain timer (spec §6.5) — started once consumers are up so the
         # store layer is bound; it fires the retrainer at 02:00 UTC.
         self._retrain_timer: NightlyRetrainTimer | None = None
+
+    @property
+    def gbm_model_ver(self) -> str | None:
+        """Version of the GBM currently being served, for /health (spec §6.5/§9.2).
+
+        Reads the live version from the serving predictor so a model shipped by this
+        process's retrain scheduler *after* startup is reflected on /health. The
+        previous static attribute was set once at construction (None in production)
+        and never updated, so /health reported no GBM even while the engine served
+        one — the surfacing half of live-fix Bug 2 (Finding #2: "gbm_model_ver stays
+        null"). Falls back to the constructor-injected value for store-less configs."""
+        handlers = getattr(self, "_handlers", None)
+        live = handlers.gbm_version() if hasattr(handlers, "gbm_version") else None
+        return live or self._gbm_model_ver_injected
 
     def _next_seq(self) -> int:
         with self._seq_lock:
@@ -276,7 +292,7 @@ class AnalyzerService:
             "analyzer-ng %s ready (emb=%s, gbm=%s)",
             self.version,
             self.emb_model_ver,
-            self._handlers.gbm_version() or self.gbm_model_ver,
+            self.gbm_model_ver,
         )
 
     def _start_sidecar(self) -> None:

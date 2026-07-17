@@ -68,6 +68,27 @@ def test_startup_wires_constructed_embedder_into_handlers() -> None:
     assert svc.emb_model_ver == "e5s-int8-rdeadbeef"
 
 
+def test_health_gbm_model_ver_reflects_shipped_model() -> None:
+    # live-fix Bug 2 (Finding #2 surfacing): /health must report the GBM version once
+    # a model ships in-process, not the static None from construction. The provider's
+    # gbm_model_ver now delegates to the serving predictor via handlers.gbm_version().
+    svc = AnalyzerService(_config(), "v1", metrics=Metrics())
+
+    class _Handlers:
+        def __init__(self) -> None:
+            self._ver: str | None = None
+
+        def gbm_version(self) -> str | None:
+            return self._ver
+
+    handlers = _Handlers()
+    svc._handlers = handlers  # type: ignore[assignment]
+    assert svc.gbm_model_ver is None  # cold: no model shipped yet
+
+    handlers._ver = "gbm-20260717T225438Z"  # scheduler ships a model post-startup
+    assert svc.gbm_model_ver == "gbm-20260717T225438Z"  # /health now surfaces it
+
+
 def test_shutdown_stops_components_in_safe_order() -> None:
     # A drain-window message can request a retrain / LLM job, so the pool must drain
     # BEFORE the scheduler, timer, and sidecar it feeds are stopped; the publisher
