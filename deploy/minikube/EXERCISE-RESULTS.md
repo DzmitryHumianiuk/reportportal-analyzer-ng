@@ -20,6 +20,30 @@ a live DB PROOF. No DB writes were faked. Run date: 2026-07-17.
 (The `40-exercise-stages.sh` self-verdict for stage 5 was later refined from PASS to
 `PARTIAL(retrieval-ok,no-gbm-decision)`; the underlying raw proof below is unchanged.)
 
+---
+
+## POST-FIX re-run (image `analyzer-ng:live3`, 2026-07-17)
+
+Both findings were REAL code bugs and are fixed (develop commits prefixed `fix/live:`).
+Re-running `40-exercise-stages.sh` against the redeployed image now turns every
+previously-failing stage GREEN. Full write-up: `.superpowers/sdd/live-fix-report.md`.
+
+| # | Stage | Before | After | Post-fix proof (live DB) |
+|---|---|---|---|---|
+| 4 | Purity / centroid | PARTIAL | **PASS** | `mode_membership` = **75 rows** (was 0). `failure_mode`: `npe_undefined` purity=1 support=23 centroid✓ (24 members); `conn_refused` support=28; `file_not_found` support=20; `oom_java`/`assertion_java` purity=1 centroid✓. |
+| 5 | Dense / Stage C | PARTIAL | **PASS** | Variant suggestion now `method=gbm-20260717T225438Z`, `matched_item_id=251`, `top1_cosine=0.960`, confidence≈1.0 — GBM decides on the dense evidence. |
+| 6 | GBM training loop | FAIL | **PASS** | `model_artifact`: 1 **active** `gbm` row (`gbm-20260717T225438Z`, n_events=197). `/health gbm_model_ver` non-null. Fresh probe (item 313) → `method=gbm`, `matched_item_id=272`, `model_ver=gbm-…;fs=2;emb=e5s-int8-r614241f6`. |
+
+Root causes (one line each):
+- **#1** — the engine matched seed/KB modes but never wrote `mode_membership` (the seed
+  `mode_id` was discarded; no `add_members` call) and the lazy mode's `emb_model_ver`
+  stayed NULL so `update_purity`'s centroid EWMA was a no-op.
+- **#2** — a cold-phase debounce marker set by an early cold retrain attempt silently
+  "debounced" every later retrain (including explicit `train_models`) for an hour; and
+  `/health` read a static `gbm_model_ver` never updated after a model shipped.
+
+Post-fix SUMMARY (all six stages): `PASS PASS PASS PASS PASS PASS`.
+
 ## Product findings
 
 **FINDING #1 — KB-mode learning loop cannot bootstrap (`mode_membership` never written).**
