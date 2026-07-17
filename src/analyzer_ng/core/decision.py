@@ -25,6 +25,7 @@ from analyzer_ng.core.features import (
     FeatureContext,
     KBMatch,
     SeedSignal,
+    base_group,
     extract_features,
     to_vector,
 )
@@ -112,9 +113,11 @@ class DecisionResult:
 
 
 def _base(issue_type: str | None) -> str:
-    if not issue_type:
-        return ""
-    return "".join(c for c in issue_type[:2] if c.isalpha())
+    """Base issue-type group, case-folded via the single source of truth
+    (:func:`analyzer_ng.core.features.base_group`) so a custom uppercase locator
+    (``PB_Regression``) unifies with the GBM's lowercase base labels. A non-GBM /
+    unrecognized locator (including ``ti``) folds to the empty string here."""
+    return base_group(issue_type) or ""
 
 
 def _age_days(ts: datetime | None, now: datetime) -> float:
@@ -152,8 +155,9 @@ def stage_a_inherit(
         return None
 
     base = _base(newest.issue_type)
-    # Guard: never inherit ti, nor auto-suggested nd.
-    if base == "ti":
+    # Guard: never inherit ti or an unrecognized/non-GBM locator (both fold to ""),
+    # nor an auto-suggested nd.
+    if base == "":
         return None
     if base == "nd" and newest.label_source == "ai_suggested":
         return None

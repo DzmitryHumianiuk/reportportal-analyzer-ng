@@ -29,8 +29,11 @@ _ROLE_LINE_RE = re.compile(
 )
 _ROLE_COLON = "∶"  # ∶  (U+2236 RATIO) — shape destroyed, content preserved
 
-# §5.1 forged envelope markers embedded in the data itself.
-_ENVELOPE_MARKER_RE = re.compile(r"(?im)^=+\s*(?:BEGIN|END)\s+UNTRUSTED.*$")
+# §5.1 forged envelope markers embedded in the data itself. Leading whitespace
+# before the ``=`` run is tolerated ([^\S\n] = whitespace but not newline, so the
+# match stays line-local) so an attacker cannot slip a forged marker past the
+# stripper by indenting it.
+_ENVELOPE_MARKER_RE = re.compile(r"(?im)^[^\S\n]*=+\s*(?:BEGIN|END)\s+UNTRUSTED.*$")
 
 # §5.2(4) C0 controls to drop (everything 0x00–0x1F and 0x7F except \n and \t).
 _C0_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")

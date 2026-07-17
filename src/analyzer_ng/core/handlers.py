@@ -251,7 +251,11 @@ class PipelineHandlers(StubHandlers):
         )
         # Single-flight background runner: triggers (defect_update counter, route,
         # nightly) enqueue here so the heavy fetch+train+ship never blocks an AMQP
-        # worker thread (review follow-up Important #2).
+        # worker thread (review follow-up Important #2). Idempotent: a second bind()
+        # (e.g. set_pg_pool called again) must stop the previous scheduler thread
+        # first so we never leak a second daemon runner.
+        if self._retrain_scheduler is not None:
+            self._retrain_scheduler.stop()
         self._retrain_scheduler = RetrainScheduler(self._retrainer)
         self._retrain_scheduler.start()
         self._build_engine(retrieval, kb, stats)

@@ -10,7 +10,7 @@ this module only pins the schema.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum, auto
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,8 +23,12 @@ timestamp7 = tuple[int, int, int, int, int, int, int]
 
 
 def timestamp_factory() -> timestamp7:
-    """Default factory for ``timestamp7`` fields: the current local time tuple."""
-    now = datetime.now().timetuple()
+    """Default factory for ``timestamp7`` fields: the current UTC time tuple.
+
+    UTC (not local time) so timestamps are stable and comparable regardless of the
+    container's TZ — a naive local tuple would drift the wire value by the offset.
+    """
+    now = datetime.now(UTC).timetuple()
     return now[0], now[1], now[2], now[3], now[4], now[5], now[6]
 
 

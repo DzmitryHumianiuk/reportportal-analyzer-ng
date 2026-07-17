@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -233,7 +233,9 @@ class RetrainScheduler:
         self._running = False
         self._stopping = False
         self._started = False
-        self.outcomes: list[RetrainOutcome] = []  # completed runs (audit/tests)
+        # Completed runs (audit/tests); bounded so a long-lived scheduler cannot grow
+        # this unboundedly (one retrain/hour ⇒ 100 keeps ~4 days of history).
+        self.outcomes: deque[RetrainOutcome] = deque(maxlen=100)
         self._thread = threading.Thread(target=self._loop, name=name, daemon=True)
 
     def start(self) -> None:

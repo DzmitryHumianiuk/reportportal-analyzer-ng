@@ -81,6 +81,26 @@ def test_stage_a_age_guard():
     assert stage_a_inherit(1, old, now=NOW) is None
 
 
+def test_stage_a_folds_custom_uppercase_locator_to_base_group():
+    # A custom uppercase locator (PB_Regression) must inherit and case-fold to the
+    # 'pb' base group, unified with core.features.base_group (the ti-guard uses the
+    # empty-string fold, so a real label is never blocked by case).
+    from analyzer_ng.core.decision import DecisionInputs, decide
+
+    matches = [_hm(1, "PB_Regression", "rp"), _hm(2, "PB_Regression", "rp")]
+    got = stage_a_inherit(9, matches, now=NOW)
+    assert got is not None
+    res = decide(DecisionInputs(exception_fp=9, hash_matches=matches), now=NOW)
+    assert res.label == "pb"
+    assert res.issue_type == "PB_Regression"  # concrete locator preserved verbatim
+
+
+def test_stage_a_never_inherits_unrecognized_locator():
+    # A non-GBM locator folds to "" → treated like ti, never inherited.
+    matches = [_hm(1, "xx001", "rp"), _hm(2, "xx001", "rp")]
+    assert stage_a_inherit(9, matches, now=NOW) is None
+
+
 def test_stage_a_auto_nd_never_propagates():
     matches = [_hm(1, "nd001", "ai_suggested"), _hm(2, "nd001", "ai_suggested")]
     assert stage_a_inherit(1, matches, now=NOW) is None
