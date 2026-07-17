@@ -99,50 +99,12 @@ class PgStatsStore(StoreBase):
             )
             return {row["test_case_hash"]: row for row in cur.fetchall()}
 
-    def bump_metrics(
-        self,
-        project_id: int,
-        day: date,
-        *,
-        suggestions: int = 0,
-        accepted: int = 0,
-        corrected: int = 0,
-        ignored: int = 0,
-        abstained: int = 0,
-        label: str | None = None,
-    ) -> None:
-        with self._conn() as conn, conn.transaction():
-            conn.execute(
-                """
-                INSERT INTO analyzer.metrics_daily
-                    (project_id, day, suggestions, accepted, corrected, ignored, abstained)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (project_id, day) DO UPDATE SET
-                    suggestions = analyzer.metrics_daily.suggestions + EXCLUDED.suggestions,
-                    accepted    = analyzer.metrics_daily.accepted    + EXCLUDED.accepted,
-                    corrected   = analyzer.metrics_daily.corrected   + EXCLUDED.corrected,
-                    ignored     = analyzer.metrics_daily.ignored     + EXCLUDED.ignored,
-                    abstained   = analyzer.metrics_daily.abstained   + EXCLUDED.abstained
-                """,
-                (project_id, day, suggestions, accepted, corrected, ignored, abstained),
-            )
-            if label is not None:
-                current = require_row(
-                    conn.execute(
-                        "SELECT per_label FROM analyzer.metrics_daily "
-                        "WHERE project_id=%s AND day=%s",
-                        (project_id, day),
-                    )
-                )[0]
-                bucket = dict(current.get(label, {})) if current else {}
-                bucket["suggested"] = bucket.get("suggested", 0) + suggestions
-                bucket["accepted"] = bucket.get("accepted", 0) + accepted
-                bucket["corrected"] = bucket.get("corrected", 0) + corrected
-                merged = {**(current or {}), label: bucket}
-                conn.execute(
-                    "UPDATE analyzer.metrics_daily SET per_label=%s WHERE project_id=%s AND day=%s",
-                    (Jsonb(merged), project_id, day),
-                )
+    # NOTE: an incremental `bump_metrics` (ON CONFLICT ... SET col = col + EXCLUDED)
+    # was intentionally REMOVED. The metrics_daily row is owned exclusively by the
+    # nightly rollup :meth:`upsert_daily_metrics`, which writes ABSOLUTE values
+    # (SET col = EXCLUDED) so a recompute is idempotent. An incremental bump racing
+    # that absolute SET would double-count or clobber the day's rollup, so no
+    # incremental writer to metrics_daily is permitted (spec 03 §10.3).
 
     def get_metrics(self, project_id: int, frm: date, to: date) -> list[dict]:
         with self._conn() as conn:

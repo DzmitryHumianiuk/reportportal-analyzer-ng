@@ -112,18 +112,9 @@ class StatsStore(Protocol):
     def get_test_history(
         self, project_id: int, test_case_hashes: Sequence[int]
     ) -> dict[int, dict]: ...
-    def bump_metrics(
-        self,
-        project_id: int,
-        day: date,
-        *,
-        suggestions: int = 0,
-        accepted: int = 0,
-        corrected: int = 0,
-        ignored: int = 0,
-        abstained: int = 0,
-        label: str | None = None,
-    ) -> None: ...
+    # bump_metrics (incremental +=) intentionally omitted: metrics_daily is written
+    # only by the nightly absolute-SET rollup (upsert_daily_metrics) so recompute is
+    # idempotent; an incremental writer would race/clobber it (spec 03 §10.3).
     def get_metrics(self, project_id: int, frm: date, to: date) -> list[dict]: ...
     def fetch_suggestions_for_day(self, day: date) -> list[dict]: ...
     def upsert_daily_metrics(self, dm: object) -> None: ...

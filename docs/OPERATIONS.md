@@ -138,4 +138,43 @@ with `x-error` / `x-routing-key` / `x-retries` headers for post-mortem.
 | Ollama/LLM stalls | Circuit breaker trips the sidecar on repeated timeouts; roles auto-fall-back to ML+KB. Check `OLLAMA_URL` reachability and `ANALYZER_LLM_TIMEOUT_S`; the model is pulled on first use (pre-pull to avoid a cold stall). |
 | Messages piling in `analyzer-ng.all` | Backpressure: workers saturated. Increase `ANALYZER_NG_WORKERS` / container CPU, or check for a slow/stuck handler in logs (`duration_ms`). |
 
+## 7. Re-indexing after an embedder change (`emb_model_ver=0` rows)
+
+Every `failure_signature` row is stamped with the `emb_model_ver` that produced
+its vector, and dense retrieval only compares rows sharing the **current**
+`emb_model_ver` (similarity is never computed across versions). Two situations
+leave rows the dense path silently skips until they are re-indexed:
+
+- **Indexed before the embedder was wired.** Deployments that ran `index` while
+  the ONNX embedder was failing to load (soft-degrade to lexical-only) wrote
+  `failure_signature` rows with `emb_model_ver = 0` and **no vector**. Those rows
+  still serve lexical/FTS + signature retrieval, but they never contribute a dense
+  cosine — recall is weaker — until re-indexed under a loaded model.
+- **Embedder upgraded** (new `ANALYZER_EMB_MODEL_PATH` / `ANALYZER_EMB_MODEL_REV`,
+  bumping `emb_model_ver`). Old-version rows are ignored by dense retrieval until
+  re-indexed.
+
+Find affected projects:
+
+```sql
+SELECT project_id, count(*) FROM analyzer.failure_signature
+WHERE emb_model_ver = 0 OR emb IS NULL
+GROUP BY project_id ORDER BY 2 DESC;
+```
+
+**How to re-index** (both are safe; `index` upserts by `(project_id, item_id)`):
+
+- **Re-send the launches.** Re-publish the affected launches on the `analyzer`
+  exchange with routing key `index` (RP re-index, or any AMQP publisher). Each item
+  is re-embedded with the live model and its row is overwritten in place — no
+  duplicates. This is the least disruptive option.
+- **Delete + re-index per project.** Publish `delete` (body = `projectId`) to drop
+  the project's rows, then re-send its launches. Use this when you want a clean
+  slate (e.g. many stale versions). Deletion is per project; there is no partial
+  "re-embed only" path — re-indexing is what regenerates vectors.
+
+Confirm recovery: the `emb_model_ver = 0 OR emb IS NULL` count above drops to 0
+for the project, and startup logs `ONNX embedder loaded and warmed (e5s-int8-r…)`
+so new indexing stamps the current version.
+
 For image/license/reliability acceptance details see spec `01-architecture.md` §10.
