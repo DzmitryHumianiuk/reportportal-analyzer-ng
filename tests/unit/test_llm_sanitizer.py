@@ -88,7 +88,12 @@ def test_nonce_is_8_hex_and_unguessable() -> None:
     n = new_nonce()
     assert len(n) == 8
     int(n, 16)  # valid hex
-    assert new_nonce() != new_nonce() or True  # extremely unlikely to collide
+    # Unguessability rests on entropy: a large sample of draws is (near-)all unique.
+    # 500 draws from 2**32 values collide with probability ~3e-5, so a tiny slack
+    # keeps this deterministic without the tautological `or True`.
+    draws = [new_nonce() for _ in range(500)]
+    assert all(len(d) == 8 and int(d, 16) >= 0 for d in draws)
+    assert len(set(draws)) >= 499
 
 
 def test_wrap_untrusted_embeds_nonce() -> None:

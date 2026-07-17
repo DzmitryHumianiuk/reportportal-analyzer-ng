@@ -103,12 +103,21 @@ class Metrics:
         )
         self.llm_role_disabled = Gauge(
             "analyzer_llm_role_disabled",
-            "1 if an LLM role is auto-disabled (globally), by role.",
+            "Number of projects with this LLM role auto-disabled by the nightly eval.",
             ["role"],
             registry=self.registry,
         )
 
     _BREAKER_STATE_VALUE = {"closed": 0, "open": 1, "half_open": 2}
+
+    def observe_llm_role_disabled(self, counts: dict[str, int]) -> None:
+        """Set the per-role auto-disabled-project gauge (spec 04 §6.3 admin view).
+
+        Called by the nightly eval job with the full role→count map so a role that
+        was re-enabled resets to 0 rather than sticking at its last value.
+        """
+        for role, count in counts.items():
+            self.llm_role_disabled.labels(role=role).set(count)
 
     def observe_llm_call(self, role: str, outcome: str, latency_ms: int | None) -> None:
         """Record one LLM role call (satisfies the engine's metrics port)."""
