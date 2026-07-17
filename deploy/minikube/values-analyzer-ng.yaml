@@ -1,0 +1,112 @@
+# Helm values overlay that swaps ReportPortal's stock service-auto-analyzer for
+# analyzer-ng on a local minikube cluster.
+#
+# Usage (see README.md for the full command incl. --set flags):
+#   helm install reportportal <chart> \
+#     -f deploy/minikube/values-analyzer-ng.yaml \
+#     --set uat.superadminInitPasswd.password=superadmin \
+#     --set storage.type=filesystem --set minio.install=false \
+#     --set opensearch.install=false
+#
+# WHY each override exists:
+#
+# serviceanalyzer.image / pullPolicy
+#   The chart's analyzer StatefulSet has NO enable flag — it always renders. We
+#   simply repoint its image at the locally-loaded analyzer-ng build and force
+#   pullPolicy=Never so kubelet uses the `minikube image load`-ed image instead
+#   of pulling reportportal/service-auto-analyzer from Docker Hub.
+#
+# serviceanalyzer.extraEnvs
+#   The template already injects the legacy AMQP_* env (AMQP_URL, AMQP_EXCHANGE_NAME
+#   = msgbroker.analyzerExchangeName = "analyzer-default", AMQP_VIRTUAL_HOST) and
+#   the (ignored) ES_*/DATASTORE_* vars. analyzer-ng reads AMQP_* natively and
+#   WARN-ignores the ES_/DATASTORE_/MINIO_ vars by design. extraEnvs is rendered
+#   FIRST in the container env list, so we use it to point analyzer-ng at its OWN
+#   pgvector database (the `analyzer-pg` Service from analyzer-pg.yaml) — never at
+#   ReportPortal's bitnami PostgreSQL, which has no pgvector.
+#
+# Probes: the chart's readiness/liveness probes GET `/` on port 5001. analyzer-ng
+#   serves `/` (200 when PostgreSQL is healthy, 503 otherwise) and `/health`, so
+#   the stock probe path is satisfied unchanged. We only relax the timings to give
+#   the ONNX embedder time to load on a cold first boot.
+
+serviceanalyzer:
+  image:
+    repository: docker.io/library/analyzer-ng
+    tag: latest
+  pullPolicy: Never
+  # uwsgiWorkers renders UWSGI_WORKERS, which analyzer-ng ignores; harmless. Left
+  # at chart default.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi     # idle ~110MiB + ONNX session headroom
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 12   # up to ~2min for migrations + embedder warmup
+    successThreshold: 1
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 120   # do not kill the pod while the model is loading
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 4
+  extraEnvs:
+    - name: LOGGING_LEVEL
+      value: "INFO"
+    # --- analyzer-ng's own pgvector store (deploy/minikube/analyzer-pg.yaml) --- #
+    - name: ANALYZER_PG_HOST
+      value: "analyzer-pg"
+    - name: ANALYZER_PG_PORT
+      value: "5432"
+    - name: ANALYZER_PG_DB
+      value: "analyzer"
+    - name: ANALYZER_PG_USER
+      value: "analyzer"
+    - name: ANALYZER_PG_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: analyzer-pg
+          key: POSTGRES_PASSWORD
+    # analyzer user is a superuser on the dedicated pgvector server, so it can
+    # CREATE the DB (already created by POSTGRES_DB) + `CREATE EXTENSION vector`.
+    - name: ANALYZER_PG_CREATE_DB
+      value: "true"
+
+# ---------------------------------------------------------------------------- #
+# minikube registry workaround.
+#
+# This particular minikube VM cannot resolve/reach registry-1.docker.io (its
+# upstream DNS refuses), so NO image can be pulled at run time. Every required
+# image is instead side-loaded with `minikube image load` (see README.md). But
+# the chart ships pullPolicy=Always for the RP services, which makes kubelet
+# ignore the side-loaded image and try to pull anyway -> ImagePullBackOff. We
+# force IfNotPresent so kubelet uses the preloaded images. On a cluster with
+# working registry access these overrides are harmless (image is present) and
+# can be dropped.
+# ---------------------------------------------------------------------------- #
+serviceapi:
+  pullPolicy: IfNotPresent
+uat:
+  pullPolicy: IfNotPresent
+serviceui:
+  pullPolicy: IfNotPresent
+serviceindex:
+  pullPolicy: IfNotPresent
+servicejobs:
+  pullPolicy: IfNotPresent
+migrations:
+  pullPolicy: IfNotPresent
+
+# msgbroker.analyzerExchangeName is already "analyzer-default" in the chart's
+# values; the template maps it to AMQP_EXCHANGE_NAME. Pinned here for clarity so
+# the analyzer and ReportPortal agree on the exchange name.
+msgbroker:
+  analyzerExchangeName: analyzer-default
+  vhost: analyzer

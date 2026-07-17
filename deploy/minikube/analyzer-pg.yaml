@@ -1,0 +1,115 @@
+# pgvector PostgreSQL for analyzer-ng (namespace: default).
+#
+# analyzer-ng stores ALL its state here (embeddings in pgvector, KB, labels,
+# drain state, metrics). This is SEPARATE from ReportPortal's own bitnami
+# PostgreSQL (which has no pgvector and must never hold analyzer data).
+#
+# The pgvector/pgvector:pg16 image is the stock `postgres` image + the `vector`
+# extension. POSTGRES_USER becomes a SUPERUSER, so analyzer-ng's startup can run
+# `CREATE EXTENSION vector` itself (ANALYZER_PG_CREATE_DB=true in the values file).
+#
+# NOTE: the password below is a throwaway credential for a LOCAL minikube demo.
+# Do not reuse it anywhere real.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: analyzer-pg
+  labels:
+    app: analyzer-pg
+type: Opaque
+stringData:
+  POSTGRES_USER: analyzer
+  POSTGRES_PASSWORD: AitNDn1q81B2UxpSBLPaCjl9
+  POSTGRES_DB: analyzer
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: analyzer-pg-data
+  labels:
+    app: analyzer-pg
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analyzer-pg
+  labels:
+    app: analyzer-pg
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate           # single RWO PVC — never run two writers at once
+  selector:
+    matchLabels:
+      app: analyzer-pg
+  template:
+    metadata:
+      labels:
+        app: analyzer-pg
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg16
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          envFrom:
+            - secretRef:
+                name: analyzer-pg
+          env:
+            # Keep PGDATA in a subdir so lost+found on the volume root does not
+            # abort initdb.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "analyzer", "-d", "analyzer"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "analyzer", "-d", "analyzer"]
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: analyzer-pg-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analyzer-pg
+  labels:
+    app: analyzer-pg
+spec:
+  selector:
+    app: analyzer-pg
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP
