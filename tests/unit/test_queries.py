@@ -16,7 +16,13 @@ from analyzer_ng.db.repositories.queries import (
 
 
 def test_version_is_pinned() -> None:
-    assert HYBRID_RETRIEVAL_VERSION == 1
+    assert HYBRID_RETRIEVAL_VERSION == 2
+
+
+def test_dense_and_mode_match_carry_deterministic_tiebreaks() -> None:
+    # A tie on cosine distance / score must resolve stably, not by physical row order.
+    assert "ORDER BY fs.emb <=> $4::halfvec(384), fs.item_id DESC" in STAGE_B_HYBRID_SQL
+    assert "fm.mode_id DESC" in STAGE_A_MODE_MATCH_SQL
 
 
 def test_stage_b_preserves_rrf_k60_and_deterministic_tiebreaks() -> None:

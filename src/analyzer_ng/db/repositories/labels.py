@@ -98,7 +98,7 @@ class PgLabelStore(StoreBase):
                     FROM analyzer.suggestion sg
                     WHERE sg.project_id = le.project_id AND sg.item_id = le.item_id
                       AND sg.created_at <= le.ts
-                    ORDER BY sg.created_at DESC LIMIT 1
+                    ORDER BY sg.created_at DESC, sg.suggestion_id DESC LIMIT 1
                 ) sg ON true
                 LEFT JOIN analyzer.test_history_stats ths
                        ON ths.project_id = le.project_id
@@ -109,10 +109,10 @@ class PgLabelStore(StoreBase):
                     JOIN analyzer.failure_mode fm
                       ON fm.project_id = mm.project_id AND fm.mode_id = mm.mode_id
                     WHERE mm.project_id = le.project_id AND mm.item_id = le.item_id
-                    ORDER BY mm.match_score DESC LIMIT 1
+                    ORDER BY mm.match_score DESC, mm.mode_id DESC LIMIT 1
                 ) fm ON true
                 {where}
-                ORDER BY le.ts DESC
+                ORDER BY le.ts DESC, le.event_id DESC
                 LIMIT %s
                 """,
                 params,

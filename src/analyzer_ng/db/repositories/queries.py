@@ -19,7 +19,9 @@ from collections.abc import Sequence
 from typing import Any
 
 # Bump whenever STAGE_B_HYBRID_SQL or STAGE_A_MODE_MATCH_SQL changes (spec 02 §5).
-HYBRID_RETRIEVAL_VERSION = 1
+# v2: added deterministic tie-breaks to the dense-CTE LIMIT and the mode-match
+# ORDER BY so rows tied on distance/score select stably (item_id / mode_id DESC).
+HYBRID_RETRIEVAL_VERSION = 2
 
 # Session tuning that must precede STAGE_B_HYBRID_SQL in the same transaction
 # (SET LOCAL). pgvector >= 0.8 iterative scans make the post-filter on
@@ -85,7 +87,7 @@ dense AS (                                        -- dense top-50 (HNSW or exact
       AND fs.emb IS NOT NULL
       AND ti.issue_type IS NOT NULL
       AND ti.issue_type_group <> 'ti'
-    ORDER BY fs.emb <=> $4::halfvec(384)
+    ORDER BY fs.emb <=> $4::halfvec(384), fs.item_id DESC
     LIMIT 50
 ),
 fused AS (                                        -- RRF, k = 60
@@ -135,7 +137,8 @@ WHERE fm.project_id = $1
   AND fm.status IN ('seed', 'candidate', 'confirmed')
   AND ((fm.centroid IS NOT NULL AND fm.emb_model_ver = $2) OR fm.exception_fps && $4)
 ORDER BY fp_hit DESC,                                   -- exact fingerprint hits first
-         fm.centroid <=> $3::halfvec(384) NULLS LAST
+         fm.centroid <=> $3::halfvec(384) NULLS LAST,
+         fm.mode_id DESC                                 -- deterministic tie-break
 LIMIT 10;
 """.strip()
 
