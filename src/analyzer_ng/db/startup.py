@@ -20,7 +20,9 @@ Transient connection failures DO retry (30 attempts, 2 s apart, then exit 4).
 from __future__ import annotations
 
 import logging
+import re
 import time
+from urllib.parse import urlparse
 
 import psycopg
 from psycopg import conninfo, sql
@@ -60,6 +62,26 @@ class BootstrapError(RuntimeError):
         self.exit_code = exit_code
 
 
+_PW_KV_RE = re.compile(r"(?i)(password\s*=\s*)('[^']*'|\"[^\"]*\"|\S+)")
+
+
+def redact_dsn(dsn: str) -> str:
+    """Strip credentials from a DSN before it reaches a log/exception message.
+
+    A DSN routinely carries a password — either as URL userinfo
+    (``postgresql://user:pass@host/db``, redacted like
+    :func:`analyzer_ng.amqp.client.remove_credentials_from_url`) or as a
+    ``password=`` keyword. Both are removed so a bootstrap error can never leak the
+    secret through the log sink (spec §9.1).
+    """
+    parsed = urlparse(dsn)
+    if parsed.netloc:
+        new_netloc = re.sub("^[^:]+:[^@]*@", "", parsed.netloc)
+        if new_netloc != parsed.netloc:
+            dsn = dsn.replace(parsed.netloc, new_netloc)
+    return _PW_KV_RE.sub(r"\1***", dsn)
+
+
 def _is_missing_database(exc: psycopg.OperationalError, dbname: str | None) -> bool:
     """Best-effort libpq-text fallback used only when the maintenance DB is
     unreachable (so we cannot authoritatively probe ``pg_database``).
@@ -83,7 +105,9 @@ def _maintenance_dsn(dsn: str, maintenance_db: str = "postgres") -> tuple[str, s
     params = conninfo.conninfo_to_dict(dsn)
     target_db = params.get("dbname")
     if not target_db:
-        raise BootstrapError(f"cannot determine target database name from DSN {dsn!r}", EXIT_FATAL)
+        raise BootstrapError(
+            f"cannot determine target database name from DSN {redact_dsn(dsn)!r}", EXIT_FATAL
+        )
     params["dbname"] = maintenance_db
     coerced = {key: str(value) for key, value in params.items() if value is not None}
     return conninfo.make_conninfo(**coerced), str(target_db)

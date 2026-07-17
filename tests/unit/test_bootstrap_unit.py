@@ -106,6 +106,24 @@ def test_maintenance_dsn_swaps_dbname() -> None:
     assert "analyzer" not in maintenance.replace("postgres", "")
 
 
+def test_redact_dsn_strips_url_userinfo_and_kw_password() -> None:
+    assert (
+        startup.redact_dsn("postgresql://rpuser:s3cr3t@host:5432/analyzer")
+        == "postgresql://host:5432/analyzer"
+    )
+    kw = startup.redact_dsn("host=db port=5432 user=rpuser password=s3cr3t dbname=analyzer")
+    assert "s3cr3t" not in kw
+    assert "password=***" in kw
+
+
+def test_maintenance_dsn_error_message_redacts_password() -> None:
+    # A DSN with no dbname triggers the BootstrapError; the raw password must never
+    # appear in the message that later reaches the log sink (spec §9.1).
+    with pytest.raises(BootstrapError) as exc:
+        _maintenance_dsn("postgresql://rpuser:s3cr3t@host:5432/")
+    assert "s3cr3t" not in str(exc.value)
+
+
 def test_or_exit_maps_bootstrap_error(monkeypatch: pytest.MonkeyPatch) -> None:
     def boom(*args: object, **kwargs: object) -> list[int]:
         raise BootstrapError("nope", EXIT_CONNECT)
