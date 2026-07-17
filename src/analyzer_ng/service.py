@@ -61,6 +61,7 @@ class AnalyzerService:
         metrics: Metrics | None = None,
         emb_model_ver: str | None = None,
         gbm_model_ver: str | None = None,
+        embedder: object | None = None,
     ) -> None:
         self._config = config
         self.version = app_version
@@ -69,6 +70,10 @@ class AnalyzerService:
         self._pg_pool = pg_pool
         self._metrics = metrics or Metrics()
         self.seed_kb: SeedKB | None = None
+        # ONNX embedder (spec 01 §6 step 5 / spec 03 §4). Built once, lazily, at
+        # pool bind (below); an injected instance short-circuits the load for tests.
+        self._injected_embedder = embedder
+        self._embedder_state: tuple[object | None, int, str] | None = None
 
         prefix = config.analyzer_ng_queue_prefix
         self._all_queue = f"{prefix}all"
@@ -143,6 +148,10 @@ class AnalyzerService:
         jobs after each suggestion commit and folds cached extractor features in.
         """
         config = self._config
+        embedder, emb_ver, emb_tag = self._resolve_embedder()
+        # /health must reflect what actually loaded (e5s-int8-r<rev8>, or None on
+        # soft-degrade), not the null placeholder from before the pool was bound.
+        self.emb_model_ver = emb_tag if embedder is not None else None
         sidecar = build_sidecar(
             config,
             pool,
@@ -155,11 +164,64 @@ class AnalyzerService:
         )
         self._handlers.bind(
             pool,
+            embedder=embedder,
+            emb_model_ver=emb_ver,
+            emb_model_tag=emb_tag,
             max_logs=config.analyzer_max_logs_per_item,
             sidecar=sidecar if sidecar.enabled else None,
             extractor_features=extractor_features,
             judge_tau=config.analyzer_llm_judge_tau,
         )
+
+    def _resolve_embedder(self) -> tuple[object | None, int, str]:
+        """Resolve the ONNX embedder once (spec 01 §6 step 5 / spec 03 §4).
+
+        Returns ``(embedder, emb_model_ver_int, emb_model_tag)``. An injected
+        instance (tests) short-circuits the load. On the real path the model is
+        constructed + warmed from ``ANALYZER_EMB_MODEL_PATH``; if the directory
+        exists (the config fail-fast guards its absence) but the ONNX session fails
+        to load, the service **soft-degrades** to lexical-only (``emb=none``,
+        ``emb_model_ver=0``) with a clear log — never crashing a healthy service
+        (spec 03 risk-register degrade path).
+        """
+        if self._embedder_state is not None:
+            return self._embedder_state
+        embedder = self._injected_embedder or self._load_embedder()
+        if embedder is not None:
+            from analyzer_ng.ml.embedder import EMB_MODEL_VERSION
+
+            state = (embedder, EMB_MODEL_VERSION, embedder.emb_model_ver)  # type: ignore[attr-defined]
+        else:
+            state = (None, 0, "none")
+        self._embedder_state = state
+        return state
+
+    def _load_embedder(self) -> object | None:
+        config = self._config
+        try:
+            from analyzer_ng.ml.embedder import Embedder
+
+            embedder = Embedder(
+                config.analyzer_emb_model_path,
+                model_rev=config.analyzer_emb_model_rev,
+                batch_size=config.analyzer_emb_batch_size,
+                dims=config.analyzer_emb_dims,
+                warmup=True,
+            )
+            logger.info(
+                "ONNX embedder loaded and warmed (%s) from %s",
+                embedder.emb_model_ver,
+                config.analyzer_emb_model_path,
+            )
+            return embedder
+        except Exception:  # noqa: BLE001 — soft-degrade, never crash a healthy service
+            logger.exception(
+                "ONNX embedder failed to load from %s; continuing LEXICAL-ONLY "
+                "(emb=none, emb_model_ver=0). Dense retrieval is disabled until a "
+                "loadable model is present (spec 03 risk-register degrade path).",
+                config.analyzer_emb_model_path,
+            )
+            return None
 
     def _make_is_cold(self):
         """A per-project cold check for the cold-start role (spec 04 §4.4)."""

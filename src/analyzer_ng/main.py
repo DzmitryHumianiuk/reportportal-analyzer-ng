@@ -7,8 +7,11 @@ pool, and reply publisher -> readiness flips true. SIGTERM/SIGINT triggers a
 graceful shutdown; a second signal exits immediately (130).
 
 Seed-KB load (§6 step 6) validates the packaged failure-mode catalog and binds
-the KBStore for lazy per-project copies. Model warmup (§6 step 5) lands with the
-ML task; ``emb``/``gbm`` versions are reported as ``null`` until then.
+the KBStore for lazy per-project copies. The ONNX embedder (§6 step 5) is built +
+warmed when the pool is bound (``AnalyzerService._resolve_embedder``) and passed
+into the index/analysis pipeline; ``/health`` then reports the real
+``emb_model_ver`` (``e5s-int8-r<rev8>``), or ``null`` on soft-degrade to
+lexical-only. The ``gbm`` version stays ``null`` until a model ships.
 """
 
 from __future__ import annotations

@@ -37,6 +37,13 @@ DEFAULT_BATCH_SIZE = 32
 DEFAULT_INTRA_OP_THREADS = 2
 EMB_DIMS = 384
 
+# Numeric embedding-schema version stamped into ``failure_signature.emb_model_ver``
+# (spec 03 §4). 0 = not embedded (lexical-only). There is one embedding model in
+# v1 (e5-small int8), so a loaded embedder stamps version 1; queries filter
+# candidates by matching this int so cross-version embeddings never mix. Bump on a
+# model/export change that invalidates existing vectors.
+EMB_MODEL_VERSION = 1
+
 
 class _Session(Protocol):
     def get_inputs(self) -> list[Any]: ...
