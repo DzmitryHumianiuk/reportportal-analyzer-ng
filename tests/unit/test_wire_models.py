@@ -130,6 +130,19 @@ def test_train_info_model_type_enum() -> None:
     assert info.gathered_metric_total == 0
 
 
+def test_train_info_accepts_wire_int_model_type() -> None:
+    # The chart-era RP publishes ``train_models`` with ``model_type`` as an INT enum
+    # (1=defect_type, 2=suggestion, 3=auto_analysis) — the wire model must accept it
+    # so the message is handled, not silently DLQ'd (live-fix wire note).
+    for wire_int, expected in (
+        (1, models.ModelType.defect_type),
+        (2, models.ModelType.suggestion),
+        (3, models.ModelType.auto_analysis),
+    ):
+        info = models.TrainInfo.model_validate({"model_type": wire_int, "project": 7})
+        assert info.model_type is expected
+
+
 def test_analysis_result_fields() -> None:
     res = models.AnalysisResult(testItem=1, issueType="pb001", relevantItem=2)
     assert res.model_dump() == {"testItem": 1, "issueType": "pb001", "relevantItem": 2}

@@ -207,6 +207,66 @@ def test_retrainer_ships_to_pg_and_predictor_picks_it_up(pool: ConnectionPool) -
 # --------------------------------------------------------------------------- #
 # label counter + training-frame snapshot join
 # --------------------------------------------------------------------------- #
+def _seed_labeled_items(
+    retrieval: PgRetrievalStore, labels: PgLabelStore, start: int, n: int, rng: random.Random
+) -> None:
+    """Seed ``n`` items each with a suggestion feature snapshot + a label_event —
+    the exact shape ``fetch_training_frame`` joins for GBM training."""
+    base = ("pb", "ab", "si")
+    items = [
+        TestItemIn(item_id=1000 + i, project_id=1, launch_id=9,
+                   issue_type=_LOC[base[i % 3]], test_case_hash=1000 + i)
+        for i in range(start, start + n)
+    ]
+    retrieval.upsert_items(items)
+    for i in range(start, start + n):
+        b = base[i % 3]
+        retrieval.write_suggestion(SuggestionIn(
+            project_id=1, item_id=1000 + i, launch_id=9, predicted_label=_LOC[b],
+            confidence=0.8, features=_features_for(b, rng), model_ver="rc;fs=1;emb=none"))
+        labels.append_event(LabelEventIn(
+            project_id=1, item_id=1000 + i, new_label=_LOC[b], source="rp_defect_update"))
+
+
+def test_production_wiring_retrains_after_early_cold_feedback(pool: ConnectionPool) -> None:
+    """live-fix Bug 2 (RED before fix): the REAL PipelineHandlers.bind wiring.
+
+    Feedback fires the retrain scheduler while the install is still cold (an early
+    events trigger), then data accumulates and an explicit ``train_models`` publish
+    arrives. On image eb2343e the cold attempt's debounce marker silently swallowed
+    every later retrain for an hour, so no ``model_artifact`` ever appeared. The
+    scheduler must now ship an active GBM.
+    """
+    from analyzer_ng.amqp.models import ModelType, TrainInfo
+    from analyzer_ng.core.handlers import PipelineHandlers
+
+    retrieval = PgRetrievalStore(pool)
+    labels = PgLabelStore(pool)
+    rng = random.Random(0)
+    handlers = PipelineHandlers()
+    handlers.bind(pool, embedder=None, emb_model_ver=0, emb_model_tag="none")
+    try:
+        # Phase 1: only 30 events (< 50 cold floor). Feedback fires the scheduler.
+        _seed_labeled_items(retrieval, labels, 0, 30, rng)
+        handlers.request_retrain("events")
+        assert handlers._retrain_scheduler.wait_idle(timeout=60.0)
+
+        # Phase 2: plenty of data now; an operator publishes train_models.
+        _seed_labeled_items(retrieval, labels, 30, 120, rng)
+        handlers.train_models(TrainInfo(model_type=ModelType.defect_type, project=1))
+        assert handlers._retrain_scheduler.wait_idle(timeout=60.0)
+
+        assert handlers.gbm_version() is not None, "GBM must ship, not stay debounced"
+        with pool.connection() as conn:
+            n = conn.execute(
+                "SELECT count(*) FROM analyzer.model_artifact "
+                "WHERE kind='gbm' AND project_id IS NULL AND is_active"
+            ).fetchone()[0]
+        assert n == 1
+    finally:
+        handlers.shutdown()
+
+
 def test_count_events_since_powers_retrain_counter(pool: ConnectionPool) -> None:
     labels = PgLabelStore(pool)
     t0 = datetime.now(UTC)

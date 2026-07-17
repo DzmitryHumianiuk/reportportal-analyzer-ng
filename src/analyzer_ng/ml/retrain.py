@@ -117,13 +117,23 @@ class Retrainer:
         now = now or self._clock()
         with self._lock:
             shipped_at = self._last_trained_at()
-            # Debounce off whichever is most recent: a shipped model, or (in the
-            # cold phase, when nothing has shipped) the last attempt we made.
-            debounce_ref = max(
-                (t for t in (shipped_at, self._last_attempt_at) if t is not None),
-                default=None,
-            )
-            if debounce_ref is not None and (now - debounce_ref) < self._min_interval:
+            # Genuine 1/hour throttle on ACTUAL trains (spec §6.5 "≥ 1 retrain/hour"):
+            # a model shipped inside the window blocks every reason.
+            if shipped_at is not None and (now - shipped_at) < self._min_interval:
+                return RetrainOutcome(STATUS_SKIPPED, "debounced")
+            # Cold-phase attempt throttle: before any model exists, avoid re-fetching
+            # the training frame on every feedback message (review Important #2). This
+            # throttles ONLY the automatic events trigger — an explicit ``train_models``
+            # (route) or the nightly job must NEVER be swallowed by it. Otherwise a
+            # single cold early attempt (feedback fires the scheduler before the install
+            # crosses the 50-event floor) silently debounces every later retrain for an
+            # hour, so the GBM never ships even once enough data exists and even when an
+            # operator explicitly publishes train_models (live-fix Bug 2).
+            if (
+                reason == REASON_EVENTS
+                and self._last_attempt_at is not None
+                and (now - self._last_attempt_at) < self._min_interval
+            ):
                 return RetrainOutcome(STATUS_SKIPPED, "debounced")
             if reason == REASON_EVENTS and shipped_at is not None:
                 new_events = self._labels.count_events_since(shipped_at)
