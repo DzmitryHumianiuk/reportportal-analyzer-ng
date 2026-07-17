@@ -345,6 +345,37 @@ def test_suggest_abstains_on_benign_log(db_factory) -> None:
     assert handlers.suggest(info) == []
 
 
+# An exception-bearing signature that no history/seed can classify: the reply is
+# empty (abstain) but a decision WAS made, so §6.6 requires the suggestion row —
+# else a human label later has no feature snapshot and is dropped from training.
+UNSEEDED_EXC_MSG = (
+    "com.acme.WidgetGlitchException: widget glitch at node 7\n"
+    "\tat com.acme.widget.WidgetService.spin(WidgetService.java:13)"
+)
+
+
+def test_suggest_abstain_still_writes_suggestion_row(db_factory) -> None:
+    pool = db_factory()
+    handlers = _bound_handlers(pool)
+    info = RPItemInfo(
+        testItemId=888,
+        launchId=1000,
+        project=PROJECT,
+        testItemName="widget_check",
+        logs=[_log(8880, UNSEEDED_EXC_MSG)],
+    )
+    # Abstain → empty reply (wire byte-stable), but the decision must be persisted.
+    assert handlers.suggest(info) == []
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT predicted_label FROM analyzer.suggestion "
+            "WHERE project_id=%s AND item_id=888",
+            (PROJECT,),
+        ).fetchone()
+    assert row is not None, "abstained suggest must persist a suggestion row (spec 03 §6.6)"
+    assert row[0] == "ti"
+
+
 # --------------------------------------------------------------------------- #
 # cluster + search
 # --------------------------------------------------------------------------- #

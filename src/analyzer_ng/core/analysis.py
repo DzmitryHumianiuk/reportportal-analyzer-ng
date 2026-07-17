@@ -175,6 +175,11 @@ class AnalysisEngine:
             total_failures=1,
             route="suggest",
         )
+        # §6.6: EVERY decision writes a suggestion row — including an abstain that
+        # renders an empty reply. Persist here, before rendering, so an abstained
+        # item later labeled by a human still carries its feature snapshot into
+        # training (the analyze route already writes per member; suggest must too).
+        self._write_suggestion(info.project, info.testItemId, info.launchId, None, decision)
         elapsed = time.monotonic() - started
         # §4.3 read-path surfacing: honor a prior async judge verdict by promoting the
         # chosen candidate to resultPosition 0. Only when the sidecar is on, so the
@@ -620,8 +625,8 @@ class AnalysisEngine:
                     clusterId=info.clusterId,
                 )
             )
-        # Persist the decision (every decision writes a suggestion row, §6.6).
-        self._write_suggestion(info.project, info.testItemId, info.launchId, None, decision)
+        # The suggestion row is persisted by suggest() before rendering (§6.6), so
+        # both the abstain and the non-abstain paths record exactly one row.
         return out
 
     @staticmethod
