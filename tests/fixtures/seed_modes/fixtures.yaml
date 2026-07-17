@@ -1,0 +1,183 @@
+# Synthetic fixture logs for the seed catalog (spec 03 §9, §11 acceptance).
+#
+# Each positive fixture is a realistic failure excerpt (exception classes + a
+# cleaned message + optional Drain template texts) that a human would file under
+# `expect`. The suite asserts the catalog's first-matching mode equals `expect`
+# for >= 90% of positives, and that none of the benign `negatives` match.
+#
+# Fixtures are authored to resemble real logs, NOT reverse-engineered from the
+# regexes (no overfitting): they carry surrounding context a real log would have.
+positives:
+  # 1 oom_java
+  - {expect: oom_java, exc: ["java.lang.OutOfMemoryError"], msg: "java.lang.OutOfMemoryError: Java heap space"}
+  - {expect: oom_java, exc: ["MemoryError"], msg: "MemoryError\nProcess ran out of memory allocating buffer"}
+  # 2 oom_killed_container
+  - {expect: oom_killed_container, msg: "Container test-runner terminated: reason OOMKilled"}
+  - {expect: oom_killed_container, msg: "command terminated with exit code 137 (out of memory)"}
+  # 3 stack_overflow
+  - {expect: stack_overflow, exc: ["java.lang.StackOverflowError"], msg: "java.lang.StackOverflowError\n\tat com.acme.Recurse.walk(Recurse.java:20)"}
+  - {expect: stack_overflow, exc: ["RecursionError"], msg: "RecursionError: maximum recursion depth exceeded while calling a Python object"}
+  # 4 disk_full
+  - {expect: disk_full, exc: ["java.io.IOException"], msg: "java.io.IOException: No space left on device"}
+  - {expect: disk_full, exc: ["OSError"], msg: "OSError: [Errno 122] Disk quota exceeded: '/var/tmp/build'"}
+  # 5 too_many_open_files
+  - {expect: too_many_open_files, exc: ["java.net.SocketException"], msg: "java.net.SocketException: Too many open files"}
+  - {expect: too_many_open_files, msg: "Error: EMFILE: too many open files, open '/data/report.json'"}
+  # 6 conn_refused
+  - {expect: conn_refused, exc: ["java.net.ConnectException"], msg: "java.net.ConnectException: Connection refused (Connection refused)"}
+  - {expect: conn_refused, exc: ["ConnectionRefusedError"], msg: "ConnectionRefusedError: [Errno 111] Connection refused"}
+  # 7 conn_reset
+  - {expect: conn_reset, exc: ["java.net.SocketException"], msg: "java.net.SocketException: Connection reset by peer"}
+  - {expect: conn_reset, msg: "Error: read ECONNRESET at TCP.onStreamRead"}
+  # 8 conn_timeout
+  - {expect: conn_timeout, exc: ["java.net.SocketTimeoutException"], msg: "java.net.SocketTimeoutException: Read timed out"}
+  - {expect: conn_timeout, exc: ["requests.exceptions.ReadTimeout"], msg: "requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api'): Read timed out"}
+  # 9 dns_resolution
+  - {expect: dns_resolution, exc: ["java.net.UnknownHostException"], msg: "java.net.UnknownHostException: payments.svc: Name or service not known"}
+  - {expect: dns_resolution, exc: ["socket.gaierror"], msg: "socket.gaierror: [Errno -2] Name or service not known"}
+  # 10 tls_cert
+  - {expect: tls_cert, exc: ["javax.net.ssl.SSLHandshakeException"], msg: "SSLHandshakeException: PKIX path building failed: unable to find valid certification path"}
+  - {expect: tls_cert, exc: ["ssl.SSLError"], msg: "ssl.SSLError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self signed certificate"}
+  # 11 port_in_use
+  - {expect: port_in_use, exc: ["java.net.BindException"], msg: "java.net.BindException: Address already in use"}
+  - {expect: port_in_use, msg: "Error: listen EADDRINUSE: address already in use 0.0.0.0:8080"}
+  # 12 proxy_gateway
+  - {expect: proxy_gateway, msg: "Received response 502 Bad Gateway from upstream proxy"}
+  - {expect: proxy_gateway, msg: "504 Gateway Timeout waiting for backend response"}
+  # 13 http_5xx
+  - {expect: http_5xx, msg: "Assertion failed: expected 200 but got HTTP 503 Service Unavailable"}
+  - {expect: http_5xx, msg: "Request failed with status code 500 Internal Server Error"}
+  # 14 http_401_403
+  - {expect: http_401_403, msg: "Request rejected: HTTP 401 Unauthorized"}
+  - {expect: http_401_403, msg: "API returned status 403 Forbidden for /admin"}
+  # 15 http_404
+  - {expect: http_404, msg: "GET /api/v2/users/42 returned HTTP 404 Not Found"}
+  - {expect: http_404, msg: "Resource lookup failed with status code 404"}
+  # 16 http_429
+  - {expect: http_429, msg: "Throttled: HTTP 429 Too Many Requests"}
+  - {expect: http_429, msg: "Rate limit exceeded for endpoint /search, quota exceeded"}
+  # 17 db_pool_exhausted
+  - {expect: db_pool_exhausted, msg: "HikariPool-1 - Connection is not available, request timed out after 30000ms"}
+  - {expect: db_pool_exhausted, exc: ["org.postgresql.util.PSQLException"], msg: "FATAL: sorry, too many clients already"}
+  # 18 db_deadlock
+  - {expect: db_deadlock, exc: ["org.postgresql.util.PSQLException"], msg: "ERROR: deadlock detected\nProcess 123 waits for ShareLock"}
+  - {expect: db_deadlock, msg: "Lock wait timeout exceeded; try restarting transaction"}
+  # 19 db_conn_failed
+  - {expect: db_conn_failed, exc: ["org.hibernate.exception.SQLTransientConnectionException"], msg: "SQLTransientConnectionException: could not open connection"}
+  - {expect: db_conn_failed, exc: ["psycopg2.OperationalError"], msg: "OperationalError: FATAL: password authentication failed for user 'app'"}
+  # 20 db_migration_failed
+  - {expect: db_migration_failed, msg: "Flyway migration V12__add_index failed: error executing statement"}
+  - {expect: db_migration_failed, msg: "liquibase update failed: change set 003 error while applying"}
+  # 21 kafka_rabbit
+  - {expect: kafka_rabbit, msg: "kafka producer error: broker not available after 3 retries"}
+  - {expect: kafka_rabbit, msg: "amqp connection to rabbitmq refused on port 5672"}
+  # 22 redis_conn
+  - {expect: redis_conn, exc: ["redis.clients.jedis.exceptions.JedisConnectionException"], msg: "JedisConnectionException: Could not get a resource from the pool"}
+  - {expect: redis_conn, msg: "redis server unreachable: cache node redis-master did not respond"}
+  # 23 wd_stale_element
+  - {expect: wd_stale_element, exc: ["org.openqa.selenium.StaleElementReferenceException"], msg: "StaleElementReferenceException: stale element reference: element is not attached to the page document"}
+  - {expect: wd_stale_element, exc: ["StaleElementReferenceException"], msg: "The element reference is stale and no longer valid"}
+  # 24 wd_no_such_element
+  - {expect: wd_no_such_element, exc: ["org.openqa.selenium.NoSuchElementException"], msg: "NoSuchElementException: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"#submit\"}"}
+  - {expect: wd_no_such_element, exc: ["NoSuchElementException"], msg: "Unable to find element with locator By.id: login-button"}
+  # 25 wd_not_interactable
+  - {expect: wd_not_interactable, exc: ["org.openqa.selenium.ElementClickInterceptedException"], msg: "ElementClickInterceptedException: element click intercepted: Other element would receive the click"}
+  - {expect: wd_not_interactable, exc: ["org.openqa.selenium.ElementNotInteractableException"], msg: "element not interactable: element has zero size"}
+  # 26 wd_wait_timeout
+  - {expect: wd_wait_timeout, exc: ["org.openqa.selenium.TimeoutException"], msg: "Expected condition failed: waiting for visibility of element"}
+  - {expect: wd_wait_timeout, exc: ["selenium.common.exceptions.TimeoutException"], msg: "Waited 30 seconds for element to be clickable"}
+  # 27 wd_session
+  - {expect: wd_session, exc: ["org.openqa.selenium.WebDriverException"], msg: "WebDriverException: invalid session id"}
+  - {expect: wd_session, exc: ["org.openqa.selenium.SessionNotCreatedException"], msg: "SessionNotCreatedException: session deleted because of page crash from tab crashed"}
+  # 28 wd_driver_mismatch
+  - {expect: wd_driver_mismatch, msg: "session not created: This version of ChromeDriver only supports Chrome version 120"}
+  - {expect: wd_driver_mismatch, msg: "session not created: cannot connect due to unsupported browser version 118"}
+  # 29 browser_console
+  - {expect: browser_console, msg: "Test failed: console errors detected during page load"}
+  - {expect: browser_console, msg: "Assertion: js console should be clean but console error found: Uncaught ReferenceError"}
+  # 30 assertion_java
+  - {expect: assertion_java, exc: ["org.junit.ComparisonFailure"], msg: "org.junit.ComparisonFailure: expected:<[4]> but was:<[5]>"}
+  - {expect: assertion_java, exc: ["java.lang.AssertionError"], msg: "java.lang.AssertionError: expected: true but was: false"}
+  # 31 assertion_pytest
+  - {expect: assertion_pytest, exc: ["AssertionError"], msg: "assert 3 == 4\nE       assert 3 == 4"}
+  - {expect: assertion_pytest, exc: ["AssertionError"], msg: "AssertionError: user count mismatch"}
+  # 32 assertion_js
+  - {expect: assertion_js, msg: "AssertionError [ERR_ASSERTION]: 1 == 2"}
+  - {expect: assertion_js, msg: "expect(received).toEqual(expected)\n\nExpected: 5\nReceived: 6"}
+  # 33 snapshot_mismatch
+  - {expect: snapshot_mismatch, msg: "Snapshot does not match: 1 snapshot failed toMatchSnapshot"}
+  - {expect: snapshot_mismatch, msg: "Visual regression: screenshot comparison failed, pixel difference 3.2%"}
+  # 34 soft_assert_bundle
+  - {expect: soft_assert_bundle, msg: "The following asserts failed:\n - title mismatch\n - button missing"}
+  - {expect: soft_assert_bundle, msg: "SoftAssert collected 3 failures during verification"}
+  # 35 npe_undefined
+  - {expect: npe_undefined, exc: ["java.lang.NullPointerException"], msg: "java.lang.NullPointerException: Cannot invoke \"String.length()\" because \"name\" is null"}
+  - {expect: npe_undefined, msg: "TypeError: Cannot read properties of undefined (reading 'id')"}
+  # 36 illegal_state
+  - {expect: illegal_state, exc: ["java.lang.IllegalArgumentException"], msg: "java.lang.IllegalArgumentException: page size must be positive"}
+  - {expect: illegal_state, exc: ["ValueError"], msg: "ValueError: invalid literal for int() with base 10: 'abc'"}
+  # 37 index_key_error
+  - {expect: index_key_error, exc: ["java.lang.ArrayIndexOutOfBoundsException"], msg: "java.lang.ArrayIndexOutOfBoundsException: Index 5 out of bounds for length 3"}
+  - {expect: index_key_error, exc: ["KeyError"], msg: "KeyError: 'user_id'"}
+  # 38 class_not_found
+  - {expect: class_not_found, exc: ["java.lang.NoClassDefFoundError"], msg: "java.lang.NoClassDefFoundError: org/apache/commons/lang3/StringUtils"}
+  - {expect: class_not_found, exc: ["ModuleNotFoundError"], msg: "ModuleNotFoundError: No module named 'requests'"}
+  # 39 file_not_found
+  - {expect: file_not_found, exc: ["java.io.FileNotFoundException"], msg: "java.io.FileNotFoundException: config/app.yaml (No such file or directory)"}
+  - {expect: file_not_found, exc: ["FileNotFoundError"], msg: "FileNotFoundError: [Errno 2] No such file or directory: 'fixtures/data.csv'"}
+  # 40 permission_denied
+  - {expect: permission_denied, exc: ["java.nio.file.AccessDeniedException"], msg: "java.nio.file.AccessDeniedException: /opt/data/output.log"}
+  - {expect: permission_denied, exc: ["PermissionError"], msg: "PermissionError: [Errno 13] Permission denied: '/etc/secret'"}
+  # 41 encoding_error
+  - {expect: encoding_error, exc: ["UnicodeDecodeError"], msg: "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0"}
+  - {expect: encoding_error, exc: ["com.fasterxml.jackson.databind.JsonMappingException"], msg: "JsonMappingException: Cannot deserialize value of type int from String"}
+  # 42 compile_error
+  - {expect: compile_error, msg: "COMPILATION ERROR : cannot find symbol\n  symbol: method build()"}
+  - {expect: compile_error, msg: "src/app.ts(42,10): error TS2345: Argument of type string is not assignable"}
+  # 43 dependency_resolution
+  - {expect: dependency_resolution, msg: "Could not resolve dependencies for project com.acme:app:jar:1.0"}
+  - {expect: dependency_resolution, msg: "npm ERR! code ERESOLVE\nnpm ERR! ERESOLVE unable to resolve dependency tree"}
+  # 44 docker_testcontainers
+  - {expect: docker_testcontainers, exc: ["org.testcontainers.containers.ContainerLaunchException"], msg: "ContainerLaunchException: Container startup failed"}
+  - {expect: docker_testcontainers, msg: "Could not find a valid Docker environment. Please see logs and check configuration"}
+  # 45 ci_agent_lost
+  - {expect: ci_agent_lost, msg: "The agent went offline during the build; marking job as failed"}
+  - {expect: ci_agent_lost, msg: "The operation was canceled: runner lost connection"}
+  # 46 env_config_missing
+  - {expect: env_config_missing, msg: "Environment variable API_TOKEN is required but not set"}
+  - {expect: env_config_missing, msg: "Could not resolve placeholder 'db.password' in value \"${db.password}\""}
+  # 47 generic_timeout
+  - {expect: generic_timeout, msg: "Test timed out after 60000 milliseconds"}
+  - {expect: generic_timeout, msg: "Error: exceeded timeout of 5000 ms for a hook"}
+  # 48 flaky_retry_passed
+  - {expect: flaky_retry_passed, msg: "Test passed on retry attempt 2 of 3"}
+  - {expect: flaky_retry_passed, msg: "Flaky test detected: retries eventually succeeded"}
+  # 49 concurrent_mod
+  - {expect: concurrent_mod, exc: ["java.util.ConcurrentModificationException"], msg: "java.util.ConcurrentModificationException\n\tat java.util.ArrayList$Itr.checkForComodification"}
+  - {expect: concurrent_mod, msg: "Optimistic locking failed; another transaction updated the row"}
+  # 50 auth_token_expired
+  - {expect: auth_token_expired, msg: "Authentication failed: JWT expired at 2026-01-01T00:00:00Z"}
+  - {expect: auth_token_expired, msg: "OAuth error: invalid_grant, the refresh token is expired"}
+
+# 20 benign INFO-style lines — must match NO seed mode.
+negatives:
+  - "INFO Test suite started with 42 scenarios"
+  - "User logged in successfully with id 7781"
+  - "Navigated to dashboard page and verified header"
+  - "Created order 5567 and validated total price"
+  - "Step 3 completed: cart contains 2 items"
+  - "Assertion passed: welcome banner is visible"
+  - "Fetched product catalog, 128 entries returned"
+  - "Database seed loaded 40 reference rows"
+  - "Screenshot captured for reporting purposes"
+  - "Cleaning up temporary files after scenario"
+  - "Feature flag checkout_v2 is enabled for tenant"
+  - "Waiting for the results grid to render items"
+  - "Payment confirmation email queued for delivery"
+  - "Report generated and uploaded to the artifact store"
+  - "Search returned the expected first result quickly"
+  - "Session established with the staging environment"
+  - "Health check ok: all services responding"
+  - "Configuration loaded from application defaults"
+  - "Test finished in 12 seconds with all steps green"
+  - "Cache warmed with the top requested entries"

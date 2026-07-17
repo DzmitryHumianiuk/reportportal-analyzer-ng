@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "analyzer-ng"
+version = "0.1.0"
+description = "Standalone ReportPortal auto-analyzer backed by PostgreSQL + pgvector"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "ReportPortal analyzer-ng contributors" }]
+keywords = ["reportportal", "analyzer", "pgvector", "pipeline"]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+]
+
+# Runtime dependencies — all Apache-2.0-compatible (spec 01 §2.1).
+dependencies = [
+    "pika~=1.3",
+    "psycopg[binary,pool]~=3.2",
+    "pgvector~=0.3",
+    "pydantic~=2.9",
+    "pydantic-settings~=2.5",
+    "fastapi~=0.115",
+    "uvicorn~=0.32",
+    "onnxruntime~=1.19",
+    "tokenizers~=0.20",
+    "drain3~=0.9",
+    "lightgbm~=4.5",
+    "numpy~=2.1",
+    "scikit-learn~=1.5",
+    "xxhash~=3.5",  # spec 03 §3.3: deterministic XXH3-64 fingerprints/error hashes (BSD-2)
+    "pyyaml~=6.0",  # spec 03 §9: seed failure-mode catalog is YAML package data (MIT)
+    "tenacity~=9.0",
+    "httpx~=0.27",
+    "prometheus-client~=0.21",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "testcontainers[postgres,rabbitmq]",
+    "ruff",
+    "mypy",
+]
+
+[project.scripts]
+analyzer-ng = "analyzer_ng.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+analyzer_ng = ["seeds/*.yaml", "seeds/*.json", "db/migrations/*.sql", "db/bootstrap/*.sql"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+
+# pika ships no type stubs or py.typed marker; silence import-untyped for it
+# (it is a deliberate dependency choice — spec 01 §2.1). All first-party code and
+# other deps remain fully type-checked.
+[[tool.mypy.overrides]]
+module = ["pika.*", "yaml"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: requires Docker; spins real containers via testcontainers",
+]
+filterwarnings = [
+    # Third-party: testcontainers' rabbitmq module uses a deprecated internal
+    # decorator. Not actionable from this repo; ignore to keep output clean.
+    "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning:testcontainers.*",
+]

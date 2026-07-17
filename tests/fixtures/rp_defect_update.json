@@ -1,0 +1,11 @@
+{
+  "project": 123,
+  "itemsToUpdate": {
+    "2001": "pb001",
+    "2002": {
+      "issueType": "si002",
+      "issueComment": "reclassified by reviewer",
+      "timestamp": [2025, 10, 10, 12, 0, 0, 0]
+    }
+  }
+}
