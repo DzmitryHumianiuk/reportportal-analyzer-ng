@@ -21,7 +21,9 @@ from analyzer_ng.db.migrate import (
     _verify_applied,
     compute_checksum,
     discover_migrations,
+    ledger_gaps,
     normalize_bytes,
+    select_pending,
     split_statements,
 )
 
@@ -138,6 +140,32 @@ def test_verify_applied_flags_tampered_checksum() -> None:
 def test_verify_applied_flags_missing_file() -> None:
     with pytest.raises(MigrationError, match="has no file"):
         _verify_applied({1: ("0001_x.sql", "aa")}, {})
+
+
+def test_select_pending_closes_a_reserved_version_gap() -> None:
+    # Ledger recorded {1,2,3,5} (0004 reserved by an unmerged branch when 0005
+    # shipped). With all five files present, 0004 must now be pending — a
+    # version > max(applied) high-watermark would skip it forever.
+    migrations = [_mk(v, "aa") for v in (1, 2, 3, 4, 5)]
+    pending = select_pending({1, 2, 3, 5}, migrations)
+    assert [m.version for m in pending] == [4]
+
+
+def test_select_pending_empty_when_ledger_current() -> None:
+    migrations = [_mk(v, "aa") for v in (1, 2, 3)]
+    assert select_pending({1, 2, 3}, migrations) == []
+
+
+def test_ledger_gaps_ignores_unmerged_branch_gap() -> None:
+    # File 0004 present but not yet applied → NOT a gap (it is pending, closes on run).
+    migrations = [_mk(v, "aa") for v in (1, 2, 3, 4, 5)]
+    assert ledger_gaps({1, 2, 3, 5}, migrations) == []
+
+
+def test_ledger_gaps_flags_a_skipped_version_with_no_file() -> None:
+    # Ledger {1,2,3,5} but no 0004 file on disk → a genuine, unfillable hole.
+    migrations = [_mk(v, "aa") for v in (1, 2, 3, 5)]
+    assert ledger_gaps({1, 2, 3, 5}, migrations) == [4]
 
 
 def test_gen_partitions_blocks() -> None:

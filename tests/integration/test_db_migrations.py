@@ -309,6 +309,35 @@ def test_checksum_tamper_detected(fresh_db_dsn: str, tmp_path: Path) -> None:
     assert "changed after being applied" in str(exc.value)
 
 
+def test_reserved_version_gap_closes_after_merge(fresh_db_dsn: str, tmp_path: Path) -> None:
+    # Simulate the merge race: 0004 was reserved by an unmerged branch, so a DB
+    # applied {1,2,3,5} first. When 0004 lands, the next start must apply exactly
+    # it — a version > max(applied) high-watermark would skip 4 forever.
+    for v in (1, 2, 3, 5):
+        (tmp_path / f"{v:04d}_x.sql").write_text(f"CREATE TABLE t{v} (id int);\n")
+
+    conn = bootstrap(fresh_db_dsn, create_db=True, attempts=3, delay=0.0)
+    with conn:
+        assert apply_migrations(conn, migrations_dir=tmp_path) == [1, 2, 3, 5]
+
+    # 0004 merges in.
+    (tmp_path / "0004_x.sql").write_text("CREATE TABLE t4 (id int);\n")
+    with psycopg.connect(fresh_db_dsn) as conn2:
+        assert apply_migrations(conn2, migrations_dir=tmp_path) == [4]
+
+    with psycopg.connect(fresh_db_dsn) as conn3:
+        versions = [
+            r[0]
+            for r in conn3.execute(
+                "SELECT version FROM analyzer.schema_migrations ORDER BY version"
+            ).fetchall()
+        ]
+        assert versions == [1, 2, 3, 4, 5]
+    # A second start is now a no-op (idempotent, no duplicate apply).
+    with psycopg.connect(fresh_db_dsn, autocommit=True) as conn4:
+        assert apply_migrations(conn4, migrations_dir=tmp_path) == []
+
+
 # --------------------------------------------------------------------------- #
 # ANALYZER_PG_CREATE_DB=false against a missing DB → fail fast (exit 3).
 # --------------------------------------------------------------------------- #

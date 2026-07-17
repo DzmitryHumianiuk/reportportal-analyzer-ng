@@ -254,6 +254,33 @@ def _verify_applied(applied: dict[int, tuple[str, str]], by_version: dict[int, M
             )
 
 
+def select_pending(applied: set[int], migrations: list[Migration]) -> list[Migration]:
+    """Files whose version is NOT already in the ledger, ascending by version.
+
+    Using set membership (not a ``version > max(applied)`` high-watermark) is what
+    lets a reserved-version gap close after merge: a DB whose ledger is {1,2,3,5}
+    (0004 reserved by an unmerged branch when 0005 shipped) applies 0004 on the
+    first start after it lands, instead of skipping it forever because 4 < 5.
+    """
+    return sorted(
+        (m for m in migrations if m.version not in applied), key=lambda m: m.version
+    )
+
+
+def ledger_gaps(applied: set[int], migrations: list[Migration]) -> list[int]:
+    """Versions in ``1..max`` that are neither applied nor available as a file.
+
+    A hole the pending files cannot fill means the schema history genuinely skipped
+    a version (not a merely-unmerged branch, whose file *is* present and becomes
+    pending). Surfaced loudly by the runner; an unmerged-branch gap yields ``[]``.
+    """
+    file_versions = {m.version for m in migrations}
+    universe = set(applied) | file_versions
+    if not universe:
+        return []
+    return sorted(set(range(1, max(universe) + 1)) - universe)
+
+
 def _apply_one(conn: psycopg.Connection, migration: Migration, schema: str) -> None:
     """Apply a single pending migration and record it in the ledger."""
     statements = split_statements(migration.sql)
@@ -328,8 +355,20 @@ def apply_migrations(
         applied = _load_applied(conn, schema)
         _verify_applied(applied, by_version)
 
+        applied_versions = set(applied)
+        # Surface a genuine ledger gap loudly (a skipped version no file can fill).
+        # An unmerged-branch gap (file present, just not yet in the ledger) does not
+        # trip this — its file is pending below and closes the gap on this run.
+        gaps = ledger_gaps(applied_versions, migrations)
+        if gaps:
+            logger.error(
+                "migration ledger has unfilled gap(s) %s: a version was skipped and no "
+                "file on disk can fill it — restore the missing migration file(s) or the "
+                "schema history is inconsistent",
+                gaps,
+            )
+        pending = select_pending(applied_versions, migrations)
         max_applied = max(applied) if applied else 0
-        pending = [m for m in migrations if m.version > max_applied]
         applied_now: list[int] = []
         for migration in pending:
             logger.info("Applying migration %s", migration.filename)
