@@ -7,6 +7,7 @@
 analyzer-ng-plan
 tests
 models
+docker
 docker-compose*.yml
 Makefile
 LICENSE

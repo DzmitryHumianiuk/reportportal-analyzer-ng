@@ -1,21 +1,40 @@
 # analyzer-ng overlay for a standard ReportPortal docker-compose (spec 01 §7.2).
 #
-# Apply on top of the stock RP compose:
+# ===========================================================================
+# PRIMARY, SUPPORTED PATH — edit the base compose file (spec 01 §7.2 verbatim:
+# "Remove services analyzer, analyzer-train, opensearch ... from the base file"):
+#   1. DELETE the `analyzer-train` service.
+#   2. DELETE the `opensearch` service AND its volume.
+#   3. In the `analyzer` service, remove any `depends_on:` / `links:` that point
+#      at `opensearch` (and `analyzer-train`). This is the step an overlay CANNOT
+#      do for you — see the caveat below.
+# Then apply this overlay to redefine `analyzer` as analyzer-ng and add ollama:
 #
 #     docker-compose -f docker-compose.yml -f docker-compose.analyzer-ng.yml up -d
 #
-# What it does:
-#   * Replaces the legacy `analyzer` service with the analyzer-ng image (same
-#     service NAME so RP's healthchecks/depends_on keep referencing it).
-#   * Neutralizes `analyzer-train` and `opensearch` by moving them behind a
-#     never-enabled compose profile — a compose overlay cannot delete a base
-#     service, but a service gated by an unselected profile does not start.
-#     analyzer-ng folds training into the single service and drops OpenSearch
-#     entirely (all state is in PostgreSQL). You may also delete these two
-#     services (and the opensearch volume) from the base file outright.
+# WHY the edit is required (compose additive-merge caveat): docker-compose MERGES
+# `depends_on`, `environment`, and `volumes` across `-f` files — it never removes
+# keys. So a stock RP `analyzer` with `depends_on: [opensearch]` keeps that
+# dependency even after this overlay redefines the service. Combined with the
+# profile trick below, `up` then FAILS with "service analyzer depends on
+# undefined/inactive service opensearch". Removing the depends_on in the base
+# file is the only reliable fix.
+#
+# BEST-EFFORT convenience (works only when the base `analyzer` has NO depends_on
+# on opensearch/analyzer-train): this overlay also moves `analyzer-train` and
+# `opensearch` behind an unselected compose profile (`legacy-disabled`) so they
+# do not start by default. This is a courtesy for clean base files; it does NOT
+# substitute for the base-file edit above when depends_on references exist.
+#
+# What this overlay does:
+#   * Replaces the `analyzer` service with the analyzer-ng image (same NAME so
+#     RP's healthchecks/depends_on keep referencing it).
 #   * Reuses the existing `postgres` instance but a SEPARATE database `analyzer`
 #     (auto-created at startup; ANALYZER_PG_CREATE_DB=true). The `reportportal`
-#     database is never touched.
+#     database is never touched. For hardened installs that set
+#     ANALYZER_PG_CREATE_DB=false, pre-create the DB with the shipped example
+#     init script docker/pg-init/01-analyzer-db.sh (mount into postgres at
+#     /docker-entrypoint-initdb.d/).
 #   * Adds an optional `ollama` sidecar under the `llm` profile with a named
 #     volume (only starts with `--profile llm`).
 #
@@ -54,7 +73,11 @@ services:
     restart: unless-stopped
     mem_limit: 2g
 
-  # --- legacy services replaced by analyzer-ng (gated off by profile) --------- #
+  # --- legacy services replaced by analyzer-ng ------------------------------- #
+  # BEST-EFFORT only (see header): gate them behind an unselected profile so they
+  # do not start by default. Prefer DELETING them from the base file — and you
+  # MUST edit the base if the `analyzer` service depends_on either of these, or
+  # `up` will fail on the now-inactive dependency.
   analyzer-train:
     profiles: ["legacy-disabled"]
 
