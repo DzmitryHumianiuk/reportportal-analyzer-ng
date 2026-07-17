@@ -44,6 +44,9 @@ KB_STRONG_PURITY = 0.95
 KB_STRONG_SUPPORT = 10
 KB_STRONG_SCORE = 0.85
 KB_CONFIDENCE_CAP = 0.93
+# spec §6.2: score_mode ≥ 0.70 is a *candidate* KB match (features only) — strong
+# enough to record the item as a member of that mode so the mode can learn (§6.7/§9).
+KB_CANDIDATE_SCORE = 0.70
 
 # spec §6.5 cold fallback: seed prior threshold.
 SEED_PRIOR_MIN_CONF = 0.7
