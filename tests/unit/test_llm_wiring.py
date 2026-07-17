@@ -121,8 +121,8 @@ class _FakeOps:
     def set_explanation(self, project_id, suggestion_id, explanation):
         self.explanations.append((project_id, suggestion_id, explanation))
 
-    def annotate_judge(self, project_id, item_id, *, first_suggestion_id, features_patch):
-        self.judge.append((project_id, item_id, first_suggestion_id, features_patch))
+    def annotate_judge(self, project_id, item_id, *, chosen_item_id, features_patch):
+        self.judge.append((project_id, item_id, chosen_item_id, features_patch))
 
     def insert_coldstart(self, **kw: Any) -> int:
         self.coldstart.append(kw)
@@ -204,3 +204,94 @@ def test_fact_loader_coldstart_gated_on_cold_project() -> None:
 def test_fact_loader_missing_signature_returns_none() -> None:
     loader = PgLlmFactLoader(_FakeFacts(None, None))
     assert loader("extractor", 1, 10, {}) is None
+
+
+# ---- Judge: real candidate evidence + verdict → real target (§4.3, finding #1) ---- #
+class _FactsByItem:
+    def __init__(self, sigs: dict[int, dict]) -> None:
+        self._sigs = sigs
+
+    def load_signature(self, project_id, item_id):
+        return self._sigs.get(item_id)
+
+    def latest_suggestion(self, project_id, item_id):
+        return None
+
+
+def _cand_sig(exc: str) -> dict:
+    return {
+        "exception_fp": 1,
+        "error_hash": 9,
+        "top_frames": ["com.acme.Client.call", "com.acme.CheckoutTest.setUp"],
+        "template_ids": [11, 12, 13],
+        "exc_text": exc,
+        "msg_text": "boom",
+        "frames_text": "at com.acme.Client.call",
+        "status_codes": [503],
+        "launch_id": 1,
+    }
+
+
+def test_fact_loader_judge_loads_real_candidate_facts() -> None:
+    sigs = {
+        10: _SIG,  # the query item
+        201: _cand_sig("java.net.ConnectException"),
+        202: _cand_sig("org.example.ApiException"),
+    }
+    loader = PgLlmFactLoader(_FactsByItem(sigs))
+    refs = [
+        {"id": 201, "label": "si001", "similarity": 0.91},
+        {"id": 202, "label": "pb001", "similarity": 0.80},
+    ]
+    inp = loader("judge", 1, 10, {"candidates": refs})
+    assert inp is not None
+    cands = inp["candidates"]
+    assert len(cands) == 2
+    # Every candidate carries REAL evidence — never empty stubs (finding #1).
+    for c in cands:
+        assert c["exc_chain"]  # exception chain present
+        assert c["templates"]  # top templates present
+        assert c["frames"]  # top frames present
+    assert cands[0]["id"] == 201 and cands[0]["exc_chain"] == "java.net.ConnectException"
+
+
+def test_fact_loader_judge_drops_unresolvable_candidates() -> None:
+    sigs = {10: _SIG, 201: _cand_sig("java.net.ConnectException")}  # 999 absent
+    loader = PgLlmFactLoader(_FactsByItem(sigs))
+    refs = [
+        {"id": 201, "label": "si001", "similarity": 0.9},
+        {"id": 999, "label": "pb001", "similarity": 0.8},  # superseded/deleted
+    ]
+    # Only one candidate resolves → below the ≥2 evidence floor → skip the call.
+    assert loader("judge", 1, 10, {"candidates": refs}) is None
+
+
+# ---- Judge: read-path reorder surfacing (§4.3, finding #2) ---- #
+def _tuples() -> list[tuple]:
+    return [("pb001", 201, 0.9, 0.10), ("ab001", 202, 0.8, 0.05), ("si001", 203, 0.7, 0.02)]
+
+
+def test_reorder_promotes_chosen_candidate_suggest_band() -> None:
+    from analyzer_ng.core.analysis import AnalysisEngine
+
+    out = AnalysisEngine._reorder_for_judge(_tuples(), {"chosen_item_id": 203}, is_auto=False)
+    assert out[0][1] == 203  # chosen candidate is now resultPosition 0
+    assert {c[1] for c in out} == {201, 202, 203}  # same set, only order changed
+
+
+def test_reorder_never_touches_auto_band() -> None:
+    from analyzer_ng.core.analysis import AnalysisEngine
+
+    cands = _tuples()
+    assert AnalysisEngine._reorder_for_judge(cands, {"chosen_item_id": 203}, is_auto=True) == cands
+
+
+def test_reorder_noop_when_verdict_absent_or_stale() -> None:
+    from analyzer_ng.core.analysis import AnalysisEngine
+
+    cands = _tuples()
+    reorder = AnalysisEngine._reorder_for_judge
+    assert reorder(cands, None, is_auto=False) == cands
+    assert reorder(cands, {"chosen_item_id": None}, is_auto=False) == cands
+    # chosen candidate no longer among the current set → no reorder (safe).
+    assert reorder(cands, {"chosen_item_id": 999}, is_auto=False) == cands

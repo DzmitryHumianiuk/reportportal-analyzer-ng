@@ -40,14 +40,17 @@ class PgSuggestionOps(StoreBase):
         project_id: int,
         item_id: int,
         *,
-        first_suggestion_id: int | None,
+        chosen_item_id: int | None,
         features_patch: dict[str, Any],
     ) -> None:
-        """§4.3 row update: merge ``features['judge']`` + ``llm_used`` on the item's
-        latest suggestion. Never touches ``predicted_label``/``confidence``/band.
+        """§4.3 row update: merge ``features['judge']`` (carrying ``chosen_item_id``)
+        + ``llm_used`` onto the item's latest suggestion. Never touches
+        ``predicted_label``/``confidence``/band.
 
-        (Suggest-band re-ordering is a wire-render concern — RRF ordering is
-        re-derived on read — so the persisted effect is the annotation + flag.)
+        The stored verdict is how the suggest read path surfaces the reorder: it
+        reads the freshest judge-bearing suggestion for the item and promotes the
+        chosen candidate to ``resultPosition`` 0 (suggest-band only). ``chosen_item_id``
+        is carried inside ``features_patch``; the explicit arg documents the contract.
         """
         with self._conn() as conn:
             conn.execute(

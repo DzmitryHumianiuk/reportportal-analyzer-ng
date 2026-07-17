@@ -97,7 +97,7 @@ class PgLlmFactLoader:
                 "group_locator": payload.get("group_locator", "ti001"),
             }
         if role == "judge":
-            return self._judge_input(item_id, sig, fact_block, excerpt, payload)
+            return self._judge_input(project_id, sig, fact_block, excerpt, payload)
         return None
 
     def _explainer_input(
@@ -119,13 +119,30 @@ class PgLlmFactLoader:
             "suggestion_id": sug.get("suggestion_id"),
         }
 
-    @staticmethod
     def _judge_input(
-        item_id: int, sig: dict, fact_block: dict, excerpt: str, payload: dict
+        self, project_id: int, sig: dict, fact_block: dict, excerpt: str, payload: dict
     ) -> dict[str, Any] | None:
-        candidates = payload.get("candidates") or []
+        refs = payload.get("candidates") or []
+        # Load each candidate's DB facts fresh in the worker (§1.5) — the judge sees
+        # real exception chain / top templates / top frames, never empty stubs (§4.3).
+        candidates: list[dict[str, Any]] = []
+        for ref in refs:
+            cand_sig = self._facts.load_signature(project_id, int(ref["id"]))
+            if cand_sig is None:
+                continue  # candidate superseded / deleted since enqueue
+            tmpl = (cand_sig.get("template_ids") or [])[:5]
+            candidates.append(
+                {
+                    "id": ref["id"],
+                    "label": ref["label"],
+                    "similarity": ref["similarity"],
+                    "exc_chain": cand_sig.get("exc_text") or "",
+                    "templates": ", ".join(str(t) for t in tmpl),
+                    "frames": ", ".join((cand_sig.get("top_frames") or [])[:5]),
+                }
+            )
         if len(candidates) < 2:
-            return None  # judge needs ≥ 2 candidates (§4.3)
+            return None  # judge needs ≥ 2 candidates with evidence (§4.3)
         return {
             "query_error_hash": sig.get("error_hash") or 0,
             "fact_block": fact_block,

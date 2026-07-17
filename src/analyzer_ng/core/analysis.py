@@ -176,7 +176,13 @@ class AnalysisEngine:
             route="suggest",
         )
         elapsed = time.monotonic() - started
-        out = self._render_suggestions(info, rep, decision, elapsed)
+        # §4.3 read-path surfacing: honor a prior async judge verdict by promoting the
+        # chosen candidate to resultPosition 0. Only when the sidecar is on, so the
+        # LLM-off path skips the read entirely and stays byte-identical.
+        judge_verdict = (
+            self.retrieval.latest_judge(info.project, info.testItemId) if self._llm_on() else None
+        )
+        out = self._render_suggestions(info, rep, decision, elapsed, judge_verdict)
         # §1.5: enqueue async LLM enrichment *after* the classical reply is built and
         # the suggestion row committed. Never on the synchronous suggest budget.
         self._enqueue_llm(
@@ -187,6 +193,9 @@ class AnalysisEngine:
             candidates=self._judge_candidates(decision),
         )
         return out
+
+    def _llm_on(self) -> bool:
+        return self.sidecar is not None and getattr(self.sidecar, "enabled", False)
 
     # ------------------------------------------------------------------ #
     # cluster (spec §8.1)
@@ -538,7 +547,9 @@ class AnalysisEngine:
 
     @staticmethod
     def _judge_candidates(decision: DecisionResult) -> list[dict]:
-        """Suggest-band candidate facts for the judge prompt (DB facts only, §4.3)."""
+        """Suggest-band candidate refs for the judge (§4.3): real item id + label +
+        similarity. The worker loads each candidate's DB facts (exception chain, top
+        templates, top frames) fresh from ``failure_signature`` — never empty stubs."""
         out: list[dict] = []
         for c in list(decision.stage_c)[:3]:
             if c.item_id is None or c.issue_type is None:
@@ -548,16 +559,17 @@ class AnalysisEngine:
                     "id": c.item_id,
                     "label": c.issue_type,
                     "similarity": round(min(1.0, c.cosine or 0.0), 3),
-                    "exc_chain": "",
-                    "templates": "",
-                    "frames": "",
-                    "suggestion_id": None,
                 }
             )
         return out
 
     def _render_suggestions(
-        self, info: TestItemInfo, rep: ItemAnalysis, decision: DecisionResult, elapsed: float
+        self,
+        info: TestItemInfo,
+        rep: ItemAnalysis,
+        decision: DecisionResult,
+        elapsed: float,
+        judge_verdict: dict | None = None,
     ) -> list[SuggestAnalysisResult]:
         # Proxy max-prob for cold mode: the rule confidence, else top candidate cosine.
         stage_c = list(decision.stage_c)
@@ -570,6 +582,11 @@ class AnalysisEngine:
         candidates = self._suggestion_candidates(decision, stage_c)
         if not candidates:
             return []
+        # §4.3: a fresh judge verdict promotes its chosen candidate — suggest-band only,
+        # never for an auto-band decision (which the judge must never touch).
+        candidates = self._reorder_for_judge(
+            candidates, judge_verdict, is_auto=decision.action == ACTION_AUTO
+        )
 
         names = ";".join(feature_names())
         values = ";".join(f"{v:.6f}" for v in to_vector(decision.features))
@@ -606,6 +623,29 @@ class AnalysisEngine:
         # Persist the decision (every decision writes a suggestion row, §6.6).
         self._write_suggestion(info.project, info.testItemId, info.launchId, None, decision)
         return out
+
+    @staticmethod
+    def _reorder_for_judge(
+        candidates: list[tuple[str, int, float, float]],
+        judge_verdict: dict | None,
+        *,
+        is_auto: bool,
+    ) -> list[tuple[str, int, float, float]]:
+        """Promote the judge's chosen candidate to resultPosition 0 (§4.3).
+
+        No-op for an auto-band decision (untouchable by the judge), for a ``none``/
+        absent verdict, or when the chosen ``relevantItem`` is no longer among the
+        current candidates. Only the *order* changes — never a label/score.
+        """
+        if is_auto or not judge_verdict:
+            return candidates
+        chosen = judge_verdict.get("chosen_item_id")
+        if chosen is None:
+            return candidates
+        idx = next((i for i, c in enumerate(candidates) if c[1] == chosen), None)
+        if idx is None or idx == 0:
+            return candidates
+        return [candidates[idx], *candidates[:idx], *candidates[idx + 1 :]]
 
     def _suggestion_candidates(
         self, decision: DecisionResult, stage_c: Sequence[Candidate]

@@ -32,14 +32,14 @@ class FakeOps:
         project_id: int,
         item_id: int,
         *,
-        first_suggestion_id: int | None,
+        chosen_item_id: int | None,
         features_patch: dict[str, Any],
     ) -> None:
         self.judge_calls.append(
             {
                 "project_id": project_id,
                 "item_id": item_id,
-                "first": first_suggestion_id,
+                "chosen": chosen_item_id,
                 "patch": features_patch,
             }
         )
@@ -57,10 +57,15 @@ def test_explainer_apply_sets_explanation() -> None:
 
 
 def _candidates() -> list[dict[str, Any]]:
-    return [{"suggestion_id": 201}, {"suggestion_id": 202}, {"suggestion_id": 203}]
+    # Real candidate refs: item id (relevantItem) + label + similarity.
+    return [
+        {"id": 201, "label": "pb001", "similarity": 0.9},
+        {"id": 202, "label": "ab001", "similarity": 0.8},
+        {"id": 203, "label": "si001", "similarity": 0.7},
+    ]
 
 
-def test_judge_candidate_reorders_and_annotates() -> None:
+def test_judge_candidate_records_real_chosen_item() -> None:
     ops = FakeOps()
     apply_judge(
         ops,
@@ -72,8 +77,9 @@ def test_judge_candidate_reorders_and_annotates() -> None:
         prompt_hash="abc",
     )
     call = ops.judge_calls[-1]
-    assert call["first"] == 202  # candidate_2's suggestion moved first
+    assert call["chosen"] == 202  # candidate_2's real item id (relevantItem)
     assert call["patch"]["judge"]["choice"] == "candidate_2"
+    assert call["patch"]["judge"]["chosen_item_id"] == 202
     assert call["patch"]["judge"]["prompt_hash"] == "abc"
 
 
@@ -88,7 +94,7 @@ def test_judge_none_demotes_all() -> None:
         model="m",
         prompt_hash="p",
     )
-    assert ops.judge_calls[-1]["first"] is None
+    assert ops.judge_calls[-1]["chosen"] is None
 
 
 def test_judge_abstain_is_noop() -> None:

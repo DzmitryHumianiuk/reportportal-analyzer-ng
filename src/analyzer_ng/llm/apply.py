@@ -28,7 +28,7 @@ class SuggestionOps(Protocol):
         project_id: int,
         item_id: int,
         *,
-        first_suggestion_id: int | None,
+        chosen_item_id: int | None,
         features_patch: dict[str, Any],
     ) -> None: ...
     def insert_coldstart(
@@ -60,22 +60,32 @@ def apply_judge(
     model: str,
     prompt_hash: str,
 ) -> None:
-    """Reorder/annotate suggest-band suggestions per the judge verdict (§4.3).
+    """Annotate the item's suggestion with the judge verdict (§4.3).
 
-    ``abstain`` is a no-op. ``candidate_k`` moves that candidate's suggestion
-    first; ``none`` demotes all. Only ``features['judge']`` and ordering change —
-    never ``predicted_label``/``confidence``/band membership.
+    ``abstain`` is a no-op. ``candidate_k`` records the chosen candidate's item id
+    (its RP ``relevantItem``) so the suggest read path can promote it to
+    ``resultPosition`` 0; ``none`` demotes all (``chosen_item_id=None``). Only
+    ``features['judge']`` + ``llm_used`` change — never ``predicted_label``/
+    ``confidence``/band membership (an auto-band decision is untouchable).
     """
     choice = output["choice"]
     if choice == "abstain":
         return
-    patch = {"judge": {"choice": choice, "model": model, "prompt_hash": prompt_hash}}
-    if choice == "none":
-        ops.annotate_judge(project_id, item_id, first_suggestion_id=None, features_patch=patch)
-        return
-    idx = int(choice.split("_", 1)[1]) - 1
-    first_id = candidates[idx]["suggestion_id"]
-    ops.annotate_judge(project_id, item_id, first_suggestion_id=first_id, features_patch=patch)
+    chosen_item_id: int | None = None
+    if choice != "none":
+        idx = int(choice.split("_", 1)[1]) - 1
+        chosen_item_id = candidates[idx]["id"]
+    patch = {
+        "judge": {
+            "choice": choice,
+            "chosen_item_id": chosen_item_id,
+            "model": model,
+            "prompt_hash": prompt_hash,
+        }
+    }
+    ops.annotate_judge(
+        project_id, item_id, chosen_item_id=chosen_item_id, features_patch=patch
+    )
 
 
 def apply_coldstart(

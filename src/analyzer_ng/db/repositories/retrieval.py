@@ -530,6 +530,28 @@ class PgRetrievalStore(StoreBase):
             )
             return {int(r["item_id"]): r for r in cur.fetchall()}
 
+    def latest_judge(self, project_id: int, item_id: int) -> dict | None:
+        """The freshest judge verdict for an item (spec 04 §4.3 read-path surfacing).
+
+        Returns ``features['judge']`` from the most recent judge-bearing suggestion
+        within the 14-day judge TTL, so the suggest path can promote the chosen
+        candidate even after newer (non-judge) suggestion rows were written. Scoped
+        to the project; ``None`` when no fresh verdict exists.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT features -> 'judge'
+                FROM analyzer.suggestion
+                WHERE project_id = %s AND item_id = %s AND features ? 'judge'
+                  AND created_at >= now() - interval '14 days'
+                ORDER BY created_at DESC, suggestion_id DESC
+                LIMIT 1
+                """,
+                (project_id, item_id),
+            ).fetchone()
+        return row[0] if row is not None and row[0] is not None else None
+
     def _stage_b(
         self, project_id: int, q: QuerySignature, k: int, filters: CandidateFilters
     ) -> list[Candidate]:

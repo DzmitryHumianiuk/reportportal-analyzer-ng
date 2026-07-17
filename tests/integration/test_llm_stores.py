@@ -225,6 +225,45 @@ def test_suggestion_ops_coldstart_and_explanation(pool: ConnectionPool) -> None:
     assert expl[1] is True
 
 
+def test_judge_annotation_persists_and_surfaces(pool: ConnectionPool) -> None:
+    from analyzer_ng.db.repositories.retrieval import PgRetrievalStore
+
+    ops = PgSuggestionOps(pool)
+    retrieval = PgRetrievalStore(pool)
+    with pool.connection() as conn:
+        conn.execute("INSERT INTO analyzer.project (project_id) VALUES (3) ON CONFLICT DO NOTHING")
+        conn.execute(
+            """
+            INSERT INTO analyzer.suggestion
+                (project_id, item_id, launch_id, predicted_label, confidence, model_ver)
+            VALUES (3, 50, 1, 'pb001', 0.55, 'rule_cold;fs=2')
+            """
+        )
+    # §4.3: annotate the judge verdict (chosen candidate = item 777).
+    patch = {
+        "judge": {"choice": "candidate_1", "chosen_item_id": 777, "model": "m", "prompt_hash": "h"}
+    }
+    ops.annotate_judge(3, 50, chosen_item_id=777, features_patch=patch)
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT features -> 'judge' ->> 'chosen_item_id', llm_used "
+            "FROM analyzer.suggestion WHERE project_id=3 AND item_id=50",
+        ).fetchone()
+    assert row is not None
+    assert row[0] == "777"  # verdict persisted (never touched label/confidence)
+    assert row[1] is True  # llm_used flipped
+    # The read path surfaces the freshest verdict for the item.
+    verdict = retrieval.latest_judge(3, 50)
+    assert verdict is not None and verdict["chosen_item_id"] == 777
+    # A verdict older than the 14-day judge TTL is not surfaced.
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE analyzer.suggestion SET created_at = now() - interval '20 days' "
+            "WHERE project_id=3 AND item_id=50"
+        )
+    assert retrieval.latest_judge(3, 50) is None
+
+
 def test_cache_freshness_ttl(pool: ConnectionPool) -> None:
     cache = PgLlmCacheStore(pool)
     cache.put(1, "f" * 64, "explainer", "m", {"explanation": "x", "quoted_lines": []})
