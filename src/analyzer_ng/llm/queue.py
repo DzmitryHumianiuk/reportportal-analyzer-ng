@@ -60,25 +60,39 @@ class LlmQueue:
     # -- production ------------------------------------------------------- #
     def enqueue(self, job: LLMJob) -> None:
         with self._cond:
-            if len(self._heap) >= self._maxsize:
-                self._evict_oldest_lowest_locked()
+            if len(self._heap) >= self._maxsize and self._reject_or_evict_locked(job):
+                return  # incoming job was itself the worst candidate → dropped
             heapq.heappush(self._heap, (job.priority, self._seq, job))
             self._seq += 1
             self._cond.notify()
 
-    def _evict_oldest_lowest_locked(self) -> None:
-        """Drop the oldest job among the numerically-lowest priority (§1.5)."""
+    def _reject_or_evict_locked(self, incoming: LLMJob) -> bool:
+        """Make room for ``incoming`` by dropping the worst (oldest, least-urgent)
+        job — or drop ``incoming`` itself when it is no better than that candidate.
+
+        The eviction candidate is the oldest job among the **numerically-highest**
+        priority value (= least urgent, since lower = more urgent, §1.5). If the
+        incoming job is even less urgent (higher priority number), or equally urgent
+        but newer, evicting a queued job to admit it would be strictly worse — so the
+        incoming job is dropped instead. Either way one drop is counted. Returns True
+        iff the incoming job was rejected.
+        """
         worst_priority = max(entry[0] for entry in self._heap)
-        # Oldest = smallest insertion sequence among that priority band.
+        # Oldest = smallest insertion sequence among that least-urgent band.
         idx = min(
             (i for i, entry in enumerate(self._heap) if entry[0] == worst_priority),
             key=lambda i: self._heap[i][1],
         )
+        if self._on_drop is not None:
+            self._on_drop("queue_full")
+        # Incoming is the worst candidate: it is less urgent than the eviction
+        # candidate, so keep the queue as-is and drop the newcomer.
+        if incoming.priority > worst_priority:
+            return True
         self._heap[idx] = self._heap[-1]
         self._heap.pop()
         heapq.heapify(self._heap)
-        if self._on_drop is not None:
-            self._on_drop("queue_full")
+        return False
 
     def qsize(self) -> int:
         with self._lock:
@@ -89,7 +103,11 @@ class LlmQueue:
         with self._cond:
             while not self._heap and not self._stopping:
                 self._cond.wait()
-            if not self._heap:
+            # On stop, return None immediately even with a non-empty backlog: jobs
+            # are best-effort and lost on restart (§1.5), so we finish only the
+            # in-flight job and abandon the queue rather than block shutdown draining
+            # up to ANALYZER_LLM_QUEUE_MAX pending jobs.
+            if self._stopping or not self._heap:
                 return None
             return heapq.heappop(self._heap)[2]
 

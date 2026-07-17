@@ -54,6 +54,32 @@ def test_overflow_drops_oldest_lowest_priority() -> None:
     assert set(seen) == {2, 3, 4}
 
 
+def test_overflow_drops_incoming_when_it_is_the_worst() -> None:
+    # A full queue of urgent jobs must not evict one of them to admit a less-urgent
+    # newcomer — the incoming job is dropped instead.
+    drops: list[str] = []
+    seen: list[int] = []
+    q = LlmQueue(lambda job: seen.append(job.item_id), maxsize=2, on_drop=drops.append)
+    q.enqueue(LLMJob("judge", 1, 1))
+    q.enqueue(LLMJob("judge", 1, 2))
+    q.enqueue(LLMJob("explainer", 1, 3))  # full + least urgent → drop the newcomer
+    assert drops == ["queue_full"]
+    while q.drain_once():
+        pass
+    assert set(seen) == {1, 2}  # the two urgent jobs kept; item 3 rejected
+
+
+def test_stop_does_not_drain_backlog() -> None:
+    # On stop the worker returns None immediately even with queued jobs — only the
+    # in-flight job finishes; the backlog is abandoned (best-effort, §1.5).
+    q = LlmQueue(lambda job: None, maxsize=10)
+    q.enqueue(LLMJob("judge", 1, 1))
+    q.enqueue(LLMJob("judge", 1, 2))
+    q._stopping = True
+    assert q._pop_blocking() is None
+    assert q.qsize() == 2  # backlog left untouched, not drained
+
+
 def test_single_worker_thread_processes_async() -> None:
     processed = threading.Event()
     started = threading.Event()
