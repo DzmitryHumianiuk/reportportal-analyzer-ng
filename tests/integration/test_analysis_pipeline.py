@@ -231,7 +231,8 @@ def test_g2_suggestions_written_with_features_and_launch_groups(db_factory) -> N
         ).fetchall()
         assert len(sug) == 7
         for _iid, _label, _conf, features, model_ver, group_id in sug:
-            assert len(features) == 39  # full 39-feature snapshot (training reads these)
+            # 39 classical (spec 03 §6.4) + 2 LLM-extractor columns (spec 04 §4.2).
+            assert len(features) == 41  # full feature snapshot (training reads these)
             assert model_ver.startswith("rule_cold")
             assert group_id is not None
 
