@@ -59,6 +59,10 @@ ERROR_CLASS_ORDINAL: dict[str, int] = {
 BASE_LABELS = ("pb", "ab", "si", "nd")
 _LN2 = math.log(2.0)
 _LN4 = math.log(4.0)
+# Default per-day recency decay factor (ANALYZER_TIME_DECAY). Equivalent to the
+# 90-day half-life ``exp(-ln2·d/90)``; the config default equals this exactly so
+# wiring the knob leaves the feature vector byte-identical by default.
+TIME_DECAY_PER_DAY = 2.0 ** (-1.0 / 90.0)
 # si_prior is capped at 0.9 (spec §5 / feature #32 range [0,0.9]).
 SI_PRIOR_MAX = 0.9
 
@@ -131,11 +135,19 @@ def src_weight(label_source: str | None) -> float:
     return _SRC_WEIGHT.get(label_source or "", _SRC_WEIGHT_DEFAULT)
 
 
-def decay(days: float) -> float:
-    """Time-decay ``exp(-ln2 · d / 90)`` (half-life 90 days, spec §6.4)."""
+def decay(days: float, *, per_day: float = TIME_DECAY_PER_DAY) -> float:
+    """Time-decay of a candidate's recency weight (spec §6.4).
+
+    ``per_day`` is the per-day retention factor (ANALYZER_TIME_DECAY). At the
+    default it is the 90-day half-life ``exp(-ln2·d/90)`` — computed via the exact
+    legacy expression so the default path is bit-identical; a custom factor uses
+    ``per_day ** days``.
+    """
     if days <= 0:
         return 1.0
-    return math.exp(-_LN2 * days / 90.0)
+    if per_day == TIME_DECAY_PER_DAY:
+        return math.exp(-_LN2 * days / 90.0)
+    return per_day**days
 
 
 def base_group(issue_type: str | None) -> str | None:
@@ -206,6 +218,8 @@ class FeatureContext:
     # spec 04 §4.2 LLM-extractor categoricals; ``unknown`` on miss / LLM-off.
     llm_failing_layer: str = LLM_UNKNOWN
     llm_error_class: str = LLM_UNKNOWN
+    # Per-day recency decay factor (ANALYZER_TIME_DECAY); default = 90-day half-life.
+    time_decay_per_day: float = TIME_DECAY_PER_DAY
 
 
 def _clamp01(value: float) -> float:
@@ -257,7 +271,7 @@ def extract_features(ctx: FeatureContext) -> dict[str, float]:
 
         ages = list(ctx.candidate_ages_days)
         top1_age = ages[0] if ages else 0.0
-        values["recency_top1"] = _clamp01(decay(top1_age))
+        values["recency_top1"] = _clamp01(decay(top1_age, per_day=ctx.time_decay_per_day))
         values["src_weight_top1"] = src_weight(top1.label_source)
 
         # Weighted history mass per base label: Σ cos·decay·src_w, ÷ Σ all.
@@ -265,7 +279,9 @@ def extract_features(ctx: FeatureContext) -> dict[str, float]:
         total_mass = 0.0
         for i, c in enumerate(cands):
             age = ages[i] if i < len(ages) else 0.0
-            w = max(0.0, _cos(c)) * decay(age) * src_weight(c.label_source)
+            w = max(0.0, _cos(c)) * decay(age, per_day=ctx.time_decay_per_day) * src_weight(
+                c.label_source
+            )
             total_mass += w
             b = _base(c.issue_type)
             if b is not None:

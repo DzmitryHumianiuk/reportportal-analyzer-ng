@@ -205,6 +205,9 @@ class PipelineHandlers(StubHandlers):
         self._sidecar: object | None = None
         self._extractor_features: object | None = None
         self._judge_tau: float = 0.75
+        # Operator-tunable decision/pipeline knobs (spec 01 §5.2). Defaults equal the
+        # code constants so an unbound / defaulted engine is byte-identical.
+        self._engine_tunables: dict[str, float | int] = {}
 
     def bind(
         self,
@@ -214,15 +217,18 @@ class PipelineHandlers(StubHandlers):
         emb_model_ver: int = 0,
         emb_model_tag: str = "none",
         max_logs: int = 20,
+        drain_max_lines: int = 40,
         seed_kb: SeedKB | None = None,
         sidecar: object | None = None,
         extractor_features: object | None = None,
         judge_tau: float = 0.75,
+        engine_tunables: dict[str, float | int] | None = None,
     ) -> None:
         """Attach the store layer once the PostgreSQL pool is open (spec 01 §6)."""
         self._sidecar = sidecar
         self._extractor_features = extractor_features
         self._judge_tau = judge_tau
+        self._engine_tunables = dict(engine_tunables or {})
         retrieval = PgRetrievalStore(pool)
         self._retrieval = retrieval
         kb = PgKBStore(pool)
@@ -238,6 +244,7 @@ class PipelineHandlers(StubHandlers):
             embedder=embedder,
             emb_model_ver=emb_model_ver,
             max_logs=max_logs,
+            drain_max_lines=drain_max_lines,
         )
         self._emb_tag = emb_model_tag
         if seed_kb is not None:
@@ -317,6 +324,7 @@ class PipelineHandlers(StubHandlers):
             sidecar=self._sidecar,
             extractor_features=self._extractor_features,  # type: ignore[arg-type]
             judge_tau=self._judge_tau,
+            **self._engine_tunables,  # type: ignore[arg-type]
         )
 
     # -- index ------------------------------------------------------------- #

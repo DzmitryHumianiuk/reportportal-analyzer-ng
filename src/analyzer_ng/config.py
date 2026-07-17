@@ -117,12 +117,20 @@ class AppConfig(BaseSettings):
     analyzer_emb_batch_size: int = 32
     # Preprocessing / Drain3 tunables (spec 03 §1.1, §2.2).
     analyzer_max_logs_per_item: int = 20
-    analyzer_drain_sim_th: UnitInterval = 0.4
-    analyzer_drain_max_lines: int = 40
-    analyzer_auto_min_prob: UnitInterval = 0.6
-    analyzer_suggest_max: int = 3
-    analyzer_burst_si_share: UnitInterval = 0.5
-    analyzer_time_decay: UnitInterval = 0.999
+    # NOTE: ANALYZER_DRAIN_SIM_TH is intentionally NOT a config knob. The Drain3
+    # similarity threshold determines template identity (and therefore template
+    # fingerprints/hashes); changing it would silently re-partition history and break
+    # cross-run identity. It is pinned to the fixed constant
+    # ``analyzer_ng.ml.drain.DEFAULT_SIM_TH`` (documented in OPERATIONS §2).
+    analyzer_drain_max_lines: int = 40  # == ml.drain.DEFAULT_MAX_LINES
+    # Decision / pipeline tunables. Defaults MUST equal the code constants they feed
+    # (decision.TAU_AUTO, analysis.SUGGEST_MAX, grouping.BURST_X, features
+    # TIME_DECAY_PER_DAY) so default behavior is byte-identical to the pre-wiring
+    # build (asserted by tests/unit/test_config.py::test_wired_defaults_equal_constants).
+    analyzer_auto_min_prob: UnitInterval = 0.75  # == decision.TAU_AUTO
+    analyzer_suggest_max: int = 3  # == analysis.SUGGEST_MAX
+    analyzer_burst_si_share: UnitInterval = 0.4  # == grouping.BURST_X
+    analyzer_time_decay: UnitInterval = 2.0 ** (-1.0 / 90.0)  # == features.TIME_DECAY_PER_DAY
     # Optional LLM sidecar (spec 04 §1.2). All read once at startup; per-project
     # runtime disable lives in llm_role_state (spec 04 §6). With the master switch
     # off (the default) no code path touches the llm/ package beyond reading it.
@@ -138,7 +146,8 @@ class AppConfig(BaseSettings):
     analyzer_llm_queue_max: int = 500
     analyzer_llm_num_ctx: int = 4096
     analyzer_llm_judge_tau: UnitInterval = 0.75  # judge fires when τ_suggest ≤ p* < this
-    analyzer_seed_kb_path: str = "/opt/analyzer/seeds/failure_modes.json"
+    # NOTE: ANALYZER_SEED_KB_PATH removed (T2.4): the seed KB is packaged data loaded
+    # via importlib.resources (seeds/loader.py), never a filesystem path.
 
     @field_validator("analyzer_llm_api")
     @classmethod

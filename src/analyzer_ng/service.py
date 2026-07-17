@@ -101,6 +101,9 @@ class AnalyzerService:
             max_retries=config.amqp_handler_max_retries,
             metrics=self._metrics,
             task_timeout=config.amqp_handler_task_timeout,
+            # DEBUG_MODE (spec 01 §5.1): run handlers inline on the consumer thread
+            # (no worker pool) so a debug session gets synchronous, in-order handling.
+            inline=config.debug_mode,
         )
         self._consumers = [
             Consumer(
@@ -168,9 +171,16 @@ class AnalyzerService:
             emb_model_ver=emb_ver,
             emb_model_tag=emb_tag,
             max_logs=config.analyzer_max_logs_per_item,
+            drain_max_lines=config.analyzer_drain_max_lines,
             sidecar=sidecar if sidecar.enabled else None,
             extractor_features=extractor_features,
             judge_tau=config.analyzer_llm_judge_tau,
+            engine_tunables={
+                "auto_min_prob": config.analyzer_auto_min_prob,
+                "suggest_max": config.analyzer_suggest_max,
+                "burst_si_share": config.analyzer_burst_si_share,
+                "time_decay": config.analyzer_time_decay,
+            },
         )
 
     def _resolve_embedder(self) -> tuple[object | None, int, str]:

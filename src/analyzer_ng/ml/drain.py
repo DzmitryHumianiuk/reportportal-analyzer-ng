@@ -250,15 +250,17 @@ def load_manager(
     *,
     config: TemplateMinerConfig | None = None,
     template_loader: Callable[[int], list[str]] | None = None,
+    max_lines: int = DEFAULT_MAX_LINES,
 ) -> tuple[DrainManager, int]:
     """Load a project's :class:`DrainManager` and the CAS version to save against.
 
     Tries the serialized state first; on missing/undeserializable state it
     rebuilds from stored template texts (via ``template_loader``) and logs a
     WARN. Returns ``(manager, expected_version)`` — pass the version back to
-    :func:`save_manager`.
+    :func:`save_manager`. ``max_lines`` (ANALYZER_DRAIN_MAX_LINES) caps how many
+    lines of a message are template-mined.
     """
-    manager = DrainManager(config=config)
+    manager = DrainManager(config=config, max_lines=max_lines)
     loaded = store.load(project_id)
     if loaded is not None:
         state, version = loaded
@@ -269,7 +271,7 @@ def load_manager(
             logger.warning(
                 "Drain state for project %s failed to deserialize; rebuilding", project_id
             )
-            manager = DrainManager(config=config)
+            manager = DrainManager(config=config, max_lines=max_lines)
             if template_loader is not None:
                 manager.rebuild_from_templates(template_loader(project_id))
             return manager, version

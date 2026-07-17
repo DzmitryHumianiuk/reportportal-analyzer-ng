@@ -208,8 +208,8 @@ def kb_short_circuit(kb: KBMatch) -> bool:
 # --------------------------------------------------------------------------- #
 # Decision assembly
 # --------------------------------------------------------------------------- #
-def _band_action(confidence: float, short_circuit: bool) -> str:
-    if short_circuit or confidence >= TAU_AUTO:
+def _band_action(confidence: float, short_circuit: bool, tau_auto: float = TAU_AUTO) -> str:
+    if short_circuit or confidence >= tau_auto:
         return ACTION_AUTO
     if confidence >= TAU_SUGGEST:
         return ACTION_SUGGEST
@@ -254,8 +254,14 @@ class DecisionInputs:
     gbm_predict: Callable[[list[float]], GbmDecision | None] | None = None
 
 
-def decide(inputs: DecisionInputs, *, now: datetime | None = None) -> DecisionResult:
-    """Rule-based cold decision + feature snapshot + policy band (spec §6.1-§6.6)."""
+def decide(
+    inputs: DecisionInputs, *, now: datetime | None = None, tau_auto: float = TAU_AUTO
+) -> DecisionResult:
+    """Rule-based cold decision + feature snapshot + policy band (spec §6.1-§6.6).
+
+    ``tau_auto`` is the auto-apply threshold (ANALYZER_AUTO_MIN_PROB); it defaults to
+    the spec constant :data:`TAU_AUTO` so an unwired caller is unaffected.
+    """
     now = now or datetime.now(UTC)
     kb_pair = best_kb_match(inputs.kb_candidates)
     kb_best = kb_pair[0] if kb_pair else None
@@ -278,7 +284,11 @@ def decide(inputs: DecisionInputs, *, now: datetime | None = None) -> DecisionRe
         probs: dict[str, float] | None = None,
         model_version: str | None = None,
     ) -> DecisionResult:
-        action = ACTION_ABSTAIN if label == "ti" else _band_action(confidence, short_circuit)
+        action = (
+            ACTION_ABSTAIN
+            if label == "ti"
+            else _band_action(confidence, short_circuit, tau_auto)
+        )
         default_probs = {label: confidence} if label != "ti" else {}
         return DecisionResult(
             label=label,

@@ -64,6 +64,27 @@ def test_successful_reply_is_published() -> None:
         pool.shutdown(timeout=2)
 
 
+def test_inline_mode_processes_on_caller_thread_without_workers() -> None:
+    # DEBUG_MODE (spec 01 §5.1): inline mode starts no worker threads and processes
+    # each item synchronously on the submitting thread; the reply is already
+    # published by the time submit() returns.
+    pub = FakePublisher()
+    pool = WorkerPool(Dispatcher(), pub, inline=True)
+    pool.start()  # no-op: no worker threads spawned
+    caller = threading.get_ident()
+    seen: list[int] = []
+
+    class _Spy(Dispatcher):
+        def process(self, routing_key: str, body: Any) -> Any:
+            seen.append(threading.get_ident())
+            return super().process(routing_key, body)
+
+    pool._dispatcher = _Spy()  # type: ignore[attr-defined]
+    pool.submit(ProcessingItem(1, 1, "noop_echo", reply_to="rq", correlation_id="c", body="hi"))
+    assert pub.replies == [("rq", "c", "hi")]  # done synchronously, no _wait needed
+    assert seen == [caller]  # ran on the caller thread, not a worker
+
+
 def test_no_reply_when_reply_to_absent() -> None:
     pub = FakePublisher()
     pool = _pool(pub)

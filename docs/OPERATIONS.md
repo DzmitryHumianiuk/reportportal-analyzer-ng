@@ -46,13 +46,21 @@ auto-labels / suggestions, more abstains); lower it to be more eager.
 
 | Var | Default | Effect |
 |---|---|---|
-| `ANALYZER_AUTO_MIN_PROB` | `0.6` | min calibrated probability to **auto-apply** a defect. Higher → fewer auto-labels |
+| `ANALYZER_AUTO_MIN_PROB` | `0.75` | min calibrated probability to **auto-apply** a defect (decision `τ_auto`). Higher → fewer auto-labels |
 | `ANALYZER_SUGGEST_MAX` | `3` | max suggestions returned in Make Decision |
 | `ANALYZER_MAX_LOGS_PER_ITEM` | `20` | cap on logs embedded per item |
-| `ANALYZER_DRAIN_SIM_TH` | `0.4` | Drain3 template similarity threshold (log clustering) |
 | `ANALYZER_DRAIN_MAX_LINES` | `40` | max lines kept per log for templating |
-| `ANALYZER_BURST_SI_SHARE` | `0.5` | co-failure burst → System Issue prior weight |
-| `ANALYZER_TIME_DECAY` | `0.999` | recency decay for historical label priors |
+| `ANALYZER_BURST_SI_SHARE` | `0.4` | dominant-new-fingerprint share of a launch's failures that triggers the System Issue prior |
+| `ANALYZER_TIME_DECAY` | `0.99231` | per-day recency decay for historical label priors (= 90-day half-life) |
+
+> **Not tunable:** the Drain3 template similarity threshold is **fixed** at `0.4`
+> (`ml.drain.DEFAULT_SIM_TH`), not an env var. It determines template identity —
+> and therefore template fingerprints/hashes — so changing it would silently
+> re-partition all history and break cross-run identity. Re-mine from scratch if it
+> ever must change (see §7).
+
+These knobs are read once at startup; their defaults equal the code constants, so
+leaving them unset reproduces the built-in behavior exactly.
 
 RP-side per-project knobs (project attributes, not analyzer env):
 `analyzer.isAutoAnalyzerEnabled`, `analyzer.autoAnalyzerMode`

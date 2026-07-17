@@ -48,13 +48,14 @@ from analyzer_ng.core.decision import (
 from analyzer_ng.core.features import (
     FEATURE_SCHEMA_VER,
     LLM_UNKNOWN,
+    TIME_DECAY_PER_DAY,
     FeatureContext,
     SeedSignal,
     feature_names,
     src_weight,
     to_vector,
 )
-from analyzer_ng.core.grouping import GroupItem, LaunchGroup, group_launch
+from analyzer_ng.core.grouping import BURST_X, GroupItem, LaunchGroup, group_launch
 from analyzer_ng.core.ingest import IndexPipeline, ItemAnalysis
 from analyzer_ng.db.repositories.models import (
     Candidate,
@@ -98,6 +99,12 @@ class AnalysisEngine:
     # template_ids) -> (failing_layer, error_class) | None. Miss ⇒ ``unknown``.
     extractor_features: Callable[[int, int, Sequence[int]], tuple[str, str] | None] | None = None
     judge_tau: float = TAU_AUTO  # judge fires on τ_suggest ≤ p* < judge_tau (§4.3)
+    # Operator-tunable knobs (spec 01 §5.2). Defaults equal the code constants so an
+    # engine built without them is byte-identical to the pre-wiring build.
+    auto_min_prob: float = TAU_AUTO  # ANALYZER_AUTO_MIN_PROB → decision auto band
+    suggest_max: int = SUGGEST_MAX  # ANALYZER_SUGGEST_MAX → suggestions returned
+    burst_si_share: float = BURST_X  # ANALYZER_BURST_SI_SHARE → grouping burst prior
+    time_decay: float = TIME_DECAY_PER_DAY  # ANALYZER_TIME_DECAY → feature recency decay
 
     # ------------------------------------------------------------------ #
     # analyze (spec §6.6 analyze column)
@@ -297,6 +304,7 @@ class AnalysisEngine:
         ]
         return group_launch(
             items,
+            burst_x=self.burst_si_share,
             is_error_hash_new=lambda h: not self.retrieval.error_hash_seen(project, h, launch_id),
         )
 
@@ -374,7 +382,7 @@ class AnalysisEngine:
             feature_ctx=ctx,
             gbm_predict=gbm_predict,
         )
-        return decide(inputs)
+        return decide(inputs, tau_auto=self.auto_min_prob)
 
     def _stage_c(
         self,
@@ -482,6 +490,7 @@ class AnalysisEngine:
             exception_count=len(sig.exc_classes),
             llm_failing_layer=failing_layer,
             llm_error_class=error_class,
+            time_decay_per_day=self.time_decay,
         )
 
     # ------------------------------------------------------------------ #
@@ -598,7 +607,9 @@ class AnalysisEngine:
         log_id = info.logs[0].logId if info.logs else 0
         method = "auto_analysis" if decision.action == ACTION_AUTO else "suggestion"
         out: list[SuggestAnalysisResult] = []
-        for rank, (issue_type, rel_item, score, es_score) in enumerate(candidates[:SUGGEST_MAX]):
+        for rank, (issue_type, rel_item, score, es_score) in enumerate(
+            candidates[: self.suggest_max]
+        ):
             out.append(
                 SuggestAnalysisResult(
                     project=info.project,

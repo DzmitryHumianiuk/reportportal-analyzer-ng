@@ -31,7 +31,7 @@ from analyzer_ng.amqp.models import (
 from analyzer_ng.core.cancellation import raise_if_cancelled
 from analyzer_ng.db.repositories.models import SignatureIn, TestItemIn
 from analyzer_ng.db.repositories.protocols import Drain3StateStore, RetrievalStore, StatsStore
-from analyzer_ng.ml.drain import DrainManager, load_manager, save_manager
+from analyzer_ng.ml.drain import DEFAULT_MAX_LINES, DrainManager, load_manager, save_manager
 from analyzer_ng.ml.hashing import to_signed64
 from analyzer_ng.ml.signature import SignatureResult
 from analyzer_ng.preprocessing import pipeline as pp
@@ -93,6 +93,7 @@ class IndexPipeline:
         embedder: object | None = None,
         emb_model_ver: int = 0,
         max_logs: int = 20,
+        drain_max_lines: int = DEFAULT_MAX_LINES,
         cas_retries: int = DRAIN_CAS_RETRIES,
     ) -> None:
         self._retrieval = retrieval
@@ -101,6 +102,7 @@ class IndexPipeline:
         self._embedder = embedder
         self._emb_model_ver = emb_model_ver
         self._max_logs = max_logs
+        self._drain_max_lines = drain_max_lines
         self._cas_retries = cas_retries
 
     # ------------------------------------------------------------------ #
@@ -176,6 +178,7 @@ class IndexPipeline:
                 self._drain_store,
                 project_id,
                 template_loader=self._load_template_texts,
+                max_lines=self._drain_max_lines,
             )
             items: list[TestItemIn] = []
             sigs: list[SignatureIn] = []
@@ -280,7 +283,10 @@ class IndexPipeline:
         persisted templates.
         """
         manager, _version = load_manager(
-            self._drain_store, project_id, template_loader=self._load_template_texts
+            self._drain_store,
+            project_id,
+            template_loader=self._load_template_texts,
+            max_lines=self._drain_max_lines,
         )
         out: list[ItemAnalysis] = []
         for launch, item in entries:

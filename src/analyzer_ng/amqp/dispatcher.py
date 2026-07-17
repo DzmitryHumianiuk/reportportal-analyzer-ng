@@ -264,9 +264,13 @@ class WorkerPool:
         retry_delays: list[float] | None = None,
         metrics: MetricsSink | None = None,
         task_timeout: float = 600.0,
+        inline: bool = False,
     ) -> None:
         self._dispatcher = dispatcher
         self._publisher = publisher
+        # DEBUG_MODE (spec 01 §5.1): process each item synchronously on the caller's
+        # (consumer) thread — no worker threads, no queue — for deterministic debugging.
+        self._inline = inline
         self._workers = max(1, workers)
         self._queue: PriorityQueue[ProcessingItem] = PriorityQueue(maxsize=queue_size)
         self._max_retries = max_retries
@@ -282,13 +286,22 @@ class WorkerPool:
 
     # -- lifecycle --------------------------------------------------------- #
     def start(self) -> None:
+        if self._inline:
+            return  # inline mode: no worker threads; submit() runs handlers directly
         for i in range(self._workers):
             thread = threading.Thread(target=self._run, name=f"worker-{i}", daemon=True)
             thread.start()
             self._threads.append(thread)
 
     def submit(self, item: ProcessingItem) -> None:
-        """Enqueue an item, blocking while the queue is full (backpressure)."""
+        """Enqueue an item, blocking while the queue is full (backpressure).
+
+        In inline (DEBUG_MODE) mode the item is processed synchronously on the
+        calling thread instead — the same retry/DLQ/watchdog policy, no queue.
+        """
+        if self._inline:
+            self._process(item)
+            return
         self._queue.put(item, block=True)
 
     @property

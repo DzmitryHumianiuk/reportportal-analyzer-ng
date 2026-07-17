@@ -96,10 +96,11 @@ def test_defaults_match_spec(env: pytest.MonkeyPatch) -> None:
     assert cfg.analyzer_ng_queue_size == 100
     assert cfg.analyzer_emb_model_path == "/opt/analyzer/models/e5-small-int8"
     assert cfg.analyzer_emb_dims == 384
-    assert cfg.analyzer_auto_min_prob == 0.6
+    # Defaults equal the code constants they feed (wired knobs, behavior unchanged).
+    assert cfg.analyzer_auto_min_prob == 0.75
     assert cfg.analyzer_suggest_max == 3
-    assert cfg.analyzer_burst_si_share == 0.5
-    assert cfg.analyzer_time_decay == 0.999
+    assert cfg.analyzer_burst_si_share == 0.4
+    assert cfg.analyzer_time_decay == 2.0 ** (-1.0 / 90.0)
     assert cfg.analyzer_llm_enabled is False
     assert cfg.ollama_url == "http://ollama:11434"
     assert cfg.analyzer_llm_model == "qwen3:4b-q4_K_M"
@@ -108,7 +109,28 @@ def test_defaults_match_spec(env: pytest.MonkeyPatch) -> None:
     assert cfg.analyzer_llm_timeout_s == 20
     assert cfg.analyzer_llm_queue_max == 500
     assert cfg.analyzer_llm_num_ctx == 4096
-    assert cfg.analyzer_seed_kb_path == "/opt/analyzer/seeds/failure_modes.json"
+    # Removed knobs are no longer config attributes (drain_sim_th pinned to a
+    # constant; seed_kb_path is packaged data via importlib.resources).
+    assert not hasattr(cfg, "analyzer_seed_kb_path")
+    assert not hasattr(cfg, "analyzer_drain_sim_th")
+
+
+def test_wired_defaults_equal_code_constants() -> None:
+    # The newly-wired knobs must default to the exact code constants they feed, so
+    # default behavior is byte-identical to the pre-wiring build (finding #4).
+    from analyzer_ng.core.decision import TAU_AUTO
+    from analyzer_ng.core.features import TIME_DECAY_PER_DAY
+    from analyzer_ng.core.grouping import BURST_X
+
+    cfg = AppConfig(
+        amqp_url="amqp://guest:guest@localhost/",
+        analyzer_pg_dsn="postgresql://u:p@localhost/analyzer",
+    )  # type: ignore[call-arg]
+    assert cfg.analyzer_auto_min_prob == TAU_AUTO
+    assert cfg.analyzer_suggest_max == 3  # analysis.SUGGEST_MAX
+    assert cfg.analyzer_burst_si_share == BURST_X
+    assert cfg.analyzer_time_decay == TIME_DECAY_PER_DAY
+    assert cfg.analyzer_drain_max_lines == 40  # ml.drain.DEFAULT_MAX_LINES
 
 
 # --------------------------------------------------------------------------- #
