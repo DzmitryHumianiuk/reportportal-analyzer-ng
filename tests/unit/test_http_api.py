@@ -25,11 +25,15 @@ class FakeProvider:
     emb_model_ver = None
     gbm_model_ver = None
 
-    def __init__(self, *, ready: bool, pg: bool, amqp: bool) -> None:
+    def __init__(self, *, ready: bool, pg: bool, amqp: bool, metrics: dict | None = None) -> None:
         self._ready = ready
         self._pg = pg
         self._amqp = amqp
         self._metrics = Metrics()
+        self._summary = metrics
+
+    def metrics_summary(self) -> dict | None:
+        return self._summary
 
     def is_ready(self) -> bool:
         return self._ready
@@ -75,7 +79,17 @@ def test_health_reports_ready_pg_amqp() -> None:
         "emb_model_ver": None,
         "gbm_model_ver": None,
         "version": "9.9.9",
+        "metrics": None,
     }
+
+
+def test_health_exposes_metrics_daily_summary() -> None:
+    # spec §10.3: the daily-metrics summary is surfaced on the health endpoint.
+    summary = {"suggestions": 12, "accepted": 7, "auto_corrected": 1, "last_day": "2026-07-15"}
+    provider = FakeProvider(ready=True, pg=True, amqp=True, metrics=summary)
+    resp = TestClient(create_app(provider)).get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["metrics"] == summary
 
 
 def test_health_503_before_ready() -> None:

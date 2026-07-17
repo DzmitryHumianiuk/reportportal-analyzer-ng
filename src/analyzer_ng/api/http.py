@@ -35,6 +35,7 @@ class HealthProvider(Protocol):
     def pg_ok(self) -> bool: ...
     def thread_statuses(self) -> list[dict[str, Any]]: ...
     def render_metrics(self) -> tuple[bytes, str]: ...
+    def metrics_summary(self) -> dict | None: ...
 
 
 def create_app(provider: HealthProvider) -> FastAPI:
@@ -55,6 +56,8 @@ def create_app(provider: HealthProvider) -> FastAPI:
     @app.get("/health")
     def health() -> Response:
         ready = provider.is_ready()
+        # metrics_summary is optional on older providers/fakes — degrade gracefully.
+        summary_fn = getattr(provider, "metrics_summary", None)
         body = {
             "live": True,
             "ready": ready,
@@ -63,6 +66,7 @@ def create_app(provider: HealthProvider) -> FastAPI:
             "emb_model_ver": provider.emb_model_ver,
             "gbm_model_ver": provider.gbm_model_ver,
             "version": provider.version,
+            "metrics": summary_fn() if callable(summary_fn) else None,
         }
         return JSONResponse(status_code=200 if ready else 503, content=body)
 

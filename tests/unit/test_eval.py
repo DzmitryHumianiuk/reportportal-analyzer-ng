@@ -78,8 +78,22 @@ def test_evaluate_reports_full_metric_set():
     assert 0.0 <= report.macro_f1 <= 1.0
     assert 0.0 <= report.abstain_rate <= 1.0
     assert 0.0 <= report.acceptance_rate <= 1.0
-    assert 0.0 <= report.auto_band_precision <= 1.0
+    assert report.auto_band_precision is None or 0.0 <= report.auto_band_precision <= 1.0
+    assert report.auto_band_support >= 0
     assert 0.0 <= report.ece <= 1.0
+
+
+def test_auto_band_precision_is_none_when_band_empty():
+    # An always-abstaining scorer: force every p* below τ_auto via an identity
+    # calibrator clamped to 0 has no fixture here, so instead assert the None contract
+    # directly through report_from_predictions on all-low-confidence predictions.
+    from analyzer_ng.ml.eval import Prediction, report_from_predictions
+
+    preds = [Prediction(true="pb", pred="pb", p_star=0.30) for _ in range(10)]
+    report = report_from_predictions(preds)
+    assert report.auto_band_support == 0
+    assert report.auto_band_precision is None  # not a vacuous 1.0
+    assert report.to_dict()["auto_band_precision"] is None
 
 
 def test_learnable_model_beats_degraded_on_macro_f1():

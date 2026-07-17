@@ -49,10 +49,12 @@ def test_per_label_breakdown_and_model_ver():
         ],
         model_ver="gbm-X",
     )
-    [dm] = aggregate_daily(rows)
+    [dm] = aggregate_daily(rows, emb_model_ver="e5s-int8-rABC")
     assert dm.per_label["pb"] == {"suggested": 2, "accepted": 1, "corrected": 1}
     assert dm.per_label["ab"] == {"suggested": 1, "accepted": 1, "corrected": 0}
     assert dm.model_ver == "gbm-X"
+    assert dm.emb_model_ver == "e5s-int8-rABC"
+    assert dm.to_dict()["emb_model_ver"] == "e5s-int8-rABC"
 
 
 def test_aggregation_splits_by_project_and_day():
@@ -113,3 +115,10 @@ def test_job_on_empty_day_writes_nothing():
     job = MetricsDailyJob(store)
     assert job.run(date(2026, 1, 1)) == []
     assert store.upserted == []
+
+
+def test_job_stamps_active_emb_model_ver():
+    rows = synth_suggestions([(1, 0, "pb001", 0.9, "accepted")])
+    store = _FakeStatsStore(rows)
+    written = MetricsDailyJob(store, emb_model_ver="e5s-int8-rZZ").run(rows[0]["created_at"].date())
+    assert written[0].emb_model_ver == "e5s-int8-rZZ"

@@ -7,9 +7,8 @@ from datetime import UTC, datetime
 from _ml_synth import FakeLabels, FakeModelStore, degraded_frame, synth_frame
 
 from analyzer_ng.core.features import FEATURE_SCHEMA_VER
-from analyzer_ng.ml import retrain as retrain_mod
 from analyzer_ng.ml.artifacts import KIND_GBM, ArtifactSpec
-from analyzer_ng.ml.eval import EvalReport, LabelPRF
+from analyzer_ng.ml.eval import EvalReport, LabelPRF, chronological_split, evaluate, usable_events
 from analyzer_ng.ml.gate import (
     AUTO_BAND_FLOOR,
     GATE_ABSTAIN_SLACK,
@@ -33,8 +32,25 @@ def _report(macro_f1, auto_prec, abstain, *, n=200):
         abstain_rate=abstain,
         acceptance_rate=macro_f1,
         auto_band_precision=auto_prec,
+        auto_band_support=0 if auto_prec is None else n,
         ece=0.0,
     )
+
+
+def _shuffle_labels(events, seed):
+    """Crippling train_fn helper: same feature rows, labels permuted (destroys signal)."""
+    import random
+
+    labels = [e["new_label"] for e in events]
+    random.Random(seed).shuffle(labels)
+    return [{**e, "new_label": lbl} for e, lbl in zip(events, labels, strict=True)]
+
+
+def _crippled_train_fn(seed):
+    def _fn(train_events):
+        return train_gbm(_shuffle_labels(train_events, seed))
+
+    return _fn
 
 
 # --------------------------------------------------------------------------- #
@@ -82,6 +98,19 @@ def test_auto_band_precision_must_meet_floor_and_active():
     assert passes_gate(_report(0.80, 0.86, 0.20), weak_active).ship
 
 
+def test_empty_candidate_auto_band_is_not_a_vacuous_pass_or_fail():
+    # Candidate makes no auto-labels (auto band empty → precision None). There is no
+    # auto-labeling to guard, so the auto-band axis is not failed; the verdict rests on
+    # macro-F1 / abstain (spec §10.2). Guards the old vacuous-1.0 bug.
+    active = _report(0.80, 0.95, 0.20)
+    cand_empty = _report(0.80, None, 0.22)  # None precision, abstain within slack
+    res = passes_gate(cand_empty, active)
+    assert "auto_band_precision" not in res.reasons
+    assert res.ship  # macro-F1 equal, abstain within slack → ships on the other axes
+    # But an empty auto band does NOT rescue a macro-F1 collapse.
+    assert not passes_gate(_report(0.50, None, 0.22), active).ship
+
+
 def test_abstain_rate_may_rise_at_most_slack():
     active = _report(0.80, 0.90, 0.20)
     ok = _report(0.80, 0.90, 0.25)  # +0.05 exactly
@@ -95,27 +124,47 @@ def test_abstain_rate_may_rise_at_most_slack():
 # --------------------------------------------------------------------------- #
 # Full replay gate (spec §10.1 + §10.2) — real models, leakage-free
 # --------------------------------------------------------------------------- #
+def test_run_gate_fits_candidate_leakage_free_not_on_the_eval_slice():
+    # RED→GREEN for the leakage fix. On a signal-free frame an honestly-trained
+    # candidate (fit on the 80% train slice only) CANNOT predict the held-out 20%, so
+    # its macro-F1 stays near chance. The pre-fix wiring scored a candidate fit on
+    # 100% of the same rows on the last 20% of those rows and got ~1.0 (memorisation),
+    # inflating every retrain toward shipping. run_gate must fit on the train slice.
+    rows = degraded_frame(n=1000, seed=31)
+    res = run_gate(rows, None)  # bootstrap; candidate fit on 80% only
+    assert res.candidate.macro_f1 < 0.45  # honest — no signal to learn
+
+    # Contrast: the leaky path the fix removes (fit on ALL rows, score last 20%).
+    leaky = train_gbm(rows)
+    eval_slice = chronological_split(usable_events(rows))[1]
+    assert evaluate(leaky, eval_slice).macro_f1 > 0.9  # inflated by leakage
+    assert res.candidate.macro_f1 < evaluate(leaky, eval_slice).macro_f1 - 0.4
+
+
 def test_run_gate_ships_a_good_candidate_over_active():
     rows = synth_frame(n=1000, seed=11)
     active = train_gbm(rows)
-    candidate = train_gbm(synth_frame(n=1000, seed=12))  # another good model
-    res = run_gate(candidate, active, rows)
+    res = run_gate(rows, active)  # candidate fit internally on the 80% slice
     assert res.ship
     assert res.candidate.macro_f1 > 0.8
 
 
-def test_run_gate_rejects_a_deliberately_degraded_candidate():
+def test_run_gate_rejects_a_crippled_candidate_trained_on_the_same_frame():
+    # Overlap path (per review): the crippled candidate is trained on the SAME frame's
+    # train slice (labels shuffled) and evaluated on that frame's held-out eval slice —
+    # no separate frame. It cannot predict the good held-out data → rejected vs a good
+    # active model trained on the same train slice.
     rows = synth_frame(n=1000, seed=13)
-    active = train_gbm(rows)
-    degraded = train_gbm(degraded_frame(n=1000, seed=13))
-    res = run_gate(degraded, active, rows)
+    train = chronological_split(usable_events(rows))[0]
+    active = train_gbm(train)  # good baseline on the train slice
+    res = run_gate(rows, active, train_fn=_crippled_train_fn(seed=99))
     assert not res.ship
-    assert res.reasons  # at least one condition failed
+    assert "macro_f1" in res.reasons
 
 
 def test_run_gate_ships_first_model_when_active_is_none():
     rows = synth_frame(n=1000, seed=14)
-    res = run_gate(train_gbm(rows), None, rows)
+    res = run_gate(rows, None)
     assert res.ship
 
 
@@ -148,10 +197,10 @@ def test_make_ship_gate_returns_true_for_good_candidate():
 def test_make_ship_gate_rejects_degraded_candidate_and_persists_metrics():
     store = FakeModelStore()
     rows = synth_frame(n=1000, seed=17)
-    _ship_active(store, rows)
-    gate = make_ship_gate(store)
-    degraded = train_gbm(degraded_frame(n=1000, seed=17))
-    assert gate(degraded, rows) is False
+    _ship_active(store, rows)  # good active model in the store
+    # The gate fits its proxy candidate with a crippling trainer → rejected vs active.
+    gate = make_ship_gate(store, train_fn=_crippled_train_fn(seed=17))
+    assert gate(train_gbm(rows), rows) is False
     # The active model is untouched; a rejected-candidate audit row is stored inactive.
     assert store.active_gbm_version()[1] == "active-v1"
     inactive = [r for r in store._rows if r.kind == KIND_GBM and not r.is_active]
@@ -168,21 +217,24 @@ def test_make_ship_gate_ships_first_model_on_cold_store():
 # --------------------------------------------------------------------------- #
 # G3 full loop: retrain → eval → ship/keep through the real Retrainer seam
 # --------------------------------------------------------------------------- #
-def test_full_loop_ships_first_then_keeps_active_when_candidate_is_crippled(monkeypatch):
+def test_full_loop_ships_first_then_keeps_active_when_candidate_is_crippled():
     rows = synth_frame(n=1000, seed=19)
     store = FakeModelStore()
+    # Simulate a training regression: the gate's proxy trainer is crippled, so every
+    # post-bootstrap candidate is honestly (leakage-free) scored below the active model
+    # on the held-out slice and rejected — the active model is kept.
     retrainer = Retrainer(
-        FakeLabels(rows), store, gate=make_ship_gate(store), clock=lambda: NOW
+        FakeLabels(rows),
+        store,
+        gate=make_ship_gate(store, train_fn=_crippled_train_fn(seed=19)),
+        clock=lambda: NOW,
     )
-    # 1. First retrain: no active baseline → gate bootstraps → good model ships.
+    # 1. First retrain: no active baseline → gate bootstraps → good full-data model ships.
     out1 = retrainer.retrain(reason="route", now=NOW)
     assert out1.shipped
     ships_after_first = store.ship_calls
 
-    # 2. Simulate a training regression: the next candidate is crippled. The gate
-    #    scores it against the shipped good model on the eval slice and rejects it.
-    degraded = train_gbm(degraded_frame(n=1000, seed=19))
-    monkeypatch.setattr(retrain_mod, "train_gbm", lambda _rows: degraded)
+    # 2. Next retrain: the crippled proxy loses to the shipped good model → kept.
     out2 = retrainer.retrain(reason="route", now=NOW)
     assert not out2.shipped
     assert out2.reason == "gate_rejected"

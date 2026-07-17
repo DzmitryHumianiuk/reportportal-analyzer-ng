@@ -170,7 +170,7 @@ class AnalyzerService:
             if stats is not None:
                 try:
                     yesterday = datetime.now(UTC).date() - timedelta(days=1)
-                    MetricsDailyJob(stats).run(yesterday)
+                    MetricsDailyJob(stats, emb_model_ver=self.emb_model_ver).run(yesterday)
                 except Exception:  # noqa: BLE001 — reporting must not kill the timer
                     logger.exception("nightly metrics_daily rollup failed")
 
@@ -229,3 +229,15 @@ class AnalyzerService:
         self._metrics.queue_depth.set(self._pool.queue_depth)
         self._metrics.pg_pool_in_use.set(pool_in_use(self._pg_pool))
         return self._metrics.render()
+
+    def metrics_summary(self) -> dict | None:
+        """Install-wide metrics_daily rollup for the health endpoint (spec §10.3)."""
+        stats = self._handlers.stats
+        if stats is None:
+            return None
+        try:
+            since = datetime.now(UTC).date() - timedelta(days=7)
+            return stats.metrics_summary(since)
+        except Exception:  # noqa: BLE001 — the health endpoint must never raise
+            logger.exception("metrics summary failed")
+            return None

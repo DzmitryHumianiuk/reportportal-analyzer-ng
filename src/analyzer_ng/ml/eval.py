@@ -25,9 +25,9 @@ from dataclasses import dataclass
 import numpy as np
 
 from analyzer_ng.core.decision import TAU_AUTO, TAU_SUGGEST
-from analyzer_ng.core.features import BASE_LABELS, to_vector
+from analyzer_ng.core.features import BASE_LABELS, base_group, to_vector
 from analyzer_ng.ml.calibration import IsotonicCalibrator
-from analyzer_ng.ml.trainer import GbmModel, base_label
+from analyzer_ng.ml.trainer import GbmModel
 
 # Number of equal-width probability bins for the ECE estimate (spec §10.1).
 ECE_BINS = 10
@@ -58,14 +58,21 @@ class Prediction:
 
 @dataclass(frozen=True)
 class EvalReport:
-    """The full metric set for one model on one eval slice (spec §10.1 step 4)."""
+    """The full metric set for one model on one eval slice (spec §10.1 step 4).
+
+    ``auto_band_precision`` is ``None`` (not a vacuous ``1.0``) when the auto band is
+    empty — the model made no ``p* ≥ τ_auto`` prediction, so there is no auto-label
+    precision to measure. The gate reads that as "no auto-labeling to guard" rather
+    than "perfect auto-labeling" (§10.2); ``auto_band_support`` carries the count.
+    """
 
     n_eval: int
     per_label: dict[str, LabelPRF]
     macro_f1: float
     abstain_rate: float
     acceptance_rate: float
-    auto_band_precision: float
+    auto_band_precision: float | None
+    auto_band_support: int
     ece: float
 
     def to_dict(self) -> dict:
@@ -76,6 +83,7 @@ class EvalReport:
             "abstain_rate": self.abstain_rate,
             "acceptance_rate": self.acceptance_rate,
             "auto_band_precision": self.auto_band_precision,
+            "auto_band_support": self.auto_band_support,
             "ece": self.ece,
             "per_label": {
                 lbl: {
@@ -103,15 +111,17 @@ def usable_events(rows: list[dict]) -> list[dict]:
     """
     latest: dict[tuple[int, int], dict] = {}
     for r in rows:
-        if not r.get("features"):
-            continue
-        if base_label(r.get("new_label")) is None:
+        if not _is_usable(r):
             continue
         key = (int(r.get("project_id", 0)), int(r.get("item_id", 0)))
         cur = latest.get(key)
         if cur is None or _ts_key(r) >= _ts_key(cur):
             latest[key] = r
     return sorted(latest.values(), key=lambda r: (_ts_key(r), int(r.get("item_id", 0))))
+
+
+def _is_usable(row: dict) -> bool:
+    return bool(row.get("features")) and base_group(row.get("new_label")) is not None
 
 
 def chronological_split(
@@ -138,7 +148,7 @@ def score_events(
     for e in events:
         label, raw, _probs = model.predict_label(to_vector(e["features"]))
         p_star = calibrator.predict(raw) if calibrator is not None else raw
-        true = base_label(e.get("new_label")) or ""
+        true = base_group(e.get("new_label")) or ""
         preds.append(Prediction(true=true, pred=label, p_star=float(p_star)))
     return preds
 
@@ -185,10 +195,11 @@ def report_from_predictions(preds: list[Prediction]) -> EvalReport:
     acceptance_rate = (
         sum(1 for p in non_abstained if p.correct) / len(non_abstained) if non_abstained else 0.0
     )
-    # Vacuous precision (1.0) when nothing enters the auto band — a model that never
-    # auto-labels wrongly-labels nothing; the abstain/macro-F1 conditions catch it.
+    # None (not a vacuous 1.0) when the auto band is empty — there is no auto-label
+    # precision to measure; the gate treats that as "no auto-labeling to guard" and
+    # decides on macro-F1 / abstain instead (§10.2).
     auto_band_precision = (
-        sum(1 for p in auto_band if p.correct) / len(auto_band) if auto_band else 1.0
+        sum(1 for p in auto_band if p.correct) / len(auto_band) if auto_band else None
     )
     return EvalReport(
         n_eval=n,
@@ -197,6 +208,7 @@ def report_from_predictions(preds: list[Prediction]) -> EvalReport:
         abstain_rate=abstain_rate,
         acceptance_rate=acceptance_rate,
         auto_band_precision=auto_band_precision,
+        auto_band_support=len(auto_band),
         ece=_ece(preds),
     )
 

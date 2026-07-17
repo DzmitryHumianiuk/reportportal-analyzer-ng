@@ -51,6 +51,7 @@ class DailyMetrics:
     auto_corrected: int = 0
     per_label: dict[str, dict[str, int]] = field(default_factory=dict)
     model_ver: str | None = None
+    emb_model_ver: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -65,6 +66,7 @@ class DailyMetrics:
             "auto_corrected": self.auto_corrected,
             "per_label": self.per_label,
             "model_ver": self.model_ver,
+            "emb_model_ver": self.emb_model_ver,
         }
 
 
@@ -86,12 +88,18 @@ class _Acc:
         return self.per_label.setdefault(base, {"suggested": 0, "accepted": 0, "corrected": 0})
 
 
-def aggregate_daily(suggestions: list[dict], *, tau_auto: float = TAU_AUTO) -> list[DailyMetrics]:
+def aggregate_daily(
+    suggestions: list[dict],
+    *,
+    tau_auto: float = TAU_AUTO,
+    emb_model_ver: str | None = None,
+) -> list[DailyMetrics]:
     """Roll ``suggestion`` rows up into per-(project, day) :class:`DailyMetrics`.
 
     Each row is ``{project_id, created_at (datetime), predicted_label (locator or
-    'ti'), confidence, outcome, model_ver}``. Deterministic: rows are grouped and
-    the output is sorted by ``(project_id, day)``.
+    'ti'), confidence, outcome, model_ver}``. ``emb_model_ver`` is the install's
+    active embedding version stamped onto every rollup (§10.3; suggestion rows do not
+    carry it). Deterministic: rows are grouped and output sorted by ``(project_id, day)``.
     """
     accs: dict[tuple[int, date], _Acc] = defaultdict(_Acc)
     for s in suggestions:
@@ -139,6 +147,7 @@ def aggregate_daily(suggestions: list[dict], *, tau_auto: float = TAU_AUTO) -> l
             auto_corrected=a.auto_corrected,
             per_label=a.per_label,
             model_ver=a.model_ver,
+            emb_model_ver=emb_model_ver,
         )
         for (pid, day), a in accs.items()
     ]
@@ -155,12 +164,13 @@ class _MetricsSource(Protocol):
 class MetricsDailyJob:
     """Nightly rollup: fetch a day's suggestions → aggregate → upsert (spec §10.3)."""
 
-    def __init__(self, store: _MetricsSource) -> None:
+    def __init__(self, store: _MetricsSource, *, emb_model_ver: str | None = None) -> None:
         self._store = store
+        self._emb_model_ver = emb_model_ver
 
     def run(self, day: date) -> list[DailyMetrics]:
         suggestions = self._store.fetch_suggestions_for_day(day)
-        metrics = aggregate_daily(suggestions)
+        metrics = aggregate_daily(suggestions, emb_model_ver=self._emb_model_ver)
         for dm in metrics:
             self._store.upsert_daily_metrics(dm)
         auto_corrected = sum(dm.auto_corrected for dm in metrics)

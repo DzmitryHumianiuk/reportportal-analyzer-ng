@@ -72,20 +72,30 @@ def test_metrics_daily_populated_after_accept_correct_cycle(pool: ConnectionPool
     _insert_suggestion(pool, 1, 13, "ti", 0.10, "ignored")
 
     store = PgStatsStore(pool)
-    written = MetricsDailyJob(store).run(DAY)
+    written = MetricsDailyJob(store, emb_model_ver="e5s-int8-rTEST").run(DAY)
     assert len(written) == 1
     dm = written[0]
-    assert dm.auto_labeled == 2 and dm.auto_corrected == 1  # surfaced on the object/logs
+    assert dm.auto_labeled == 2 and dm.auto_corrected == 1
 
-    # Persisted counters read back through get_metrics.
+    # Persisted counters + §10.3 extension columns read back through get_metrics.
     [row] = store.get_metrics(1, DAY, DAY)
     assert row["suggestions"] == 4
     assert row["accepted"] == 1
     assert row["corrected"] == 1
     assert row["ignored"] == 2
     assert row["abstained"] == 1
+    assert row["auto_labeled"] == 2
+    assert row["auto_corrected"] == 1
+    assert row["model_ver"] == "gbm-test"
+    assert row["emb_model_ver"] == "e5s-int8-rTEST"
     assert row["per_label"]["pb"] == {"suggested": 1, "accepted": 1, "corrected": 0}
     assert row["per_label"]["ab"] == {"suggested": 1, "accepted": 0, "corrected": 1}
+
+    # Install-wide health summary reflects the same day.
+    summary = store.metrics_summary(DAY)
+    assert summary["suggestions"] == 4
+    assert summary["auto_corrected"] == 1
+    assert summary["last_day"] == DAY.isoformat()
 
 
 def test_rollup_is_idempotent(pool: ConnectionPool) -> None:

@@ -71,21 +71,27 @@ def test_init_migration_splits_without_error() -> None:
 
 
 def test_discover_real_migrations() -> None:
+    # 0004 is reserved by the (unmerged) Phase-4 branch, so develop skips to 0005.
     migrations = discover_migrations()
-    assert [m.version for m in migrations] == [1, 2, 3]
+    assert [m.version for m in migrations] == [1, 2, 3, 5]
     assert migrations[0].filename == "0001_init.sql"
     assert migrations[0].no_transaction is False
     assert migrations[1].filename == "0002_failure_mode_seed_key.sql"
     assert migrations[1].no_transaction is False
     assert migrations[2].filename == "0003_model_artifact.sql"
     assert migrations[2].no_transaction is False
+    assert migrations[3].filename == "0005_metrics_daily_ext.sql"
+    assert migrations[3].no_transaction is False
 
 
-def test_discover_detects_gap(tmp_path: Path) -> None:
+def test_discover_tolerates_reserved_version_gap(tmp_path: Path) -> None:
+    # A gap is a version reserved by an unmerged branch (e.g. Phase-4's 0004 while
+    # develop holds 0003 + 0005). Discovery must succeed and apply what is present in
+    # version order; only *duplicate* versions are a hard error.
     (tmp_path / "0001_a.sql").write_text("SELECT 1;")
     (tmp_path / "0003_c.sql").write_text("SELECT 1;")
-    with pytest.raises(MigrationError, match="gap"):
-        discover_migrations(tmp_path)
+    migrations = discover_migrations(tmp_path)
+    assert [m.version for m in migrations] == [1, 3]
 
 
 def test_discover_detects_duplicate(tmp_path: Path) -> None:

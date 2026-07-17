@@ -36,7 +36,7 @@ from analyzer_ng.ml.eval import (
     score_events,
     usable_events,
 )
-from analyzer_ng.ml.trainer import GbmModel
+from analyzer_ng.ml.trainer import GBM_MIN_EVENTS, GbmModel, TrainingError, train_gbm
 
 logger = logging.getLogger(__name__)
 
@@ -63,15 +63,26 @@ class GateResult:
 
 
 def passes_gate(candidate: EvalReport, active: EvalReport | None) -> GateResult:
-    """Apply the three §10.2 conditions; ``active=None`` bootstraps (always ships)."""
+    """Apply the three §10.2 conditions; ``active=None`` bootstraps (always ships).
+
+    Auto-band precision comparison with empty-band (``None``) semantics: the target
+    is ``max(active, 0.855)``, treating an active with no auto-band samples as the
+    floor. A *candidate* with no auto-band samples makes no auto-labels, so there is
+    nothing to guard on that axis — the condition is not failed (the macro-F1 and
+    abstain conditions still bind, and a model that stopped auto-labeling shows up as
+    a higher abstain rate there).
+    """
     if active is None:
         return GateResult(ship=True, reasons=[], candidate=candidate, active=None)
 
     reasons: list[str] = []
     if candidate.macro_f1 < active.macro_f1 - GATE_MACRO_F1_SLACK:
         reasons.append("macro_f1")
-    if candidate.auto_band_precision < max(active.auto_band_precision, AUTO_BAND_FLOOR):
-        reasons.append("auto_band_precision")
+    if candidate.auto_band_precision is not None:
+        active_ap = active.auto_band_precision
+        target = AUTO_BAND_FLOOR if active_ap is None else max(active_ap, AUTO_BAND_FLOOR)
+        if candidate.auto_band_precision < target:
+            reasons.append("auto_band_precision")
     if candidate.abstain_rate > active.abstain_rate + GATE_ABSTAIN_SLACK:
         reasons.append("abstain_rate")
     return GateResult(ship=not reasons, reasons=reasons, candidate=candidate, active=active)
@@ -96,23 +107,38 @@ def _fit_scoring_calibrator(
     return IsotonicCalibrator.fit(raw, correct)
 
 
+TrainFn = Callable[[list[dict]], GbmModel]
+
+
 def run_gate(
-    candidate: GbmModel,
-    active: GbmModel | None,
     rows: list[dict],
+    active: GbmModel | None,
     *,
     train_frac: float = 0.8,
+    train_fn: TrainFn = train_gbm,
 ) -> GateResult:
-    """Full replay gate: split 80/20, score both models on the eval slice, decide.
+    """Full leakage-free replay gate (spec §10.1 step 2 + §10.2).
 
-    Both models are scored on the **same held-out eval slice** with a calibrator
-    each fitted on the train slice (§10.1). ``active=None`` (cold store) ships the
-    candidate unconditionally — the first model has no baseline.
+    Splits the usable events chronologically, **fits the evaluated candidate on the
+    first 80 % train slice only** (``train_fn``) — never on the eval slice — and
+    scores that candidate *and* the active model on the held-out last 20 %, each with
+    a calibrator fitted on the train slice. This is the honest estimate the gate
+    decides on; the model the retrainer ships may be the full-data refit (the
+    80 %-slice fit here is a leakage-free proxy for it). ``active=None`` (cold store)
+    ships unconditionally — the first model has no baseline.
+
+    Returns ``ship=False, reasons=['no_eval_data']`` when there is not enough data to
+    train a proxy and hold out an eval slice (and no active baseline → bootstrap).
     """
     events = usable_events(rows)
     train_events, eval_events = chronological_split(events, train_frac)
-    if not eval_events:
+    if not eval_events or len(train_events) < GBM_MIN_EVENTS:
         return GateResult(ship=active is None, reasons=[] if active is None else ["no_eval_data"])
+
+    try:
+        candidate = train_fn(train_events)  # leakage-free: never sees the eval slice
+    except TrainingError:
+        return GateResult(ship=active is None, reasons=[] if active is None else ["candidate_cold"])
 
     cand_cal = _fit_scoring_calibrator(candidate, train_events)
     cand_report = evaluate(candidate, eval_events, cand_cal)
@@ -139,17 +165,24 @@ def make_ship_gate(
     store: ModelStore,
     *,
     train_frac: float = 0.8,
+    train_fn: TrainFn = train_gbm,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> ShipGate:
     """Build a :data:`~analyzer_ng.ml.retrain.ShipGate` bound to ``store`` (spec §10.2).
 
-    On rejection it logs a WARN and, when the store supports it, persists the
-    candidate as an inactive audit row carrying its eval metrics.
+    The gate is **leakage-free**: it ignores the full-data ``candidate`` the retrainer
+    passes for evaluation (that model was fit on 100 % of ``rows``, including the eval
+    slice) and instead has :func:`run_gate` fit a proxy candidate on the 80 % train
+    slice and score it against the active model on the held-out 20 % (§10.1 step 2).
+    The retrainer still ships its full-data ``candidate`` when the gate returns True.
+
+    On rejection it logs a WARN and, when the store supports it, persists the retrain's
+    candidate as an inactive audit row carrying the proxy's eval metrics.
     """
 
     def gate(candidate: GbmModel, rows: list[dict]) -> bool:
         active = _load_active_model(store)
-        result = run_gate(candidate, active, rows, train_frac=train_frac)
+        result = run_gate(rows, active, train_frac=train_frac, train_fn=train_fn)
         if result.ship:
             logger.info(
                 "ship gate: candidate accepted (%s)",

@@ -150,7 +150,8 @@ class PgStatsStore(StoreBase):
             cur.execute(
                 """
                 SELECT project_id, day, suggestions, accepted, corrected, ignored,
-                       abstained, per_label
+                       abstained, auto_labeled, auto_corrected, per_label,
+                       model_ver, emb_model_ver
                 FROM analyzer.metrics_daily
                 WHERE project_id = %s AND day BETWEEN %s AND %s
                 ORDER BY day
@@ -179,29 +180,62 @@ class PgStatsStore(StoreBase):
             )
             return cur.fetchall()
 
+    def metrics_summary(self, since: date) -> dict:
+        """Install-wide metrics_daily rollup since ``since`` (health summary, §10.3)."""
+        keys = (
+            "suggestions",
+            "accepted",
+            "corrected",
+            "ignored",
+            "abstained",
+            "auto_labeled",
+            "auto_corrected",
+        )
+        with self._conn() as conn:
+            row = require_row(
+                conn.execute(
+                    """
+                    SELECT coalesce(sum(suggestions),0), coalesce(sum(accepted),0),
+                           coalesce(sum(corrected),0), coalesce(sum(ignored),0),
+                           coalesce(sum(abstained),0), coalesce(sum(auto_labeled),0),
+                           coalesce(sum(auto_corrected),0), max(day)
+                    FROM analyzer.metrics_daily WHERE day >= %s
+                    """,
+                    (since,),
+                )
+            )
+        summary: dict = {k: int(row[i]) for i, k in enumerate(keys)}
+        summary["since"] = since.isoformat()
+        summary["last_day"] = row[7].isoformat() if row[7] is not None else None
+        return summary
+
     def upsert_daily_metrics(self, dm: object) -> None:
         """Idempotent absolute upsert of one (project, day) rollup (§10.3).
 
-        Writes the six ``metrics_daily`` counters and the per-label breakdown as
-        computed by the nightly job (absolute SET, so a recompute is safe to re-run).
-        The ``auto_labeled``/``auto_corrected``/``model_ver`` fields of §10.3 have no
-        column in the 0001 schema (no migration is permitted for this task) and are
-        surfaced through the job's structured logs instead.
+        Writes the counters, the auto-analysis safety counters, the per-label
+        breakdown, and the active model/embedding provenance as computed by the
+        nightly job. Absolute SET (not ``+=``) so a recompute is safe to re-run.
+        The extension columns land in migration 0005.
         """
         with self._conn() as conn, conn.transaction():
             conn.execute(
                 """
                 INSERT INTO analyzer.metrics_daily
                     (project_id, day, suggestions, accepted, corrected, ignored,
-                     abstained, per_label)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                     abstained, auto_labeled, auto_corrected, per_label,
+                     model_ver, emb_model_ver)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (project_id, day) DO UPDATE SET
-                    suggestions = EXCLUDED.suggestions,
-                    accepted    = EXCLUDED.accepted,
-                    corrected   = EXCLUDED.corrected,
-                    ignored     = EXCLUDED.ignored,
-                    abstained   = EXCLUDED.abstained,
-                    per_label   = EXCLUDED.per_label
+                    suggestions    = EXCLUDED.suggestions,
+                    accepted       = EXCLUDED.accepted,
+                    corrected      = EXCLUDED.corrected,
+                    ignored        = EXCLUDED.ignored,
+                    abstained      = EXCLUDED.abstained,
+                    auto_labeled   = EXCLUDED.auto_labeled,
+                    auto_corrected = EXCLUDED.auto_corrected,
+                    per_label      = EXCLUDED.per_label,
+                    model_ver      = EXCLUDED.model_ver,
+                    emb_model_ver  = EXCLUDED.emb_model_ver
                 """,
                 (
                     dm.project_id,  # type: ignore[attr-defined]
@@ -211,6 +245,10 @@ class PgStatsStore(StoreBase):
                     dm.corrected,  # type: ignore[attr-defined]
                     dm.ignored,  # type: ignore[attr-defined]
                     dm.abstained,  # type: ignore[attr-defined]
+                    dm.auto_labeled,  # type: ignore[attr-defined]
+                    dm.auto_corrected,  # type: ignore[attr-defined]
                     Jsonb(dm.per_label),  # type: ignore[attr-defined]
+                    dm.model_ver,  # type: ignore[attr-defined]
+                    dm.emb_model_ver,  # type: ignore[attr-defined]
                 ),
             )

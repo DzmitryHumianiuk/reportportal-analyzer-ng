@@ -105,9 +105,18 @@ def discover_migrations(migrations_dir: Path = DEFAULT_MIGRATIONS_DIR) -> list[M
                     f"({migrations[index - 1].filename} and {migration.filename})"
                 )
             if migration.version != previous + 1:
-                raise MigrationError(
-                    f"gap in migration versions: {previous} -> {migration.version} "
-                    f"({migration.filename}); versions must be contiguous"
+                # A gap is a version reserved by a concurrent branch that has not yet
+                # merged (e.g. 0004 on the Phase-4 branch while develop holds 0003 +
+                # 0005). Applying the present files in version order is still correct —
+                # the gap closes when the reserved migration lands. Warn, don't fail;
+                # a *duplicate* version (the real hazard) is still a hard error above.
+                logger.warning(
+                    "non-contiguous migration versions: %d -> %d (%s); "
+                    "assuming %s reserved by an unmerged branch",
+                    previous,
+                    migration.version,
+                    migration.filename,
+                    ", ".join(str(v) for v in range(previous + 1, migration.version)),
                 )
     return migrations
 
