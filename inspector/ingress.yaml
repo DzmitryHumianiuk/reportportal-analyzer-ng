@@ -1,0 +1,25 @@
+# SEPARATE Ingress for the inspector at /inspector (does NOT edit the cluster's
+# existing `reportportal-gateway-ingress`). nginx picks the longest matching
+# prefix, so /inspector routes here while / , /ui , /uat , /api stay on RP.
+#
+# No rewrite: the app serves itself under /inspector via root_path
+# (INSPECTOR_ROOT_PATH=/inspector) — the backend URL path the pod sees IS
+# /inspector/..., which FastAPI's root_path + injected <base href> expect.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: analyzer-inspector
+  labels:
+    app: analyzer-inspector
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /inspector
+            pathType: Prefix
+            backend:
+              service:
+                name: analyzer-inspector
+                port:
+                  number: 5005

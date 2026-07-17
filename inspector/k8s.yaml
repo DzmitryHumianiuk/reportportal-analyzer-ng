@@ -1,0 +1,93 @@
+# analyzer-ng inspector — read-only companion (namespace: default).
+#
+# Reads the analyzer's PostgreSQL directly with read-only queries. Credentials
+# come from the SAME `analyzer-pg` Secret that deploy/minikube/analyzer-pg.yaml
+# defines (POSTGRES_USER/PASSWORD/DB); the DSN is composed via k8s $(VAR)
+# interpolation so no secret value is duplicated here.
+#
+# Image is side-loaded into minikube (`minikube image load`); use a UNIQUE tag
+# per build (never :latest) and imagePullPolicy: IfNotPresent — the VM cannot
+# pull from registries.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analyzer-inspector
+  labels:
+    app: analyzer-inspector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analyzer-inspector
+  template:
+    metadata:
+      labels:
+        app: analyzer-inspector
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: inspector
+          image: analyzer-inspector:ins1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5005
+              name: http
+          env:
+            - name: INSPECTOR_HTTP_PORT
+              value: "5005"
+            # Served under /inspector behind the ingress (root_path, no rewrite).
+            - name: INSPECTOR_ROOT_PATH
+              value: /inspector
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: analyzer-pg
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: analyzer-pg
+                  key: POSTGRES_PASSWORD
+            - name: PGDB
+              valueFrom:
+                secretKeyRef:
+                  name: analyzer-pg
+                  key: POSTGRES_DB
+            # Dependent-variable interpolation: PGUSER/PGPASSWORD/PGDB above.
+            - name: INSPECTOR_PG_DSN
+              value: postgresql://$(PGUSER):$(PGPASSWORD)@analyzer-pg:5432/$(PGDB)
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5005
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5005
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analyzer-inspector
+  labels:
+    app: analyzer-inspector
+spec:
+  selector:
+    app: analyzer-inspector
+  ports:
+    - name: http
+      port: 5005
+      targetPort: 5005
