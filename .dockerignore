@@ -1,0 +1,33 @@
+# Keep the build context small and deterministic. The image builds from
+# pyproject.toml + uv.lock + src/ + VERSION only; everything else is noise.
+.git
+.github
+.claude
+.superpowers
+analyzer-ng-plan
+tests
+models
+docker-compose*.yml
+Makefile
+LICENSE
+*.md
+!README.md
+
+# Python / tooling cruft
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS cruft
+.DS_Store
