@@ -332,16 +332,28 @@ class AnalyzerService:
 
     def shutdown(self, drain_timeout: float = 30.0) -> None:
         """Graceful shutdown (spec §6): stop consuming, drain workers, flush
-        replies, close connections."""
+        replies, close connections.
+
+        Order matters: a drain-window message the worker pool is still processing
+        can request a retrain or enqueue an LLM job, so the scheduler, timer, and
+        sidecar those tasks feed must be torn down *after* the pool has drained —
+        never before, or the task hands work to a stopped component. Sequence:
+        consumers (stop intake) → worker pool (drain in-flight) →
+        sidecar/scheduler/timer → publisher (flush replies last).
+        """
         self._ready.clear()
-        if self._retrain_timer is not None:
-            self._retrain_timer.stop()
-        if self._sidecar is not None:
-            self._sidecar.stop()  # drain/stop the LLM worker + close the client
-        self._handlers.shutdown()  # stop the background retrain scheduler
+        # 1. Stop accepting new messages.
         for consumer in self._consumers:
             consumer.stop(timeout=drain_timeout)
+        # 2. Drain in-flight worker tasks (these may still request retrains / LLM jobs).
         self._pool.shutdown(timeout=drain_timeout)
+        # 3. Now the components those tasks feed are safe to stop.
+        if self._retrain_timer is not None:
+            self._retrain_timer.stop()
+        self._handlers.shutdown()  # stop the background retrain scheduler
+        if self._sidecar is not None:
+            self._sidecar.stop()  # drain/stop the LLM worker + close the client
+        # 4. Flush pending replies/dead-letters and close the publisher connection.
         self._publisher.shutdown(timeout=10.0)
 
     # -- HealthProvider ---------------------------------------------------- #

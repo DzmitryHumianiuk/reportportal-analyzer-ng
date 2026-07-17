@@ -68,6 +68,39 @@ def test_startup_wires_constructed_embedder_into_handlers() -> None:
     assert svc.emb_model_ver == "e5s-int8-rdeadbeef"
 
 
+def test_shutdown_stops_components_in_safe_order() -> None:
+    # A drain-window message can request a retrain / LLM job, so the pool must drain
+    # BEFORE the scheduler, timer, and sidecar it feeds are stopped; the publisher
+    # flushes last. Assert that structural order.
+    svc = AnalyzerService(_config(), "v1", metrics=Metrics())
+    order: list[str] = []
+
+    class _Rec:
+        def __init__(self, label: str) -> None:
+            self._label = label
+
+        def stop(self, *a: object, **k: object) -> None:
+            order.append(self._label)
+
+        def shutdown(self, *a: object, **k: object) -> None:
+            order.append(self._label)
+
+    svc._consumers = [_Rec("consumer")]  # type: ignore[assignment]
+    svc._pool = _Rec("pool")  # type: ignore[assignment]
+    svc._retrain_timer = _Rec("timer")  # type: ignore[assignment]
+    svc._handlers = _Rec("scheduler")  # type: ignore[assignment]
+    svc._sidecar = _Rec("sidecar")  # type: ignore[assignment]
+    svc._publisher = _Rec("publisher")  # type: ignore[assignment]
+
+    svc.shutdown(drain_timeout=0.0)
+
+    assert order.index("consumer") < order.index("pool")
+    assert order.index("pool") < order.index("timer")
+    assert order.index("pool") < order.index("scheduler")
+    assert order.index("pool") < order.index("sidecar")
+    assert order[-1] == "publisher"
+
+
 def test_startup_soft_degrades_when_model_unloadable(
     tmp_path, caplog: pytest.LogCaptureFixture
 ) -> None:
