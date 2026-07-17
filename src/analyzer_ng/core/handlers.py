@@ -192,6 +192,12 @@ class PipelineHandlers(StubHandlers):
         self._predictor: GbmPredictor | None = None
         self._retrainer: Retrainer | None = None
         self._retrain_scheduler: RetrainScheduler | None = None
+        # Optional LLM sidecar (spec 04) + its feature-time extractor lookup; wired
+        # by the service in ``bind`` when ANALYZER_LLM_ENABLED. Absent ⇒ engine runs
+        # byte-identical to a build without the sidecar.
+        self._sidecar: object | None = None
+        self._extractor_features: object | None = None
+        self._judge_tau: float = 0.75
 
     def bind(
         self,
@@ -202,8 +208,14 @@ class PipelineHandlers(StubHandlers):
         emb_model_tag: str = "none",
         max_logs: int = 20,
         seed_kb: SeedKB | None = None,
+        sidecar: object | None = None,
+        extractor_features: object | None = None,
+        judge_tau: float = 0.75,
     ) -> None:
         """Attach the store layer once the PostgreSQL pool is open (spec 01 §6)."""
+        self._sidecar = sidecar
+        self._extractor_features = extractor_features
+        self._judge_tau = judge_tau
         retrieval = PgRetrievalStore(pool)
         self._retrieval = retrieval
         kb = PgKBStore(pool)
@@ -270,6 +282,11 @@ class PipelineHandlers(StubHandlers):
         """The StatsStore (drives the nightly metrics_daily rollup, spec §10.3)."""
         return self._stats
 
+    @property
+    def label(self) -> LabelStore | None:
+        """The LabelStore (drives the cold-project check for the LLM sidecar)."""
+        return self._label
+
     def gbm_version(self) -> str | None:
         """Version string of the currently served GBM (None when cold)."""
         return self._predictor.active_version() if self._predictor is not None else None
@@ -286,6 +303,9 @@ class PipelineHandlers(StubHandlers):
             seed_kb=self._seed_kb,
             emb_model_tag=self._emb_tag,
             predictor=self._predictor,
+            sidecar=self._sidecar,
+            extractor_features=self._extractor_features,  # type: ignore[arg-type]
+            judge_tau=self._judge_tau,
         )
 
     # -- index ------------------------------------------------------------- #

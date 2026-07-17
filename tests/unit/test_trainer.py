@@ -57,7 +57,7 @@ def test_build_xy_skips_rows_without_snapshot_or_class():
     x, y, projects = build_xy(rows)
     assert y == ["pb"]
     assert projects == [1]
-    assert x.shape == (1, 39)
+    assert x.shape == (1, 41)
 
 
 def test_build_xy_dedups_to_latest_event_per_item():

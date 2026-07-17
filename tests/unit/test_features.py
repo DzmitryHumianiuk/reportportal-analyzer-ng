@@ -24,18 +24,23 @@ def _cand(**kw):
     return Candidate(**base)
 
 
-def test_exactly_39_features_unique_order():
-    assert len(FEATURES) == 39
+def test_exactly_41_features_unique_order():
+    # 39 classical (spec 03 §6.4) + 2 optional LLM-extractor columns (spec 04 §4.2).
+    assert len(FEATURES) == 41
     names = [f.name for f in FEATURES]
-    assert len(set(names)) == 39
+    assert len(set(names)) == 41
     assert names[0] == "top1_cosine"
     assert names[38] == "exception_count"
+    assert names[39:] == ["llm_failing_layer", "llm_error_class"]
 
 
 def test_empty_context_returns_defaults_no_nan():
     values = extract_features(FeatureContext())
     vec = to_vector(values)
-    assert len(vec) == 39
+    assert len(vec) == 41
+    # LLM-extractor columns default to the ``unknown`` sentinel (spec 04 §4.2).
+    assert values["llm_failing_layer"] == 0.0
+    assert values["llm_error_class"] == 0.0
     assert all(math.isfinite(v) for v in vec)
     # Documented defaults for the missing-data case.
     assert values["label_hist_entropy"] == 1.0
@@ -133,6 +138,18 @@ def test_src_weight_and_decay():
 def test_si_prior_capped_at_09():
     values = extract_features(FeatureContext(si_prior=5.0))
     assert values["si_prior"] == 0.9
+
+
+def test_llm_extractor_columns_ordinal_encoded():
+    # spec 04 §4.2: a cache hit supplies the categoricals; they ordinal-encode.
+    ctx = FeatureContext(llm_failing_layer="infrastructure", llm_error_class="http_5xx")
+    values = extract_features(ctx)
+    assert values["llm_failing_layer"] == 3.0
+    assert values["llm_error_class"] == 5.0
+    # An unrecognised value falls back to the sentinel (0), never NaN.
+    junk = extract_features(FeatureContext(llm_error_class="bogus"))
+    assert junk["llm_error_class"] == 0.0
+    assert math.isfinite(junk["llm_error_class"])
 
 
 def test_launch_fail_fraction_zero_when_total_unknown():

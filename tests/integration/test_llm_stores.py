@@ -23,7 +23,11 @@ from analyzer_ng.db.repositories import (
     PgLlmEventStore,
     PgLlmRoleStateStore,
 )
+from analyzer_ng.db.repositories.llm_eval import PgLlmComparisonSource
+from analyzer_ng.db.repositories.suggestion_ops import PgSuggestionOps
 from analyzer_ng.db.startup import bootstrap_and_migrate
+from analyzer_ng.llm.eval import LlmEvalJob
+from analyzer_ng.llm.wiring import build_extractor_feature_lookup
 
 
 def _dsn_for_db(base_dsn: str, dbname: str) -> str:
@@ -127,6 +131,98 @@ def test_extractor_cache_tenancy(pool: ConnectionPool) -> None:
             "SELECT count(*) FROM analyzer.llm_cache WHERE role = 'extractor'"
         ).fetchone()
     assert n is not None and n[0] == 2
+
+
+def _seed_suggestions(
+    conn, project_id: int, *, model_ver: str, n: int, accepted: int, item_base: int
+) -> None:
+    """Insert ``n`` resolved suggestions, ``accepted`` of them ``accepted``."""
+    conn.execute(
+        "INSERT INTO analyzer.project (project_id) VALUES (%s) ON CONFLICT DO NOTHING",
+        (project_id,),
+    )
+    for i in range(n):
+        outcome = "accepted" if i < accepted else "corrected"
+        conn.execute(
+            """
+            INSERT INTO analyzer.suggestion
+                (project_id, item_id, launch_id, predicted_label, confidence,
+                 model_ver, outcome)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (project_id, item_base + i, 1, "si001", 0.55, model_ver, outcome),
+        )
+
+
+def test_kill_switch_disables_underperforming_project_only(pool: ConnectionPool) -> None:
+    tag = "qwen3:4b-q4_K_M"
+    with pool.connection() as conn:
+        # Project 1: cold-start precision 0.70 vs rule 0.80 over N=60 → disable.
+        _seed_suggestions(conn, 1, model_ver=f"rubric+{tag}", n=60, accepted=42, item_base=1000)
+        _seed_suggestions(conn, 1, model_ver="rule_cold;fs=2", n=60, accepted=48, item_base=2000)
+        # Project 2: cold-start precision 0.85 vs rule 0.80 (LLM better) → keep.
+        _seed_suggestions(conn, 2, model_ver=f"rubric+{tag}", n=60, accepted=51, item_base=1000)
+        _seed_suggestions(conn, 2, model_ver="rule_cold;fs=2", n=60, accepted=48, item_base=2000)
+
+    from datetime import UTC, datetime, timedelta
+
+    state = PgLlmRoleStateStore(pool)
+    LlmEvalJob(
+        PgLlmComparisonSource(pool),
+        state,
+        clock=lambda: datetime.now(UTC) + timedelta(days=0),
+    ).run()
+    assert state.is_enabled(1, "coldstart") is False  # underperforming → disabled
+    assert state.is_enabled(2, "coldstart") is True  # isolated: untouched
+    rows = state.list_states(1)
+    assert any(r["reason"] == "auto_disabled_precision" for r in rows)
+
+
+def test_extractor_feature_lookup_tenancy(pool: ConnectionPool) -> None:
+    from analyzer_ng.llm.roles.extractor import extractor_template_hash
+
+    cache = PgLlmCacheStore(pool)
+    thash = extractor_template_hash(4242, [3, 1, 2])
+    out = {"failing_layer": "infrastructure", "error_class": "http_5xx"}
+    cache.put(1, "e" * 64, "extractor", "m", out, template_hash=thash)
+    lookup = build_extractor_feature_lookup(cache)
+    # Project 1 (owner) hits at feature time; project 2 (same template set) misses.
+    assert lookup(1, 4242, [1, 2, 3]) == ("infrastructure", "http_5xx")
+    assert lookup(2, 4242, [1, 2, 3]) is None
+
+
+def test_suggestion_ops_coldstart_and_explanation(pool: ConnectionPool) -> None:
+    ops = PgSuggestionOps(pool)
+    with pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO analyzer.project (project_id) VALUES (7) ON CONFLICT DO NOTHING"
+        )
+    sid = ops.insert_coldstart(
+        project_id=7,
+        item_id=100,
+        launch_id=5,
+        predicted_label="si001",
+        confidence=0.65,
+        model_ver="rubric+qwen3:4b-q4_K_M",
+        features={"coldstart": {"rule": "R6", "confidence": "high"}},
+    )
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT confidence, llm_used, predicted_label FROM analyzer.suggestion "
+            "WHERE project_id=7 AND suggestion_id=%s",
+            (sid,),
+        ).fetchone()
+    assert row is not None
+    assert row[0] < 0.75  # < τ_auto (cold-start never auto-applies)
+    assert row[1] is True  # llm_used
+    ops.set_explanation(7, sid, "matched a connection failure mode")
+    with pool.connection() as conn:
+        expl = conn.execute(
+            "SELECT explanation, llm_used FROM analyzer.suggestion WHERE suggestion_id=%s",
+            (sid,),
+        ).fetchone()
+    assert expl is not None and expl[0] == "matched a connection failure mode"
+    assert expl[1] is True
 
 
 def test_cache_freshness_ttl(pool: ConnectionPool) -> None:

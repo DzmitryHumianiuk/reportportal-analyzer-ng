@@ -24,7 +24,7 @@ _T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _features_for(label: str, rng: random.Random) -> dict[str, float]:
-    """A 39-feature snapshot whose dominant ``hist_*`` mass encodes ``label``."""
+    """A full-length feature snapshot whose dominant ``hist_*`` mass encodes ``label``."""
     values = {f.name: f.default for f in FEATURES}
     # Dominant history mass for the true label, weak mass elsewhere.
     for b in BASE:

@@ -31,12 +31,22 @@ from analyzer_ng.config import AppConfig
 from analyzer_ng.core.handlers import PipelineHandlers
 from analyzer_ng.db.pool import check_pg, pool_in_use
 from analyzer_ng.db.repositories.kb import PgKBStore
+from analyzer_ng.db.repositories.llm_cache import PgLlmCacheStore
+from analyzer_ng.db.repositories.llm_eval import PgLlmComparisonSource
+from analyzer_ng.db.repositories.llm_events import PgLlmRoleStateStore
+from analyzer_ng.llm.eval import LlmEvalJob
+from analyzer_ng.llm.manager import LlmSidecar
+from analyzer_ng.llm.wiring import build_extractor_feature_lookup, build_sidecar
 from analyzer_ng.metrics import Metrics
 from analyzer_ng.ml.reporting import MetricsDailyJob
 from analyzer_ng.ml.retrain import REASON_NIGHTLY, NightlyRetrainTimer
 from analyzer_ng.seeds.loader import SeedKB, load_seed_kb
 
 logger = logging.getLogger(__name__)
+
+# spec 03 cold-start condition: a project with < 50 label events is "cold" — the
+# gate the cold-start rubric role (spec 04 §4.4) fires behind.
+COLD_LABEL_EVENTS = 50
 
 
 class AnalyzerService:
@@ -73,9 +83,10 @@ class AnalyzerService:
         # else in ``set_pg_pool`` (main.py opens the pool after bootstrap). The
         # routing table binds to this single instance, so a later ``bind`` swaps
         # in the real logic without touching the transport.
+        self._sidecar: LlmSidecar | None = None
         self._handlers = PipelineHandlers()
         if pg_pool is not None:
-            self._handlers.bind(pg_pool, max_logs=config.analyzer_max_logs_per_item)
+            self._bind_handlers(pg_pool)
         self._publisher = ReplyPublisher(AmqpConnection(config, app_version), self._dlq)
         self._pool = WorkerPool(
             Dispatcher(build_routes(self._handlers)),
@@ -120,7 +131,50 @@ class AnalyzerService:
     def set_pg_pool(self, pool: ConnectionPool) -> None:
         """Attach the PostgreSQL pool once it is opened (after DB bootstrap)."""
         self._pg_pool = pool
-        self._handlers.bind(pool, max_logs=self._config.analyzer_max_logs_per_item)
+        self._bind_handlers(pool)
+
+    def _bind_handlers(self, pool: ConnectionPool) -> None:
+        """Bind the store layer and, when ANALYZER_LLM_ENABLED, the LLM sidecar.
+
+        The sidecar is constructed flag-gated (spec 04 §0): with the master switch
+        off ``build_sidecar`` returns an inert facade (no client/queue/thread) and
+        the engine gets no extractor lookup, so the analysis path is byte-identical
+        to a build without the sidecar. When enabled, the engine enqueues async LLM
+        jobs after each suggestion commit and folds cached extractor features in.
+        """
+        config = self._config
+        sidecar = build_sidecar(
+            config,
+            pool,
+            metrics=self._metrics,
+            is_cold=self._make_is_cold(),
+        )
+        self._sidecar = sidecar
+        extractor_features = (
+            build_extractor_feature_lookup(PgLlmCacheStore(pool)) if sidecar.enabled else None
+        )
+        self._handlers.bind(
+            pool,
+            max_logs=config.analyzer_max_logs_per_item,
+            sidecar=sidecar if sidecar.enabled else None,
+            extractor_features=extractor_features,
+            judge_tau=config.analyzer_llm_judge_tau,
+        )
+
+    def _make_is_cold(self):
+        """A per-project cold check for the cold-start role (spec 04 §4.4)."""
+
+        def is_cold(project_id: int) -> bool:
+            label = self._handlers.label
+            if label is None:
+                return True
+            try:
+                return label.count_events_since(project_id=project_id) < COLD_LABEL_EVENTS
+            except Exception:  # noqa: BLE001 — never fail an LLM job on the cold check
+                logger.exception("cold-project check failed for project %s", project_id)
+                return False
+
+        return is_cold
 
     def load_seed_kb(self) -> SeedKB:
         """Startup step 6 (spec 01 §6): load & validate the seed failure-mode KB.
@@ -143,6 +197,7 @@ class AnalyzerService:
         self._pool.start()
         for consumer in self._consumers:
             consumer.start()
+        self._start_sidecar()
         self._start_retrain_timer()
         self._ready.set()
         logger.info(
@@ -151,6 +206,22 @@ class AnalyzerService:
             self.emb_model_ver,
             self._handlers.gbm_version() or self.gbm_model_ver,
         )
+
+    def _start_sidecar(self) -> None:
+        """Probe Ollama (§1.3, non-blocking, degrades) and start the LLM worker.
+
+        A no-op when the master switch is off. The probe is tenacity-retried inside
+        the sidecar and never blocks service start — an absent Ollama is a normal,
+        silent degradation.
+        """
+        sidecar = self._sidecar
+        if sidecar is None or not sidecar.enabled:
+            return
+        try:
+            sidecar.probe()
+        except Exception:  # noqa: BLE001 — degrade, never crash startup
+            logger.exception("LLM startup probe failed; continuing degraded")
+        sidecar.start()
 
     def _start_retrain_timer(self) -> None:
         """Start the nightly retrain timer once the store layer is bound (spec §6.5).
@@ -173,9 +244,29 @@ class AnalyzerService:
                     MetricsDailyJob(stats, emb_model_ver=self.emb_model_ver).run(yesterday)
                 except Exception:  # noqa: BLE001 — reporting must not kill the timer
                     logger.exception("nightly metrics_daily rollup failed")
+            self._run_llm_eval()
 
         self._retrain_timer = NightlyRetrainTimer(_trigger)
         self._retrain_timer.start()
+
+    def _run_llm_eval(self) -> None:
+        """Nightly LLM paired comparison + per-project kill-switch (spec 04 §6.2).
+
+        Runs only when the sidecar is on and a pool is bound; disables per-project
+        underperforming roles and refreshes the admin ``/metrics`` gauge. Failures
+        are swallowed — the eval must never kill the maintenance timer.
+        """
+        sidecar = self._sidecar
+        if sidecar is None or not sidecar.enabled or self._pg_pool is None:
+            return
+        try:
+            LlmEvalJob(
+                PgLlmComparisonSource(self._pg_pool),
+                PgLlmRoleStateStore(self._pg_pool),
+                metrics=self._metrics,
+            ).run()
+        except Exception:  # noqa: BLE001 — the eval must not kill the timer
+            logger.exception("nightly LLM eval failed")
 
     def shutdown(self, drain_timeout: float = 30.0) -> None:
         """Graceful shutdown (spec §6): stop consuming, drain workers, flush
@@ -183,6 +274,8 @@ class AnalyzerService:
         self._ready.clear()
         if self._retrain_timer is not None:
             self._retrain_timer.stop()
+        if self._sidecar is not None:
+            self._sidecar.stop()  # drain/stop the LLM worker + close the client
         self._handlers.shutdown()  # stop the background retrain scheduler
         for consumer in self._consumers:
             consumer.stop(timeout=drain_timeout)

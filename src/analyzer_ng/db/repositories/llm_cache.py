@@ -47,6 +47,29 @@ class PgLlmCacheStore(StoreBase):
             ).fetchone()
         return row[0] if row is not None else None
 
+    def get_extractor_by_template(
+        self, project_id: int, template_hash: int, ttl_days: int
+    ) -> dict | None:
+        """Feature-time extractor lookup by ``(project_id, 'extractor', template_hash)``.
+
+        Spec 04 §4.2: the GBM feature extractor reads the cached extractor output for
+        a template-set (index ``llmc_tmpl_idx``). Read-only (no ``hits`` bump — this
+        is a serving read, not a role call) and freshness-gated on ``created_at``.
+        Always filters by ``project_id`` — never served cross-project (§5.4).
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT output FROM analyzer.llm_cache
+                WHERE project_id = %s AND role = 'extractor' AND template_hash = %s
+                  AND created_at >= now() - make_interval(days => %s)
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (project_id, template_hash, ttl_days),
+            ).fetchone()
+        return row[0] if row is not None else None
+
     def put(
         self,
         project_id: int,

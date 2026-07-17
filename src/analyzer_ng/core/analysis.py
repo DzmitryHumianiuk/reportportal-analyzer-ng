@@ -37,6 +37,7 @@ from analyzer_ng.core import scope
 from analyzer_ng.core.decision import (
     ACTION_AUTO,
     METHOD_GBM,
+    TAU_AUTO,
     TAU_SUGGEST,
     DecisionInputs,
     DecisionResult,
@@ -46,6 +47,7 @@ from analyzer_ng.core.decision import (
 )
 from analyzer_ng.core.features import (
     FEATURE_SCHEMA_VER,
+    LLM_UNKNOWN,
     FeatureContext,
     SeedSignal,
     feature_names,
@@ -89,6 +91,13 @@ class AnalysisEngine:
     seed_kb: SeedKB | None = None
     emb_model_tag: str = "none"
     predictor: GbmPredictor | None = None  # shipped GBM; None => rule fallback (§6.5)
+    # Optional LLM sidecar (spec 04). ``sidecar.enqueue`` is a no-op when the master
+    # switch is off, so the suggest/analyze paths are byte-identical with it absent.
+    sidecar: object | None = None
+    # Feature-time extractor lookup (spec 04 §4.2): (project, exception_fp,
+    # template_ids) -> (failing_layer, error_class) | None. Miss ⇒ ``unknown``.
+    extractor_features: Callable[[int, int, Sequence[int]], tuple[str, str] | None] | None = None
+    judge_tau: float = TAU_AUTO  # judge fires on τ_suggest ≤ p* < judge_tau (§4.3)
 
     # ------------------------------------------------------------------ #
     # analyze (spec §6.6 analyze column)
@@ -129,6 +138,8 @@ class AnalysisEngine:
             )
             for member in group.members:
                 self._write_suggestion(project, member.item_id, launch.launchId, group_id, decision)
+                # §1.5: enqueue async LLM enrichment after the row is committed.
+                self._enqueue_llm(project, member.item_id, launch.launchId, decision)
                 if decision.action == ACTION_AUTO and decision.label != "ti":
                     self.retrieval.update_issue_type(
                         project, member.item_id, decision.issue_type, is_auto=True
@@ -165,7 +176,17 @@ class AnalysisEngine:
             route="suggest",
         )
         elapsed = time.monotonic() - started
-        return self._render_suggestions(info, rep, decision, elapsed)
+        out = self._render_suggestions(info, rep, decision, elapsed)
+        # §1.5: enqueue async LLM enrichment *after* the classical reply is built and
+        # the suggestion row committed. Never on the synchronous suggest budget.
+        self._enqueue_llm(
+            info.project,
+            info.testItemId,
+            info.launchId,
+            decision,
+            candidates=self._judge_candidates(decision),
+        )
+        return out
 
     # ------------------------------------------------------------------ #
     # cluster (spec §8.1)
@@ -412,6 +433,15 @@ class AnalysisEngine:
     ) -> FeatureContext:
         sig = rep.signature
         tch = rep.item.testCaseHash or None
+        # spec 04 §4.2: fold the cached extractor categoricals in at feature time,
+        # scoped to this project. Miss / LLM-off ⇒ the ``unknown`` sentinel, so the
+        # feature vector is identical to a build without the sidecar.
+        failing_layer, error_class = LLM_UNKNOWN, LLM_UNKNOWN
+        if self.extractor_features is not None:
+            tids = [self.pipeline.template_id(h) for h in sig.template_hashes]
+            hit = self.extractor_features(rep.launch.project, sig.exception_fp, tids)
+            if hit is not None:
+                failing_layer, error_class = hit
         stats_row: dict = {}
         test_age_days: float | None = None
         if tch is not None:
@@ -436,6 +466,8 @@ class AnalysisEngine:
             is_assertion=sig.is_assertion,
             is_merged_small_logs=sig.is_merged_small_logs,
             exception_count=len(sig.exc_classes),
+            llm_failing_layer=failing_layer,
+            llm_error_class=error_class,
         )
 
     # ------------------------------------------------------------------ #
@@ -463,6 +495,66 @@ class AnalysisEngine:
                 model_ver=self._model_ver(decision),
             )
         )
+
+    # ------------------------------------------------------------------ #
+    # LLM sidecar enqueue (spec 04 §1.5) — strictly async, best-effort
+    # ------------------------------------------------------------------ #
+    def _enqueue_llm(
+        self,
+        project: int,
+        item_id: int,
+        launch_id: int,
+        decision: DecisionResult,
+        candidates: list[dict] | None = None,
+    ) -> None:
+        """Enqueue the relevant LLM roles after the suggestion row is committed.
+
+        A no-op when no sidecar is wired or the master switch is off (byte-identity,
+        §0). Never raises into the decision path, never waits on the LLM (§0/§1.5).
+        Per-role flags and the per-project kill-switch are enforced downstream.
+        """
+        sc = self.sidecar
+        if sc is None or not getattr(sc, "enabled", False):
+            return
+        try:
+            # Extractor runs regardless of band (feeds GBM features); the per-project
+            # cache dedupes actual Ollama calls to once per novel template set (§4.2).
+            sc.enqueue("extractor", project, item_id, {})  # type: ignore[attr-defined]
+            if decision.label == "ti":
+                # Abstain → cold-start rubric (fact_loader gates on a cold project).
+                sc.enqueue("coldstart", project, item_id, {"launch_id": launch_id})  # type: ignore[attr-defined]
+            elif decision.confidence >= TAU_SUGGEST:
+                sc.enqueue("explainer", project, item_id, {})  # type: ignore[attr-defined]
+                if (
+                    TAU_SUGGEST <= decision.confidence < self.judge_tau
+                    and candidates is not None
+                    and len(candidates) >= 2
+                ):
+                    sc.enqueue(  # type: ignore[attr-defined]
+                        "judge", project, item_id, {"candidates": candidates}
+                    )
+        except Exception:  # noqa: BLE001 — enrichment must never fail a decision
+            logger.exception("LLM enqueue failed (project=%s item=%s)", project, item_id)
+
+    @staticmethod
+    def _judge_candidates(decision: DecisionResult) -> list[dict]:
+        """Suggest-band candidate facts for the judge prompt (DB facts only, §4.3)."""
+        out: list[dict] = []
+        for c in list(decision.stage_c)[:3]:
+            if c.item_id is None or c.issue_type is None:
+                continue
+            out.append(
+                {
+                    "id": c.item_id,
+                    "label": c.issue_type,
+                    "similarity": round(min(1.0, c.cosine or 0.0), 3),
+                    "exc_chain": "",
+                    "templates": "",
+                    "frames": "",
+                    "suggestion_id": None,
+                }
+            )
+        return out
 
     def _render_suggestions(
         self, info: TestItemInfo, rep: ItemAnalysis, decision: DecisionResult, elapsed: float

@@ -20,8 +20,40 @@ from dataclasses import dataclass
 from analyzer_ng.db.repositories.models import Candidate
 
 # Bump when the ordered FEATURES list or any definition changes; stamped into
-# suggestion.features and model_artifact (spec 03 §6.4).
-FEATURE_SCHEMA_VER = 1
+# suggestion.features and model_artifact (spec 03 §6.4). v2 appends the two
+# optional LLM-extractor categorical columns (spec 04 §4.2).
+FEATURE_SCHEMA_VER = 2
+
+# spec 04 §4.2: the extractor's categorical outputs enter the GBM as ordinal
+# columns. The sentinel ``unknown`` (= 0) is the on-miss / LLM-off value, so a
+# build with the sidecar off is trained and served with these columns present and
+# constant — identical to an install where Ollama is never reachable. The enum
+# orders mirror the extractor schema (spec 04 §4.2); the ordinal is a stable
+# stand-in for LightGBM (tree splits are order-tolerant), not a magnitude.
+LLM_UNKNOWN = "unknown"
+FAILING_LAYER_ORDINAL: dict[str, int] = {
+    LLM_UNKNOWN: 0,
+    "test_code": 1,
+    "app_code": 2,
+    "infrastructure": 3,
+    "environment": 4,
+}
+ERROR_CLASS_ORDINAL: dict[str, int] = {
+    LLM_UNKNOWN: 0,
+    "assertion": 1,
+    "timeout": 2,
+    "connection": 3,
+    "http_4xx": 4,
+    "http_5xx": 5,
+    "null_reference": 6,
+    "not_found": 7,
+    "permission": 8,
+    "data_format": 9,
+    "resource_exhausted": 10,
+    "config": 11,
+    "concurrency": 12,
+    "other": 13,
+}
 
 # Base issue-type groups the model predicts; ``ti`` is the abstain outcome.
 BASE_LABELS = ("pb", "ab", "si", "nd")
@@ -80,9 +112,12 @@ FEATURES: tuple[FeatureDef, ...] = (
     FeatureDef("is_assertion", 0.0),
     FeatureDef("is_merged_small_logs", 0.0),
     FeatureDef("exception_count", 0.0),
+    # spec 04 §4.2 optional LLM-extractor columns (sentinel 0 = unknown / LLM-off).
+    FeatureDef("llm_failing_layer", 0.0),
+    FeatureDef("llm_error_class", 0.0),
 )
 
-assert len(FEATURES) == 39, "spec 03 §6.4 defines exactly 39 features"
+assert len(FEATURES) == 41, "spec 03 §6.4 (39) + spec 04 §4.2 (2 LLM columns)"
 
 # Candidate.label_source vocabulary → label-source weight (spec §6.4 src_w).
 # rp=rp_defect_update (human confirm) 1.0; human=human_ui accept 0.9;
@@ -168,6 +203,9 @@ class FeatureContext:
     is_assertion: bool = False
     is_merged_small_logs: bool = False
     exception_count: int = 0
+    # spec 04 §4.2 LLM-extractor categoricals; ``unknown`` on miss / LLM-off.
+    llm_failing_layer: str = LLM_UNKNOWN
+    llm_error_class: str = LLM_UNKNOWN
 
 
 def _clamp01(value: float) -> float:
@@ -272,6 +310,11 @@ def extract_features(ctx: FeatureContext) -> dict[str, float]:
     values["is_assertion"] = 1.0 if ctx.is_assertion else 0.0
     values["is_merged_small_logs"] = 1.0 if ctx.is_merged_small_logs else 0.0
     values["exception_count"] = _clamp01(min(ctx.exception_count, 5) / 5.0)
+
+    # spec 04 §4.2: ordinal-encode the LLM-extractor categoricals (sentinel 0 when
+    # unknown / LLM-off). Not clamped to [0,1] — the ordinal is the category id.
+    values["llm_failing_layer"] = float(FAILING_LAYER_ORDINAL.get(ctx.llm_failing_layer, 0))
+    values["llm_error_class"] = float(ERROR_CLASS_ORDINAL.get(ctx.llm_error_class, 0))
 
     return values
 

@@ -107,7 +107,7 @@ def _ship(store: FakeModelStore, rows: list[dict], version: str) -> None:
 
 def test_cold_predictor_returns_none():
     pred = GbmPredictor(FakeModelStore())
-    assert pred.predict([0.0] * 39, project_id=1) is None
+    assert pred.predict([0.0] * 41, project_id=1) is None
     assert pred.has_model() is False
     assert pred.active_version() is None
 
