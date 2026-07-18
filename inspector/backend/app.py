@@ -125,6 +125,24 @@ def _build_inner(cfg: Config) -> FastAPI:
     def api_summary(project: int = Query(...)) -> dict[str, Any]:
         return payloads.summary(db, project, rp)
 
+    @app.get("/api/signatures")
+    def api_signatures(
+        project: int = Query(...),
+        q: str | None = Query(default=None),
+        conflicts: bool = Query(default=False),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        return payloads.signatures(db, project, q, conflicts, limit, offset, rp)
+
+    @app.get("/api/signature-hash")
+    def api_signature_hash(
+        project: int = Query(...), error_hash: str = Query(...)
+    ) -> Any:
+        data = payloads.signature_hash(db, project, error_hash, rp)
+        if data is None:
+            raise HTTPException(status_code=404, detail="error_hash not found")
+        return data
+
     # ---- Optional live analyzer health proxy ----
     @app.get("/api/analyzer-health")
     def api_analyzer_health() -> Any:

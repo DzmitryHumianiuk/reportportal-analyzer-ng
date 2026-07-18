@@ -851,6 +851,303 @@ def summary(db: Database, project_id: int, rp: RPNameResolver | None = None) -> 
     }
 
 
+# --------------------------------------------------------------------------- #
+# Signatures Explorer (fingerprint space + hash-collision / label-bleed)
+# --------------------------------------------------------------------------- #
+# A member cap for the detail member list — mirrors the journey/reconstruction
+# caps. The list row reports the true total so "N more" stays honest.
+_SIG_MEMBER_CAP = 50
+
+
+def _label_breakdown(issue_types: list[Any]) -> list[dict[str, Any]]:
+    """Ordered per-locator counts (e.g. ``[{pb001, pb, 6}, {si001, si, 2}]``).
+
+    Built from the members' *real* issue_type locators — the frontend renders
+    each as a defect abbreviation badge with its count. ``None`` (unlabeled)
+    collapses to the honest ``none`` group, never a fabricated label.
+    """
+    from collections import Counter
+
+    counts = Counter(issue_types)
+    ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0] or "￿"))
+    return [{"locator": loc, "group": _grp(loc), "count": n} for loc, n in ordered]
+
+
+def signatures(
+    db: Database,
+    project_id: int,
+    q: str | None,
+    conflicts_only: bool,
+    limit: int,
+    offset: int = 0,
+    rp: RPNameResolver | None = None,
+) -> dict[str, Any]:
+    """One row per distinct ``error_hash`` — the fingerprint space, ranked by
+    member count, with a distinct-label breakdown that surfaces hash collisions
+    (Stage-A label-bleed candidates: members carrying >1 distinct non-ti label).
+    """
+    # ---- project-wide fingerprint-space summary (never search-scoped) ----
+    summ = db.one(
+        """
+        SELECT count(DISTINCT error_hash)  AS distinct_error_hash,
+               count(DISTINCT exception_fp) AS distinct_exception_fp,
+               count(*)                     AS items_with_signatures,
+               count(*) FILTER (WHERE emb IS NOT NULL) AS embedded
+        FROM analyzer.failure_signature WHERE project_id = %s
+        """,
+        (project_id,),
+    ) or {}
+    conflict_total = db.one(
+        """
+        SELECT count(*) AS n FROM (
+            SELECT fs.error_hash
+            FROM analyzer.failure_signature fs
+            JOIN analyzer.test_item ti USING (project_id, item_id)
+            WHERE fs.project_id = %s
+            GROUP BY fs.error_hash
+            HAVING count(DISTINCT ti.issue_type_group)
+                     FILTER (WHERE ti.issue_type_group IS NOT NULL
+                                 AND ti.issue_type_group <> 'ti') > 1
+        ) t
+        """,
+        (project_id,),
+    ) or {}
+
+    params: list[Any] = [project_id]
+    search_clause = ""
+    if q:
+        like = f"%{q}%"
+        search_clause = (
+            " AND (fs.exc_text ILIKE %s OR fs.msg_text ILIKE %s OR fs.frames_text ILIKE %s)"
+        )
+        params += [like, like, like]
+
+    # Aggregate one row per error_hash. status_codes are unnested in a separate
+    # CTE so the join never inflates member_count; the main pass never touches a
+    # per-row subquery, so there is no N+1 as pages grow.
+    sql = (
+        """
+        WITH base AS (
+            SELECT fs.error_hash, fs.exception_fp,
+                   (fs.emb IS NOT NULL) AS has_emb,
+                   NULLIF(split_part(fs.exc_text, ' ', 1), '') AS exc_class,
+                   fs.status_codes,
+                   ti.issue_type, ti.issue_type_group, ti.indexed_at
+            FROM analyzer.failure_signature fs
+            JOIN analyzer.test_item ti USING (project_id, item_id)
+            WHERE fs.project_id = %s"""
+        + search_clause
+        + """
+        ),
+        codes AS (
+            SELECT error_hash, array_agg(DISTINCT sc ORDER BY sc) AS status_codes
+            FROM base, unnest(status_codes) AS sc
+            GROUP BY error_hash
+        )
+        SELECT b.error_hash::text AS error_hash,
+               count(*) AS member_count,
+               count(DISTINCT b.exception_fp) AS distinct_fp,
+               count(*) FILTER (WHERE b.has_emb) AS embedded_count,
+               min(b.indexed_at) AS first_seen,
+               max(b.indexed_at) AS last_seen,
+               count(DISTINCT b.issue_type_group)
+                 FILTER (WHERE b.issue_type_group IS NOT NULL
+                             AND b.issue_type_group <> 'ti') AS distinct_nonti,
+               array_agg(b.issue_type) AS issue_types,
+               array_remove(array_agg(DISTINCT b.exc_class), NULL) AS exc_classes,
+               COALESCE(max(c.status_codes), '{}') AS status_codes
+        FROM base b
+        LEFT JOIN codes c USING (error_hash)
+        GROUP BY b.error_hash"""
+        # HAVING references the base column names via the join below; but base is
+        # already grouped, so re-derive the conflict predicate on b.* here.
+        + (
+            " HAVING count(DISTINCT b.issue_type_group)"
+            " FILTER (WHERE b.issue_type_group IS NOT NULL AND b.issue_type_group <> 'ti') > 1"
+            if conflicts_only
+            else ""
+        )
+        + """
+        ORDER BY member_count DESC, b.error_hash
+        LIMIT %s OFFSET %s
+        """
+    )
+    params += [limit, offset]
+    rows = db.rows(sql, tuple(params))
+
+    out_rows = []
+    for r in rows:
+        breakdown = _label_breakdown(r["issue_types"] or [])
+        out_rows.append(
+            {
+                "error_hash": r["error_hash"],
+                "member_count": r["member_count"],
+                "distinct_fp": r["distinct_fp"],
+                "embedded_count": r["embedded_count"],
+                "first_seen": _iso(r["first_seen"]),
+                "last_seen": _iso(r["last_seen"]),
+                "exc_classes": r["exc_classes"] or [],
+                "status_codes": r["status_codes"] or [],
+                "labels": breakdown,
+                "distinct_nonti": r["distinct_nonti"],
+                "is_conflict": (r["distinct_nonti"] or 0) > 1,
+            }
+        )
+
+    return {
+        "rows": out_rows,
+        "count": len(out_rows),
+        "offset": offset,
+        "limit": limit,
+        "conflicts_only": conflicts_only,
+        "q": q or "",
+        "summary": {
+            "distinct_error_hash": summ.get("distinct_error_hash", 0),
+            "distinct_exception_fp": summ.get("distinct_exception_fp", 0),
+            "items_with_signatures": summ.get("items_with_signatures", 0),
+            "embedded": summ.get("embedded", 0),
+            "conflict_hashes": conflict_total.get("n", 0),
+        },
+        "rp": _rp_block(rp, project_id),
+    }
+
+
+def signature_hash(
+    db: Database, project_id: int, error_hash: Any, rp: RPNameResolver | None = None
+) -> dict[str, Any] | None:
+    """Detail for one ``error_hash``: a representative signature (exc/msg/frames/
+    templates + status_codes) and the member items list, capped at
+    :data:`_SIG_MEMBER_CAP` with an honest total for the "N more" note."""
+    try:
+        eh = int(error_hash)
+    except (TypeError, ValueError):
+        return None
+
+    # Representative signature — prefer a real (non-ti) labeled member so the
+    # exc/msg/frames shown are the human-triaged exemplar, not a probe.
+    rep = db.one(
+        """
+        SELECT fs.item_id, fs.exception_fp, fs.error_hash, fs.top_frames, fs.template_ids,
+               fs.exc_text, fs.msg_text, fs.frames_text, fs.tmpl_text, fs.signature_text,
+               fs.only_numbers, fs.status_codes, fs.urls, fs.paths,
+               fs.emb_model_ver, (fs.emb IS NOT NULL) AS has_emb
+        FROM analyzer.failure_signature fs
+        JOIN analyzer.test_item ti USING (project_id, item_id)
+        WHERE fs.project_id = %s AND fs.error_hash = %s
+        ORDER BY (ti.issue_type_group IS NOT NULL AND ti.issue_type_group <> 'ti') DESC,
+                 fs.item_id
+        LIMIT 1
+        """,
+        (project_id, eh),
+    )
+    if rep is None:
+        return None
+
+    template_ids = rep["template_ids"] or []
+    templates_block: list[dict[str, Any]] = []
+    if template_ids:
+        trows = db.rows(
+            """
+            SELECT template_id, pattern, token_count, example, match_count,
+                   first_seen, last_seen
+            FROM analyzer.log_template
+            WHERE project_id = %s AND template_id = ANY(%s)
+            """,
+            (project_id, template_ids),
+        )
+        by_id = {t["template_id"]: t for t in trows}
+        for tid in template_ids:
+            t = by_id.get(tid)
+            templates_block.append(
+                _template_row(t) if t else {"template_id": str(tid), "pattern": None, "missing": True}
+            )
+
+    total_row = db.one(
+        "SELECT count(*) AS n FROM analyzer.failure_signature "
+        "WHERE project_id = %s AND error_hash = %s",
+        (project_id, eh),
+    )
+    member_total = total_row["n"] if total_row else 0
+
+    # Accurate distinct-label breakdown (independent of the member cap).
+    label_rows = db.rows(
+        """
+        SELECT ti.issue_type AS locator, count(*) AS n
+        FROM analyzer.failure_signature fs
+        JOIN analyzer.test_item ti USING (project_id, item_id)
+        WHERE fs.project_id = %s AND fs.error_hash = %s
+        GROUP BY ti.issue_type
+        ORDER BY n DESC, ti.issue_type
+        """,
+        (project_id, eh),
+    )
+    labels = [
+        {"locator": r["locator"], "group": _grp(r["locator"]), "count": r["n"]} for r in label_rows
+    ]
+    distinct_nonti = len({r["group"] for r in labels if r["group"] not in ("ti", "none")})
+
+    member_rows = db.rows(
+        """
+        SELECT ti.item_id, ti.item_name, ti.issue_type, ti.issue_type_group,
+               ti.is_auto_analyzed, ti.launch_id, ti.launch_name, ti.indexed_at,
+               (fs.emb IS NOT NULL) AS has_emb
+        FROM analyzer.failure_signature fs
+        JOIN analyzer.test_item ti USING (project_id, item_id)
+        WHERE fs.project_id = %s AND fs.error_hash = %s
+        ORDER BY (ti.issue_type_group IS NOT NULL AND ti.issue_type_group <> 'ti') DESC,
+                 ti.issue_type_group, ti.item_id
+        LIMIT %s
+        """,
+        (project_id, eh, _SIG_MEMBER_CAP),
+    )
+    links = rp.item_links(project_id, [m["item_id"] for m in member_rows]) if rp else {}
+    members = [
+        {
+            "item_id": m["item_id"],
+            "item_name": m["item_name"],
+            "issue_type": m["issue_type"],
+            "label_group": _grp(m["issue_type"]),
+            "is_auto_analyzed": m["is_auto_analyzed"],
+            "launch_id": m["launch_id"],
+            "launch_name": m["launch_name"],
+            "indexed_at": _iso(m["indexed_at"]),
+            "has_emb": m["has_emb"],
+            **_ui_url(links.get(m["item_id"])),
+            **_ui_url(rp.launch_link(project_id, m["launch_id"]) if rp else None, "launch_url"),
+        }
+        for m in member_rows
+    ]
+
+    return {
+        "error_hash": _s(rep["error_hash"]),
+        "exception_fp": _s(rep["exception_fp"]),
+        "representative_item_id": rep["item_id"],
+        "distinct_nonti": distinct_nonti,
+        "is_conflict": distinct_nonti > 1,
+        "signature": {
+            "exc_text": rep["exc_text"],
+            "msg_text": rep["msg_text"],
+            "frames_text": rep["frames_text"],
+            "tmpl_text": rep["tmpl_text"],
+            "top_frames": rep["top_frames"] or [],
+            "template_ids": _slist(template_ids),
+            "signature_text": rep["signature_text"],
+            "only_numbers": rep["only_numbers"],
+            "status_codes": rep["status_codes"] or [],
+            "urls": rep["urls"] or [],
+            "paths": rep["paths"] or [],
+            "emb_model_ver": rep["emb_model_ver"],
+            "has_emb": rep["has_emb"],
+        },
+        "templates": templates_block,
+        "labels": labels,
+        "members": members,
+        "member_total": member_total,
+        "member_shown": len(members),
+        "rp": _rp_block(rp, project_id),
+    }
+
+
 def _iso(v: Any) -> str | None:
     if v is None:
         return None

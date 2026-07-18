@@ -25,5 +25,9 @@ export const api = {
   groups: (project, launch) => get(`api/groups?${qs({ project, launch })}`),
   timeline: (project) => get(`api/timeline?${qs({ project })}`),
   summary: (project) => get(`api/summary?${qs({ project })}`),
+  signatures: (project, q, conflicts, offset) =>
+    get(`api/signatures?${qs({ project, q, conflicts: conflicts ? 1 : '', offset })}`),
+  signatureHash: (project, errorHash) =>
+    get(`api/signature-hash?${qs({ project, error_hash: errorHash })}`),
   analyzerHealth: () => get('api/analyzer-health'),
 };

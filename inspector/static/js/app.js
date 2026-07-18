@@ -6,10 +6,11 @@ import { renderDrain } from './views/drain.js';
 import { renderModes } from './views/modes.js';
 import { renderGroups } from './views/groups.js';
 import { renderLoop } from './views/loop.js';
+import { renderSignatures } from './views/signatures.js';
 
 const VIEWS = {
   journey: renderJourney, drain: renderDrain, modes: renderModes,
-  groups: renderGroups, loop: renderLoop,
+  groups: renderGroups, loop: renderLoop, signatures: renderSignatures,
 };
 
 export const state = {

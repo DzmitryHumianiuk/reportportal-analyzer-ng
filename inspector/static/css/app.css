@@ -306,3 +306,18 @@ table.data .rank { color: var(--muted); font-family: var(--mono); }
 
 /* Modes Map fullscreen wrapper: opaque backdrop + breathing room when elevated. */
 .modes-fswrap:fullscreen { background: var(--plane); padding: 12px; overflow: hidden; }
+
+/* ---------------- Signatures Explorer ---------------- */
+/* Conflict (label-bleed candidate) rows get a warning left-accent + tint. */
+table.data tr.sig-row.conflict td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
+table.data tr.sig-row.conflict td { background: color-mix(in srgb, var(--warning) 7%, transparent); }
+table.data tr.sig-row.conflict:hover td { background: color-mix(in srgb, var(--warning) 12%, transparent); }
+table.data tr.sig-row.open td { background: var(--surface-3); }
+.conflict-flag { color: var(--warning); font-size: 13px; line-height: 1; }
+/* Expanded detail row: a full-width panel under its error_hash row. */
+table.data tr.sig-detail:hover td { background: none; }
+.sig-detail > td { padding: 0 !important; border-bottom: 1px solid var(--hairline); }
+.sig-detail-body {
+  padding: 16px; background: var(--surface-1);
+  border-left: 2px solid var(--accent); margin: 2px 0 6px;
+}
