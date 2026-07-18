@@ -9,6 +9,17 @@ is snapshotted into ``suggestion.features`` on every decision.
 Pipeline per launch: build signatures/embeddings (read-only) → launch grouping
 (§5) → per-representative matching A/B/C (§6.1-§6.3) → decision + policy bands
 (§6.6) → fan out to members, persist ``launch_group`` + ``suggestion`` rows.
+
+Identity invariant (§6.1): hash-identity comparisons only ever compare values
+computed the same way. The read path mines against a *read-only Drain3 clone*
+(:meth:`IndexPipeline.build_item_analyses` never saves), and Drain templates drift
+as new logs are mined, so a read-time recompute of the query item's ``error_hash``
+diverges from the value each history row was indexed under — causing false Stage-A
+matches (a drifted hash colliding with an unrelated row → wrong inherited label)
+*and* false non-matches. So the decision path resolves the query item's CANONICAL
+identity — its persisted ``failure_signature`` row (:meth:`_resolve_identity`) —
+and every hash comparison (Stage A, KB ``exception_fps``, burst novelty, launch
+fingerprint) stays stored-vs-stored. A never-indexed item recomputes then persists.
 """
 
 from __future__ import annotations
@@ -64,6 +75,7 @@ from analyzer_ng.db.repositories.models import (
     Candidate,
     CandidateFilters,
     QuerySignature,
+    SignatureIn,
     SuggestionIn,
 )
 from analyzer_ng.db.repositories.retrieval import PgRetrievalStore
@@ -91,6 +103,34 @@ class ModeMatch:
     mode_id: int
     score: float
     matched_by: str  # 'hash' | 'vector' | 'lexical' | 'human'
+
+
+@dataclass(frozen=True)
+class _QueryIdentity:
+    """The canonical hash-identity of the item under analysis (spec §3.2-§3.3, §6.1).
+
+    Every hash-identity comparison on the read path must compare values computed
+    the same way. ``error_hash`` folds the ordered Drain3 template ids, which drift
+    as new logs re-cluster the miner; the analyze/suggest path mines against a
+    *read-only Drain clone* (never ``save_manager``) whose templates have moved on
+    from the state each history row was indexed under. So a recompute of the query
+    item's ``error_hash`` at analyze time can silently collide with an unrelated
+    history row (false match → wrong inherited label) or fail to match its own past
+    self (false non-match). This struct carries the *persisted* identity — the value
+    written at index time — so Stage A, KB ``exception_fps`` matching, the burst
+    novelty check and the launch-group fingerprint stay stored-vs-stored. It is
+    recomputed (and then persisted) only for an item that was never indexed.
+    """
+
+    exception_fp: int
+    error_hash: int
+    template_ids: tuple[int, ...]
+    top_frames: tuple[str, ...]
+    status_codes: tuple[str, ...]
+    msg_text: str
+    exception_names: tuple[str, ...]
+
+
 SEARCH_COS_THRESHOLD = 0.75
 INT53_MASK = (1 << 53) - 1  # Java long-safe positive cluster id
 SUGGEST_MAX = 3
@@ -311,11 +351,24 @@ class AnalysisEngine:
     def _group(
         self, project: int, launch_id: int, analyses: Sequence[ItemAnalysis]
     ) -> list[LaunchGroup]:
+        # §6.1 identity invariant: the representative's ``error_hash`` feeds the burst
+        # novelty check (``error_hash_seen``, stored history) and the persisted
+        # launch-group fingerprint — both stored-vs-stored comparisons. Use each
+        # item's canonical (index-time) ``error_hash`` when it exists so a drifted
+        # read-time recompute cannot fake/miss novelty or churn the fingerprint.
+        # ``exception_fp`` and ``template_ids`` (used only for *within-batch* cohesion
+        # bucketing / Jaccard) stay recomputed — they don't fold Drain templates
+        # (fp) or are compared only against their same-batch peers (templates).
+        canonical = self.retrieval.get_signatures(project, [a.item.testItemId for a in analyses])
         items = [
             GroupItem(
                 item_id=a.item.testItemId,
                 exception_fp=a.signature.exception_fp,
-                error_hash=a.signature.error_hash,
+                error_hash=(
+                    stored.error_hash
+                    if (stored := canonical.get(a.item.testItemId)) is not None
+                    else a.signature.error_hash
+                ),
                 emb=a.emb,
                 has_stacktrace=a.signature.has_stacktrace,
                 log_count=a.log_count,
@@ -342,17 +395,23 @@ class AnalysisEngine:
         *,
         route: str,
     ) -> tuple[DecisionResult, ModeMatch | None]:
-        sig = rep.signature
-        q = self._query_signature(
-            rep, launch_id=rep.launch.launchId, launch_number=rep.launch.launchNumber
+        # §6.1 identity invariant: resolve the query item's CANONICAL identity (its
+        # persisted failure_signature row) rather than the drifted read-time recompute
+        # in ``rep.signature``. This keeps Stage A (below), the KB ``exception_fps``
+        # GIN / template Jaccard match (``kb.match_modes`` on ``q``) and the Stage-C
+        # ``same_error_hash`` feature all stored-vs-stored. A never-indexed item falls
+        # back to the recompute AND persists it, so the value is canonical next time.
+        ident = self._resolve_identity(project, rep)
+        q = self._query_from_identity(
+            ident, rep, launch_id=rep.launch.launchId, launch_number=rep.launch.launchNumber
         )
 
         # Stage A — exact error_hash matches with label provenance, restricted to
         # the analyzerMode scope (§6.1: labeled items *in scope*). analyze applies
         # the hard filter; suggest keeps every labeled, non-ti match (base only).
         hash_matches: list[HashMatch] = []
-        if sig.exception_fp != 0:
-            for row in self.retrieval.find_hash_matches(project, sig.error_hash):
+        if ident.exception_fp != 0:
+            for row in self.retrieval.find_hash_matches(project, ident.error_hash):
                 if row["item_id"] == rep.item.testItemId:
                     continue
                 sc = scope.ScopeCandidate(
@@ -381,9 +440,12 @@ class AnalysisEngine:
                     )
                 )
 
-        # Stage B — KB modes (exact scan) + seed prior.
+        # Stage B — KB modes (exact scan) + seed prior. Seed rules match on the
+        # exception classes and the Drain-*masked* message text (static mask regexes,
+        # not the mined cluster set), so they do not drift with template re-clustering
+        # — no stored-vs-recomputed mismatch class; the read-time recompute is fine.
         kb_candidates = list(self.kb.match_modes(project, q, k=10))  # type: ignore[attr-defined]
-        seed, seed_mode_id = self._seed_signal(project, sig)
+        seed, seed_mode_id = self._seed_signal(project, rep.signature)
 
         # Stage C — hybrid item-history retrieval, scoped/boosted per analyzerMode.
         stage_c, ages = self._stage_c(
@@ -399,10 +461,10 @@ class AnalysisEngine:
         if predictor is not None:
             gbm_predict = lambda vec: predictor.predict(vec, project)  # noqa: E731
         inputs = DecisionInputs(
-            exception_fp=sig.exception_fp,
+            exception_fp=ident.exception_fp,
             hash_matches=hash_matches,
-            query_status_codes=tuple(sig.status_codes),
-            query_msg_tokens=frozenset(sig.msg_text.split()),
+            query_status_codes=ident.status_codes,
+            query_msg_tokens=frozenset(ident.msg_text.split()),
             kb_candidates=kb_candidates,
             seed=seed,
             stage_c=stage_c,
@@ -788,9 +850,124 @@ class AnalysisEngine:
     # ------------------------------------------------------------------ #
     # Signature / scope / id helpers
     # ------------------------------------------------------------------ #
+    def _resolve_identity(self, project: int, rep: ItemAnalysis) -> _QueryIdentity:
+        """The canonical hash-identity of ``rep`` for the read path (spec §6.1).
+
+        Index precedes analyze, so the item almost always has a persisted
+        ``failure_signature`` row: use ITS ``error_hash`` / ``exception_fp`` /
+        ``template_ids`` / ``top_frames`` / ``status_codes`` / ``msg_text`` — the
+        values written at index time under that index's Drain3 state — as the query
+        identity, never a recompute against the drifted read-only Drain clone. A
+        never-indexed item falls back to the recompute in ``rep.signature`` and, so
+        the value becomes canonical for any later comparison, PERSISTS it (upsert).
+        """
+        stored = self.retrieval.get_signatures(project, [rep.item.testItemId]).get(
+            rep.item.testItemId
+        )
+        if stored is not None:
+            return _QueryIdentity(
+                exception_fp=stored.exception_fp,
+                error_hash=stored.error_hash,
+                template_ids=tuple(stored.template_ids),
+                top_frames=tuple(stored.top_frames),
+                status_codes=tuple(stored.status_codes),
+                msg_text=stored.msg_text,
+                # exc_text is the space-joined normalized chain (class names carry no
+                # internal whitespace), so split() recovers the exception name list.
+                exception_names=tuple(stored.exc_text.split()),
+            )
+        self._persist_recomputed_signature(project, rep)
+        sig = rep.signature
+        return _QueryIdentity(
+            exception_fp=sig.exception_fp,
+            error_hash=sig.error_hash,
+            template_ids=tuple(self.pipeline.template_id(h) for h in sig.template_hashes),
+            top_frames=tuple(sig.frames),
+            status_codes=tuple(sig.status_codes),
+            msg_text=sig.msg_text,
+            exception_names=tuple(sig.exc_classes),
+        )
+
+    def _persist_recomputed_signature(self, project: int, rep: ItemAnalysis) -> None:
+        """Upsert a never-indexed item's recomputed signature (spec §6.1 fallback).
+
+        Makes the just-computed identity canonical so a later analyze of the same
+        item compares stored-vs-stored. Best-effort — a persist failure must never
+        fail the decision (the read path can proceed on the in-memory recompute).
+        ``tmpl_text`` (FTS-only, not part of any hash identity) is left empty here;
+        the next real ``index`` of the item fills it from the live miner patterns.
+        """
+        sig = rep.signature
+        if not sig.signature_text:
+            return  # empty signature (no ERROR logs) → nothing indexable (§3.4)
+        try:
+            self.retrieval.upsert_signatures(
+                [
+                    SignatureIn(
+                        project_id=project,
+                        item_id=rep.item.testItemId,
+                        exception_fp=sig.exception_fp,
+                        error_hash=sig.error_hash,
+                        top_frames=list(sig.frames),
+                        template_ids=[self.pipeline.template_id(h) for h in sig.template_hashes],
+                        exc_text=" ".join(sig.exc_classes),
+                        msg_text=sig.msg_text,
+                        frames_text=" ".join(sig.frames),
+                        tmpl_text="",
+                        status_codes=list(sig.status_codes),
+                        emb=rep.emb,
+                        emb_model_ver=rep.emb_model_ver,
+                    )
+                ]
+            )
+        except Exception:  # noqa: BLE001 — fallback persist must never fail a decision
+            logger.exception(
+                "fallback signature persist failed (project=%s item=%s)",
+                project,
+                rep.item.testItemId,
+            )
+
+    def _query_from_identity(
+        self, ident: _QueryIdentity, rep: ItemAnalysis, *, launch_id: int, launch_number: int
+    ) -> QuerySignature:
+        """Build the retrieval :class:`QuerySignature` from a canonical identity.
+
+        The hash/lexical identity fields come from ``ident`` (stored-when-indexed);
+        only the dense vector (``emb``) is the live read-time embedding — vector
+        similarity is a separate, non-identity signal and the current embedder tag
+        must match the DB's stored vectors' ``emb_model_ver``.
+        """
+        salient = (
+            list(ident.exception_names)
+            + ident.msg_text.split()[:MSG_SALIENT_TERMS]
+            + [f"HTTP_{c}" for c in ident.status_codes]
+        )
+        return QuerySignature(
+            exception_fp=ident.exception_fp,
+            error_hash=ident.error_hash,
+            top_frames=list(ident.top_frames),
+            template_ids=list(ident.template_ids),
+            salient_terms=salient,
+            exception_names=list(ident.exception_names),
+            emb=rep.emb,
+            emb_model_ver=rep.emb_model_ver,
+            test_case_hash=rep.item.testCaseHash or None,
+            launch_id=launch_id,
+            launch_number=launch_number,
+        )
+
     def _query_signature(
         self, rep: ItemAnalysis, *, launch_id: int, launch_number: int
     ) -> QuerySignature:
+        """Recompute a QuerySignature from the in-memory analysis (``search`` route).
+
+        Used only by :meth:`search` (§8.2), whose query is an ad-hoc set of log
+        messages with a synthetic item id that is typically not indexed — there is
+        no persisted identity to prefer, and search has no hash-inherit stage (it
+        ranks purely on cosine/FTS), so a read-time recompute is correct here. The
+        analyze/suggest decision path instead resolves the item's *stored* identity
+        via :meth:`_resolve_identity` (spec §6.1 identity invariant).
+        """
         sig = rep.signature
         template_ids = [self.pipeline.template_id(h) for h in sig.template_hashes]
         salient = (
