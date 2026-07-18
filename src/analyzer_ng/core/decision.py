@@ -14,6 +14,7 @@ layer renders that into the legacy wire shapes.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -153,6 +154,30 @@ def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     return len(a & b) / len(union)
 
 
+# Identifier-like token: carries a dotted path (``com.hawkins.shop.auth.Session``),
+# a scope-resolution ``::`` (C++/Rust), a quoted member ref, or a camelCase hump
+# (``getDiscount``). These are the *discriminating* tokens of an exception message;
+# boilerplate words (``cannot``, ``invoke``, ``because``, ``null``) are not.
+_IDENTIFIER_TOKEN_RE = re.compile(r"\.|::|[a-z][A-Z]")
+
+
+def _identifier_tokens(tokens: frozenset[str]) -> frozenset[str]:
+    """The identifier-bearing subset of a masked-message token set (may be empty)."""
+    return frozenset(t for t in tokens if _IDENTIFIER_TOKEN_RE.search(t))
+
+
+def _msg_gate_jaccard(query: frozenset[str], match: frozenset[str]) -> float:
+    """Message-gate similarity, computed over identifier tokens when either side
+    carries any (so shared NPE/assertion boilerplate can no longer inflate the
+    score above :data:`STAGE_A_MSG_JACCARD` for two genuinely different app areas);
+    both-sides-empty identifier sets fall back to the all-token Jaccard so
+    boilerplate-only messages behave exactly as before (2026-07-18 errata)."""
+    qi, mi = _identifier_tokens(query), _identifier_tokens(match)
+    if qi or mi:
+        return _jaccard(qi, mi)
+    return _jaccard(query, match)
+
+
 def stage_a_inherit(
     exception_fp: int,
     matches: Sequence[HashMatch],
@@ -171,10 +196,18 @@ def stage_a_inherit(
     query on the un-masked evidence before the unanimity/single-human logic runs:
 
     * status gate: ``set(m.status_codes) == set(query_status_codes)`` — both empty
-      passes; any asymmetry fails (abstain-by-default).
-    * message gate: ``Jaccard(m.msg_tokens, query_msg_tokens) >=
-      STAGE_A_MSG_JACCARD`` — Jaccard of two empty sets = 1.0, one-empty-one-not
-      = 0.0.
+      passes; any asymmetry fails (abstain-by-default). The status extractor now
+      captures assertion/response idioms (``Actual: 503``, ``-> 500``, ``HTTP/1.x
+      <code>``), so an upstream-503 (si) no longer shares an empty status set with a
+      server-500 (pb) of the same test — the un-masked code survives Drain masking.
+    * message gate: ``_msg_gate_jaccard(query_msg_tokens, m.msg_tokens) >=
+      STAGE_A_MSG_JACCARD``. The similarity is computed over *identifier-bearing*
+      tokens (dotted paths, ``::``, quoted member refs, camelCase) whenever either
+      side has any, so shared NPE/assertion boilerplate (``cannot invoke ... because
+      ... null``) can no longer inflate the score above the threshold for two
+      genuinely different app areas (``Session.userId`` vs ``Region.rate``).
+      Both-sides-empty identifier sets fall back to the all-token Jaccard (Jaccard
+      of two empty sets = 1.0, one-empty-one-not = 0.0).
 
     Running unanimity/count on the FILTERED list means a crowd labeled off the
     wrong discriminant (e.g. all HTTP 500) can no longer out-vote the query by
@@ -191,7 +224,7 @@ def stage_a_inherit(
         m
         for m in matches
         if set(m.status_codes) == set(query_status_codes)
-        and _jaccard(m.msg_tokens, query_msg_tokens) >= STAGE_A_MSG_JACCARD
+        and _msg_gate_jaccard(query_msg_tokens, m.msg_tokens) >= STAGE_A_MSG_JACCARD
     ]
     if not matches:
         return None

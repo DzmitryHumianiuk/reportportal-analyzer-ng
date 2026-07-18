@@ -196,6 +196,43 @@ def test_stage_a_both_empty_msg_tokens_passes():
     assert got is not None and got.item_id == 1
 
 
+# --- identifier-aware message gate (2026-07-18 errata) --------------------- #
+# Shared NPE/assertion boilerplate must not out-vote the discriminating dotted
+# identifiers; the gate scores over identifier tokens when either side has any.
+_NPE = "java.lang.NullPointerException: Cannot invoke"
+_AUTH = frozenset(
+    f'{_NPE} "com.hawkins.shop.auth.Session.userId()" because "session" is null'.split()
+)
+_TAX = frozenset(
+    f'{_NPE} "com.hawkins.shop.tax.Region.rate()" because "region" is null'.split()
+)
+
+
+def test_stage_a_identifier_divergence_blocks_despite_boilerplate():
+    # All-token Jaccard of these two NPEs is ~0.5+ from shared boilerplate, but the
+    # identifiers (Session.userId vs Region.rate) diverge → gate must block.
+    matches = [_hm(1, "pb001", "rp", msg_tokens=_TAX), _hm(2, "pb001", "rp", msg_tokens=_TAX)]
+    assert stage_a_inherit(9, matches, query_msg_tokens=_AUTH, now=NOW) is None
+
+
+def test_stage_a_identical_identifiers_still_inherit():
+    matches = [_hm(1, "ab001", "rp", msg_tokens=_AUTH), _hm(2, "ab001", "rp", msg_tokens=_AUTH)]
+    got = stage_a_inherit(9, matches, query_msg_tokens=frozenset(_AUTH), now=NOW)
+    assert got is not None
+
+
+def test_stage_a_boilerplate_only_falls_back_to_all_tokens():
+    # No identifier tokens on either side → fall back to all-token Jaccard (unchanged
+    # behaviour): identical boilerplate still inherits, disjoint still blocks.
+    same = [_hm(1, "pb001", "rp", msg_tokens={"timeout", "db"}),
+            _hm(2, "pb001", "rp", msg_tokens={"timeout", "db"})]
+    assert stage_a_inherit(9, same, query_msg_tokens=frozenset({"timeout", "db"}), now=NOW)
+    other = [_hm(1, "pb001", "rp", msg_tokens={"widget", "render"}),
+             _hm(2, "pb001", "rp", msg_tokens={"widget", "render"})]
+    q = frozenset({"checkout", "cart"})
+    assert stage_a_inherit(9, other, query_msg_tokens=q, now=NOW) is None
+
+
 # --------------------------------------------------------------------------- #
 # KB scoring / short-circuit
 # --------------------------------------------------------------------------- #
