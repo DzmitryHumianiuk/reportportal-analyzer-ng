@@ -27,7 +27,16 @@ NOW = datetime(2026, 7, 16, tzinfo=UTC)
 _SRC_CONF = {"rp": 1.0, "human": 0.9, "ai_suggested": 0.3}
 
 
-def _hm(item_id, issue_type, source, days_ago=1.0, is_auto=False, confidence=None):
+def _hm(
+    item_id,
+    issue_type,
+    source,
+    days_ago=1.0,
+    is_auto=False,
+    confidence=None,
+    status_codes=(),
+    msg_tokens=frozenset(),
+):
     return HashMatch(
         item_id=item_id,
         issue_type=issue_type,
@@ -36,6 +45,8 @@ def _hm(item_id, issue_type, source, days_ago=1.0, is_auto=False, confidence=Non
         label_ts=NOW - timedelta(days=days_ago),
         confidence=confidence if confidence is not None else _SRC_CONF.get(source, 0.3),
         is_auto_analyzed=is_auto,
+        status_codes=tuple(status_codes),
+        msg_tokens=frozenset(msg_tokens),
     )
 
 
@@ -104,6 +115,85 @@ def test_stage_a_never_inherits_unrecognized_locator():
 def test_stage_a_auto_nd_never_propagates():
     matches = [_hm(1, "nd001", "ai_suggested"), _hm(2, "nd001", "ai_suggested")]
     assert stage_a_inherit(1, matches, now=NOW) is None
+
+
+# --------------------------------------------------------------------------- #
+# Stage A discriminant gate (2026-07-18 errata) — error_hash over Drain3-masked
+# templates collapses HTTP codes and app-area detail, so inherit is additionally
+# gated on un-masked status_codes / salient message terms.
+# --------------------------------------------------------------------------- #
+def test_stage_a_status_code_mismatch_does_not_inherit():
+    # HTTP 503 query vs a crowd labeled off HTTP 500 (masked to the same hash).
+    matches = [
+        _hm(1, "pb001", "rp", status_codes=("500",)),
+        _hm(2, "pb001", "rp", status_codes=("500",)),
+    ]
+    assert stage_a_inherit(9, matches, query_status_codes=("503",), now=NOW) is None
+
+
+def test_stage_a_msg_divergence_does_not_inherit():
+    # Same exception_fp, no status codes on either side, but disjoint salient terms
+    # (an NPE from a different app area) → gate filters everything out.
+    matches = [
+        _hm(1, "pb001", "rp", msg_tokens={"widget", "render"}),
+        _hm(2, "pb001", "rp", msg_tokens={"widget", "render"}),
+    ]
+    assert (
+        stage_a_inherit(9, matches, query_msg_tokens=frozenset({"checkout", "cart"}), now=NOW)
+        is None
+    )
+
+
+def test_stage_a_msg_identical_still_inherits():
+    matches = [
+        _hm(1, "pb001", "rp", msg_tokens={"widget", "render"}),
+        _hm(2, "pb001", "rp", msg_tokens={"widget", "render"}),
+    ]
+    got = stage_a_inherit(
+        9, matches, query_msg_tokens=frozenset({"widget", "render"}), now=NOW
+    )
+    assert got is not None
+
+
+def test_stage_a_param_noise_near_duplicate_inherits_unchanged():
+    # MUST-group regression guard: identical status + msg discriminants inherit.
+    matches = [
+        _hm(1, "ab001", "rp", status_codes=("500",), msg_tokens={"timeout", "db"}),
+        _hm(2, "ab001", "rp", status_codes=("500",), msg_tokens={"timeout", "db"}),
+    ]
+    got = stage_a_inherit(
+        9,
+        matches,
+        query_status_codes=("500",),
+        query_msg_tokens=frozenset({"timeout", "db"}),
+        now=NOW,
+    )
+    assert got is not None
+
+
+def test_stage_a_mixed_crowd_filtered_to_zero():
+    # 2 unanimous 500-matches cannot out-vote a 503 query by count — the gate strips
+    # them first, leaving nothing to inherit.
+    matches = [
+        _hm(1, "pb001", "rp", status_codes=("500",)),
+        _hm(2, "pb001", "rp", status_codes=("500",)),
+    ]
+    assert stage_a_inherit(9, matches, query_status_codes=("503",), now=NOW) is None
+    res = decide(
+        DecisionInputs(
+            exception_fp=9, hash_matches=matches, query_status_codes=("503",)
+        ),
+        now=NOW,
+    )
+    assert res.method != METHOD_HASH
+    assert res.label == "ti"
+
+
+def test_stage_a_both_empty_msg_tokens_passes():
+    # Jaccard of two empty token sets is 1.0 → gate does not block.
+    matches = [_hm(1, "pb001", "rp")]
+    got = stage_a_inherit(9, matches, query_msg_tokens=frozenset(), now=NOW)
+    assert got is not None and got.item_id == 1
 
 
 # --------------------------------------------------------------------------- #

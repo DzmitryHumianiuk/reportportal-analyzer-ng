@@ -38,6 +38,9 @@ TAU_SUGGEST = 0.45
 # spec §6.1 Stage-A constants.
 STAGE_A_CONFIDENCE = 0.95
 STAGE_A_MAX_AGE_DAYS = 180
+# Discriminant gate (2026-07-18 errata, extends §6.1): a hash match must share the
+# query's masked salient-message terms above this Jaccard to be inherit-eligible.
+STAGE_A_MSG_JACCARD = 0.5
 
 # spec §6.2 KB short-circuit constants.
 KB_STRONG_PURITY = 0.95
@@ -91,6 +94,12 @@ class HashMatch:
     label_ts: datetime | None
     confidence: float = 0.0  # label-event confidence (derived from source, §6.1 guard)
     is_auto_analyzed: bool = False
+    # Discriminants for the inherit gate (2026-07-18 errata, extends §6.1). Drain3
+    # masking collapses HTTP codes and app-area detail into a shared error_hash, so
+    # the raw hash is not sufficient to inherit; these carry the un-masked evidence.
+    exception_fp: int = 0
+    status_codes: tuple[str, ...] = ()
+    msg_tokens: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -134,13 +143,59 @@ def _age_days(ts: datetime | None, now: datetime) -> float:
 # --------------------------------------------------------------------------- #
 # Stage A — exact error_hash inherit (spec §6.1)
 # --------------------------------------------------------------------------- #
+def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
+    """Jaccard similarity; two empty sets → 1.0, exactly one empty → 0.0."""
+    if not a and not b:
+        return 1.0
+    union = a | b
+    if not union:
+        return 1.0
+    return len(a & b) / len(union)
+
+
 def stage_a_inherit(
-    exception_fp: int, matches: Sequence[HashMatch], *, now: datetime | None = None
+    exception_fp: int,
+    matches: Sequence[HashMatch],
+    *,
+    query_status_codes: tuple[str, ...] = (),
+    query_msg_tokens: frozenset[str] = frozenset(),
+    now: datetime | None = None,
 ) -> HashMatch | None:
-    """Return the match to inherit from, or None when the guards do not all pass."""
+    """Return the match to inherit from, or None when the guards do not all pass.
+
+    Guards (spec §6.1 + discriminant gate, 2026-07-18 errata): the un-masked
+    discriminant gate runs FIRST — ``error_hash`` is computed over Drain3-masked
+    templates + normalized frames, so it collapses HTTP 500 vs 503 (the code is
+    masked away) and same-exception failures from different app areas that share no
+    in-app frames. The gate filters ``matches`` down to those that agree with the
+    query on the un-masked evidence before the unanimity/single-human logic runs:
+
+    * status gate: ``set(m.status_codes) == set(query_status_codes)`` — both empty
+      passes; any asymmetry fails (abstain-by-default).
+    * message gate: ``Jaccard(m.msg_tokens, query_msg_tokens) >=
+      STAGE_A_MSG_JACCARD`` — Jaccard of two empty sets = 1.0, one-empty-one-not
+      = 0.0.
+
+    Running unanimity/count on the FILTERED list means a crowd labeled off the
+    wrong discriminant (e.g. all HTTP 500) can no longer out-vote the query by
+    count. Only this rule-based inherit is gated; GBM feature computation still
+    sees the unfiltered hash matches.
+    """
     if exception_fp == 0 or not matches:
         return None
     now = now or datetime.now(UTC)
+
+    # Discriminant gate (2026-07-18 errata) — keep only matches that agree with the
+    # query on the un-masked status codes and salient message terms.
+    matches = [
+        m
+        for m in matches
+        if set(m.status_codes) == set(query_status_codes)
+        and _jaccard(m.msg_tokens, query_msg_tokens) >= STAGE_A_MSG_JACCARD
+    ]
+    if not matches:
+        return None
+
     newest = max(matches, key=lambda m: (m.label_ts or datetime.min.replace(tzinfo=UTC)))
 
     # Guard: newest match age ≤ 180 days.
@@ -249,6 +304,9 @@ class DecisionInputs:
 
     exception_fp: int
     hash_matches: Sequence[HashMatch] = ()
+    # Query-side discriminants for the Stage-A inherit gate (2026-07-18 errata).
+    query_status_codes: tuple[str, ...] = ()
+    query_msg_tokens: frozenset[str] = frozenset()
     kb_candidates: Sequence[Candidate] = ()  # from KBStore.match_modes
     seed: SeedSignal | None = None
     stage_c: Sequence[Candidate] = ()  # top-20, post-boost order
@@ -308,8 +366,14 @@ def decide(
             stage_c=list(inputs.stage_c),
         )
 
-    # Stage A — exact error_hash inherit.
-    inherit = stage_a_inherit(inputs.exception_fp, inputs.hash_matches, now=now)
+    # Stage A — exact error_hash inherit (discriminant-gated, 2026-07-18 errata).
+    inherit = stage_a_inherit(
+        inputs.exception_fp,
+        inputs.hash_matches,
+        query_status_codes=inputs.query_status_codes,
+        query_msg_tokens=inputs.query_msg_tokens,
+        now=now,
+    )
     if inherit is not None:
         return result(
             _base(inherit.issue_type),

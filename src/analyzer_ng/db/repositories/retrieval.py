@@ -393,6 +393,7 @@ class PgRetrievalStore(StoreBase):
                 """
                 SELECT ti.item_id, ti.issue_type, ti.issue_type_group, ti.is_auto_analyzed,
                        ti.launch_id, ti.launch_name,
+                       fs.exception_fp, fs.status_codes, fs.msg_text,
                        le.source AS label_source, le.ts AS label_ts
                 FROM analyzer.failure_signature fs
                 JOIN analyzer.test_item ti USING (project_id, item_id)

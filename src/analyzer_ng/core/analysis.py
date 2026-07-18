@@ -375,6 +375,9 @@ class AnalysisEngine:
                         label_ts=row["label_ts"],
                         confidence=src_weight(row["label_source"]),
                         is_auto_analyzed=bool(row["is_auto_analyzed"]),
+                        exception_fp=row["exception_fp"] or 0,
+                        status_codes=tuple(row["status_codes"] or ()),
+                        msg_tokens=frozenset((row["msg_text"] or "").split()),
                     )
                 )
 
@@ -398,6 +401,8 @@ class AnalysisEngine:
         inputs = DecisionInputs(
             exception_fp=sig.exception_fp,
             hash_matches=hash_matches,
+            query_status_codes=tuple(sig.status_codes),
+            query_msg_tokens=frozenset(sig.msg_text.split()),
             kb_candidates=kb_candidates,
             seed=seed,
             stage_c=stage_c,
