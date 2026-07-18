@@ -21,7 +21,9 @@ export async function renderGroups(root, app) {
 
   const graphCard = card('Co‑failure graph', { sub: 'items clustered by launch_group' });
   const legendCard = card('Groups', {});
-  root.append(h('div', { class: 'grid', style: { gridTemplateColumns: '1fr 320px', alignItems: 'start' } }, graphCard, legendCard));
+  // minmax(0,1fr): without it the svg/chips can force the column (and the page)
+  // wider than the viewport.
+  root.append(h('div', { class: 'grid', style: { gridTemplateColumns: 'minmax(0, 1fr) 320px', alignItems: 'start' } }, graphCard, legendCard));
   const graphBody = graphCard.querySelector('.card-body');
   const legendBody = legendCard.querySelector('.card-body');
 
@@ -58,7 +60,7 @@ function renderGroupList(el, groups) {
 }
 
 function renderForce(el, d) {
-  const width = el.clientWidth || 700, height = 520;
+  const width = el.clientWidth || 700, height = 560;
   const groupIds = [...new Set(d.nodes.map((n) => n.group_id).filter((x) => x != null))];
   const gx = new Map(groupIds.map((g, i) => [g, ((i + 0.5) / Math.max(1, groupIds.length)) * width]));
 
@@ -71,11 +73,16 @@ function renderForce(el, d) {
     for (let i = 1; i < arr.length; i++) links.push({ source: arr[0].item_id, target: arr[i].item_id });
   }
 
-  const svg = d3.create('svg').attr('viewBox', `0 0 ${width} ${height}`).attr('width', '100%').attr('height', height);
-  const link = svg.append('g').attr('stroke', HAIRLINE).attr('stroke-opacity', 0.7)
+  const svg = d3.create('svg').attr('viewBox', `0 0 ${width} ${height}`).attr('width', '100%').attr('height', height)
+    .style('display', 'block').style('max-width', '100%');
+  // All content lives under one root <g> so d3.zoom can pan/scale it; the force
+  // simulation is free to spread nodes beyond the viewport — auto-fit (below)
+  // keeps the whole graph visible until the user takes over with wheel/drag.
+  const zoomRoot = svg.append('g');
+  const link = zoomRoot.append('g').attr('stroke', HAIRLINE).attr('stroke-opacity', 0.7)
     .selectAll('line').data(links).join('line').attr('stroke-width', 1.2);
 
-  const node = svg.append('g').selectAll('g').data(nodes).join('g').style('cursor', 'grab');
+  const node = zoomRoot.append('g').selectAll('g').data(nodes).join('g').style('cursor', 'grab');
   node.append('circle')
     .attr('r', 11)
     .attr('fill', (n) => defectColor(n.issue_type, n.label_group))
@@ -94,6 +101,32 @@ function renderForce(el, d) {
     .attr('fill', INK2).attr('font-size', 10).attr('font-family', 'ui-monospace, monospace')
     .style('pointer-events', (n) => (n.ui_url ? 'auto' : 'none'));
 
+  // Wheel = zoom, background drag = pan. Programmatic transforms (auto-fit)
+  // carry no sourceEvent, so userTouched only flips on a real interaction.
+  let userTouched = false;
+  const zoom = d3.zoom().scaleExtent([0.1, 8]).on('zoom', (ev) => {
+    if (ev.sourceEvent) userTouched = true;
+    zoomRoot.attr('transform', ev.transform);
+  });
+  svg.call(zoom);
+
+  // Fit the current node bounds into the viewport (with padding).
+  function fit() {
+    if (!nodes.length) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const n of nodes) {
+      if (n.x < x0) x0 = n.x; if (n.x > x1) x1 = n.x;
+      if (n.y < y0) y0 = n.y; if (n.y > y1) y1 = n.y;
+    }
+    const pad = 40, w = Math.max(1, x1 - x0 + pad * 2), hh = Math.max(1, y1 - y0 + pad * 2);
+    const k = Math.min(2, Math.min(width / w, height / hh));
+    const t = d3.zoomIdentity
+      .translate(width / 2 - k * (x0 + x1) / 2, height / 2 - k * (y0 + y1) / 2)
+      .scale(k);
+    svg.call(zoom.transform, t);
+  }
+
+  let tick = 0;
   const sim = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links).id((n) => n.item_id).distance(46).strength(0.5))
     .force('charge', d3.forceManyBody().strength(-160))
@@ -103,17 +136,26 @@ function renderForce(el, d) {
     .on('tick', () => {
       link.attr('x1', (l) => l.source.x).attr('y1', (l) => l.source.y).attr('x2', (l) => l.target.x).attr('y2', (l) => l.target.y);
       node.attr('transform', (n) => `translate(${n.x},${n.y})`);
-    });
+      if (!userTouched && ++tick % 20 === 0) fit();
+    })
+    .on('end', () => { if (!userTouched) fit(); });
   node.call(d3.drag()
-    .on('start', (ev, n) => { if (!ev.active) sim.alphaTarget(0.3).restart(); n.fx = n.x; n.fy = n.y; })
+    // stopPropagation: without it the svg-level zoom would pan while a node is
+    // being dragged (both listen on mousedown).
+    .on('start', (ev, n) => { ev.sourceEvent.stopPropagation(); if (!ev.active) sim.alphaTarget(0.3).restart(); n.fx = n.x; n.fy = n.y; })
     .on('drag', (ev, n) => { n.fx = ev.x; n.fy = ev.y; })
     .on('end', (ev, n) => { if (!ev.active) sim.alphaTarget(0); n.fx = null; n.fy = null; }));
 
-  el.appendChild(h('div', { class: 'flex gap-8 wrap mb-8' },
+  el.appendChild(h('div', { class: 'flex gap-8 wrap mb-8', style: { alignItems: 'center' } },
     ...['pb', 'ab', 'si', 'nd', 'ti'].map((g) => h('span', { class: 'flex center gap-8', style: { fontSize: '12px' } },
       h('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: defectColor(null, g) } }), defectName(null, g))),
-    h('span', { class: 'muted', style: { fontSize: '12px' } }, '◯ accent ring = auto‑analyzed')));
-  el.appendChild(svg.node());
+    h('span', { class: 'muted', style: { fontSize: '12px' } }, '◯ accent ring = auto‑analyzed'),
+    h('span', { class: 'muted', style: { fontSize: '12px', marginLeft: 'auto' } }, 'wheel: zoom · drag bg: pan'),
+    h('button', { class: 'chip', style: { padding: '2px 10px', cursor: 'pointer' }, title: 'Fit graph to view',
+      onclick: () => { userTouched = false; fit(); } }, '⤢ fit')));
+  const wrap = h('div', { style: { overflow: 'hidden', borderRadius: '8px' } });
+  wrap.appendChild(svg.node());
+  el.appendChild(wrap);
 }
 
 function nodeLabelText(n) {
