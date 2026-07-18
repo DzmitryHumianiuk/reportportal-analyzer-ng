@@ -377,6 +377,77 @@ def test_suggest_abstain_still_writes_suggestion_row(db_factory) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# KB-mode learning loop — mode_membership + purity/centroid (live-fix Bug 1)
+# --------------------------------------------------------------------------- #
+def _mode_row(pool: ConnectionPool, seed_key: str) -> dict:
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT mode_id, purity, support, centroid IS NOT NULL AS has_centroid, "
+            "emb_model_ver FROM analyzer.failure_mode WHERE project_id=%s AND seed_key=%s",
+            (PROJECT, seed_key),
+        ).fetchone()
+    assert row is not None, f"seed mode {seed_key} not created"
+    return {
+        "mode_id": row[0], "purity": row[1], "support": row[2],
+        "has_centroid": row[3], "emb_model_ver": row[4],
+    }
+
+
+def test_seed_mode_match_writes_membership_and_sets_matched_mode_id(db_factory) -> None:
+    # live-fix Bug 1: an OOM item hits the oom_java seed mode → a mode_membership row
+    # must be written and suggestion.matched_mode_id must be set (both were missing on
+    # image eb2343e, so the whole KB-mode loop was dead).
+    pool = db_factory()
+    handlers = _bound_handlers(pool)
+    launch = _analysis_launch()
+    handlers.index([launch])
+    handlers.analyze([launch])
+
+    oom = _mode_row(pool, "oom_java")
+    with pool.connection() as conn:
+        members = conn.execute(
+            "SELECT item_id, matched_by FROM analyzer.mode_membership "
+            "WHERE project_id=%s AND mode_id=%s ORDER BY item_id",
+            (PROJECT, oom["mode_id"]),
+        ).fetchall()
+        matched_mode_ids = conn.execute(
+            "SELECT DISTINCT matched_mode_id FROM analyzer.suggestion "
+            "WHERE project_id=%s AND item_id BETWEEN 100 AND 104",
+            (PROJECT,),
+        ).fetchall()
+    # All five grouped OOM items became members of the seed mode.
+    assert {m[0] for m in members} == {100, 101, 102, 103, 104}
+    assert all(m[1] == "lexical" for m in members)  # seed rule hit → lexical
+    # The suggestions now carry the matched mode id (was NULL on eb2343e).
+    assert matched_mode_ids == [(oom["mode_id"],)]
+    # The mode's emb_model_ver is stamped so update_purity can build a centroid.
+    assert oom["emb_model_ver"] == EMB_VER
+
+
+def test_defect_update_moves_purity_support_and_sets_centroid(db_factory) -> None:
+    # After membership exists, a defect_update (label_event) must move the mode's
+    # purity/support and seed its centroid from member embeddings (§6.7).
+    pool = db_factory()
+    handlers = _bound_handlers(pool)
+    launch = _analysis_launch()
+    handlers.index([launch])
+    handlers.analyze([launch])
+
+    before = _mode_row(pool, "oom_java")
+    assert before["support"] == 0 and before["purity"] == 0 and not before["has_centroid"]
+
+    # A human confirms the five OOM items as si001 (the burst si prior) via RP UI.
+    handlers.defect_update(
+        DefectUpdate(project=PROJECT, itemsToUpdate={100 + i: "si001" for i in range(5)})
+    )
+
+    after = _mode_row(pool, "oom_java")
+    assert after["support"] == 5, "support = labeled members"
+    assert after["purity"] == pytest.approx(1.0), "all members share the si label → pure"
+    assert after["has_centroid"], "centroid seeded from member embeddings (§9)"
+
+
+# --------------------------------------------------------------------------- #
 # cluster + search
 # --------------------------------------------------------------------------- #
 def test_cluster_groups_launch_with_stable_ids(db_factory) -> None:

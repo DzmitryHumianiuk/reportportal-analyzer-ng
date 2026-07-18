@@ -177,6 +177,37 @@ def test_cold_phase_debounces_repeated_train_attempts():
     assert labels.fetch_calls == 2
 
 
+def test_route_retrain_not_swallowed_by_cold_phase_attempt_debounce():
+    # live-fix Bug 2: an early feedback (events) attempt while cold sets the
+    # cold-phase attempt marker. A LATER explicit train_models (route) publish —
+    # now with plenty of data — must still ship; it must NOT be silently debounced
+    # by the cold-phase throttle (which exists only to spare feedback thrash).
+    labels = FakeLabels(synth_frame(n=10, seed=30))  # phase 1: cold (<50 events)
+    store = FakeModelStore()
+    r = Retrainer(labels, store, clock=lambda: NOW)
+
+    cold = r.maybe_retrain(reason="events", now=NOW)
+    assert cold.reason == "cold"  # first attempt tried and found the install cold
+
+    # Data has since accumulated well past the floor.
+    labels.set_rows(synth_frame(n=300, seed=30))
+    out = r.maybe_retrain(reason="route", now=NOW + timedelta(minutes=5))
+    assert out.shipped, "explicit train_models must ship once data exists, not debounce"
+    assert store.active_gbm_version() is not None
+
+
+def test_nightly_retrain_not_swallowed_by_cold_phase_attempt_debounce():
+    # Same guarantee for the nightly job: a cold events attempt must not block the
+    # scheduled 02:00 retrain within the hour.
+    labels = FakeLabels(synth_frame(n=10, seed=31))
+    store = FakeModelStore()
+    r = Retrainer(labels, store, clock=lambda: NOW)
+    assert r.maybe_retrain(reason="events", now=NOW).reason == "cold"
+    labels.set_rows(synth_frame(n=300, seed=31))
+    out = r.maybe_retrain(reason="nightly", now=NOW + timedelta(minutes=5))
+    assert out.shipped
+
+
 # --------------------------------------------------------------------------- #
 # Single-flight background scheduler (review Important #2)
 # --------------------------------------------------------------------------- #

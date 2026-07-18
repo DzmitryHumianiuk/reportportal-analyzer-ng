@@ -36,6 +36,7 @@ from analyzer_ng.amqp.models import (
 from analyzer_ng.core import scope
 from analyzer_ng.core.decision import (
     ACTION_AUTO,
+    KB_CANDIDATE_SCORE,
     METHOD_GBM,
     TAU_AUTO,
     TAU_SUGGEST,
@@ -43,7 +44,9 @@ from analyzer_ng.core.decision import (
     DecisionResult,
     GbmDecision,
     HashMatch,
+    best_kb_match,
     decide,
+    score_kb_candidate,
 )
 from analyzer_ng.core.features import (
     FEATURE_SCHEMA_VER,
@@ -74,6 +77,20 @@ TOP_K = 20
 # Retrieve wider than TOP_K so the analyzerMode hard-scope filter (§6.0) is not
 # starved by out-of-scope rows dominating the top-20 before filtering.
 STAGE_C_RETRIEVE_K = 60
+
+
+@dataclass(frozen=True)
+class ModeMatch:
+    """The failure_mode an item was matched to, for membership persistence (§6.7/§9).
+
+    ``matched_by`` is one of the ``mode_membership`` CHECK values: a seed rule hit is
+    ``'lexical'`` (matched on its regex/keyword rules, spec §9), a KB centroid/fp
+    match carries the candidate's own ``matched_by`` (``'hash'``/``'vector'``).
+    """
+
+    mode_id: int
+    score: float
+    matched_by: str  # 'hash' | 'vector' | 'lexical' | 'human'
 SEARCH_COS_THRESHOLD = 0.75
 INT53_MASK = (1 << 53) - 1  # Java long-safe positive cluster id
 SUGGEST_MAX = 3
@@ -126,7 +143,7 @@ class AnalysisEngine:
         out: list[AnalysisResult] = []
         for group in groups:
             rep = by_id[group.representative.item_id]
-            decision = self._decide(
+            decision, mode_match = self._decide(
                 project,
                 self._scope_query(launch),
                 launch.analyzerConfig.analyzerMode,
@@ -143,6 +160,10 @@ class AnalysisEngine:
                 group.si_prior,
                 dominant=group.si_prior > 0.0,
             )
+            # §6.7/§9: record every grouped member as a member of the matched mode so
+            # the KB-mode loop can bootstrap — purity/support/centroid then move as
+            # those items are labeled (defect_update → update_purity).
+            self._record_membership(project, [m.item_id for m in group.members], mode_match, rep)
             for member in group.members:
                 self._write_suggestion(project, member.item_id, launch.launchId, group_id, decision)
                 # §1.5: enqueue async LLM enrichment after the row is committed.
@@ -173,7 +194,7 @@ class AnalysisEngine:
             return []  # empty signature (no ERROR logs) → [] (spec §3.4)
 
         group = self._singleton_group(rep)
-        decision = self._decide(
+        decision, mode_match = self._decide(
             project,
             self._scope_query_info(info),
             info.analyzerConfig.analyzerMode,
@@ -182,6 +203,8 @@ class AnalysisEngine:
             total_failures=1,
             route="suggest",
         )
+        # §6.7/§9: link this item to the matched mode so the KB-mode loop can learn.
+        self._record_membership(info.project, [info.testItemId], mode_match, rep)
         # §6.6: EVERY decision writes a suggestion row — including an abstain that
         # renders an empty reply. Persist here, before rendering, so an abstained
         # item later labeled by a human still carries its feature snapshot into
@@ -318,7 +341,7 @@ class AnalysisEngine:
         total_failures: int,
         *,
         route: str,
-    ) -> DecisionResult:
+    ) -> tuple[DecisionResult, ModeMatch | None]:
         sig = rep.signature
         q = self._query_signature(
             rep, launch_id=rep.launch.launchId, launch_number=rep.launch.launchNumber
@@ -357,7 +380,7 @@ class AnalysisEngine:
 
         # Stage B — KB modes (exact scan) + seed prior.
         kb_candidates = list(self.kb.match_modes(project, q, k=10))  # type: ignore[attr-defined]
-        seed = self._seed_signal(project, sig)
+        seed, seed_mode_id = self._seed_signal(project, sig)
 
         # Stage C — hybrid item-history retrieval, scoped/boosted per analyzerMode.
         stage_c, ages = self._stage_c(
@@ -382,7 +405,46 @@ class AnalysisEngine:
             feature_ctx=ctx,
             gbm_predict=gbm_predict,
         )
-        return decide(inputs, tau_auto=self.auto_min_prob)
+        decision = decide(inputs, tau_auto=self.auto_min_prob)
+        mode_match = self._resolve_mode_match(decision, kb_candidates, seed_mode_id, seed)
+        return decision, mode_match
+
+    def _resolve_mode_match(
+        self,
+        decision: DecisionResult,
+        kb_candidates: Sequence[Candidate],
+        seed_mode_id: int | None,
+        seed: SeedSignal | None,
+    ) -> ModeMatch | None:
+        """The failure_mode this item should join so the KB-mode loop can learn (§6.7).
+
+        Precedence mirrors the decision stages: a KB short-circuit mode (already on
+        the decision) wins; else a seed rule hit (its lazily-materialized per-project
+        copy); else the best KB candidate scoring ≥ 0.70 (§6.2 candidate match). The
+        chosen mode is stamped onto ``decision.matched_mode_id`` so the suggestion row
+        records it (the exercise saw this stay NULL) and membership is written for it.
+        """
+        # KB short-circuit already picked a confirmed mode.
+        if decision.matched_mode_id is not None:
+            for c in kb_candidates:
+                if c.mode_id == decision.matched_mode_id:
+                    return ModeMatch(
+                        c.mode_id, score_kb_candidate(c).score_mode, c.matched_by or "vector"
+                    )
+            return ModeMatch(decision.matched_mode_id, 1.0, "vector")
+        # Seed rule hit — the authoritative match for a lazily-copied seed mode (§9).
+        if seed_mode_id is not None:
+            decision.matched_mode_id = seed_mode_id
+            return ModeMatch(seed_mode_id, seed.confidence if seed else 1.0, "lexical")
+        # Best KB candidate above the §6.2 candidate threshold (features-only match,
+        # but strong enough to grow the mode's membership).
+        best = best_kb_match(kb_candidates)
+        if best is not None:
+            kbm, cand = best
+            if cand.mode_id is not None and kbm.score_mode >= KB_CANDIDATE_SCORE:
+                decision.matched_mode_id = cand.mode_id
+                return ModeMatch(cand.mode_id, kbm.score_mode, cand.matched_by or "vector")
+        return None
 
     def _stage_c(
         self,
@@ -434,9 +496,13 @@ class AnalysisEngine:
         ages = [self._age_days(c.label_ts, now) for c in ordered]
         return ordered, ages
 
-    def _seed_signal(self, project: int, sig) -> SeedSignal | None:
+    def _seed_signal(self, project: int, sig) -> tuple[SeedSignal | None, int | None]:
+        """(feature signal, per-project seed mode_id). The mode_id is set only when
+        the lazy per-project copy was materialized (``match_and_seed``), so the
+        engine can record the item as a member of that mode (§6.7/§9). A degraded
+        pure-``match`` fallback carries the signal but no mode_id (nothing persisted)."""
         if self.seed_kb is None:
-            return None
+            return None, None
         try:
             hit = self.seed_kb.match_and_seed(
                 project,
@@ -447,8 +513,10 @@ class AnalysisEngine:
         except Exception:  # noqa: BLE001 — seed persistence must never fail a decision
             logger.exception("seed match_and_seed failed for project %s", project)
             mode = self.seed_kb.match(exc_classes=sig.exc_classes, msg_text=sig.msg_text)
-            return SeedSignal(mode.prior_label, mode.prior_confidence) if mode else None
-        return SeedSignal(hit.label, hit.confidence) if hit is not None else None
+            return (SeedSignal(mode.prior_label, mode.prior_confidence) if mode else None), None
+        if hit is None:
+            return None, None
+        return SeedSignal(hit.label, hit.confidence), hit.mode_id
 
     def _feature_ctx(
         self, rep: ItemAnalysis, group: LaunchGroup, total_failures: int
@@ -518,6 +586,37 @@ class AnalysisEngine:
                 model_ver=self._model_ver(decision),
             )
         )
+
+    def _record_membership(
+        self,
+        project: int,
+        item_ids: Sequence[int],
+        mode_match: ModeMatch | None,
+        rep: ItemAnalysis,
+    ) -> None:
+        """Persist ``mode_membership`` rows for a mode-matched decision (§6.7/§9).
+
+        This is the link the KB-mode learning loop was missing: without it
+        ``matched_mode_id`` stays NULL and ``update_purity`` (called from
+        ``defect_update``) has no members, so purity/support/centroid never move.
+        A no-op when no mode matched. Best-effort: a membership write must never fail
+        an analyze/suggest decision (the row is already committed). The mode's
+        ``emb_model_ver`` is stamped from the representative's real embedding so the
+        EWMA centroid can later be computed from member vectors (§9)."""
+        if mode_match is None or not item_ids:
+            return
+        # Only stamp a version when the representative carried a real vector — a
+        # lexical-only degrade (emb=None) must not pin the mode to the emb=0 sentinel.
+        emb_ver = rep.emb_model_ver if rep.emb is not None else None
+        members = [
+            (int(iid), float(mode_match.score), mode_match.matched_by) for iid in item_ids
+        ]
+        try:
+            self.kb.add_members(project, mode_match.mode_id, members, emb_ver)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 — membership persistence must never fail a decision
+            logger.exception(
+                "mode membership write failed (project=%s mode=%s)", project, mode_match.mode_id
+            )
 
     # ------------------------------------------------------------------ #
     # LLM sidecar enqueue (spec 04 §1.5) — strictly async, best-effort

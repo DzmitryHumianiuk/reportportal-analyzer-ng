@@ -235,6 +235,10 @@ class FakeLabels:
         self.new_events = new_events
         self.fetch_calls = 0  # how many times a full training frame was pulled
 
+    def set_rows(self, rows: list[dict]) -> None:
+        """Test hook: swap the frame (e.g. simulate data accumulating over time)."""
+        self._rows = list(rows)
+
     def fetch_training_frame(self) -> list[dict]:
         self.fetch_calls += 1
         return list(self._rows)

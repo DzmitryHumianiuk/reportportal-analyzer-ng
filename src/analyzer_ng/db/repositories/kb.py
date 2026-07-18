@@ -181,11 +181,26 @@ class PgKBStore(StoreBase):
         return int(existing[0])
 
     def add_members(
-        self, project_id: int, mode_id: int, members: Sequence[tuple[int, float, MatchedBy]]
+        self,
+        project_id: int,
+        mode_id: int,
+        members: Sequence[tuple[int, float, MatchedBy]],
+        emb_model_ver: int | None = None,
     ) -> int:
+        """Link items to a mode (upsert). Optionally stamp the mode's
+        ``emb_model_ver`` when it is still NULL.
+
+        A lazily-materialized seed/candidate mode starts with ``emb_model_ver=NULL``
+        and a NULL centroid (spec 03 §9: "centroid set from first matched items
+        later"). :meth:`update_purity` only EWMA-updates the centroid when the mode
+        carries an ``emb_model_ver`` (so it knows which member embeddings to average),
+        so the FIRST batch of members with real vectors must set it — otherwise the
+        centroid can never leave NULL. ``COALESCE`` keeps an existing version pinned
+        (versions are never mixed, CONTEXT §3).
+        """
         if not members:
             return 0
-        with self._conn() as conn:
+        with self._conn() as conn, conn.transaction():
             conn.cursor().executemany(
                 """
                 INSERT INTO analyzer.mode_membership
@@ -197,6 +212,13 @@ class PgKBStore(StoreBase):
                 """,
                 [(project_id, mode_id, iid, score, by) for (iid, score, by) in members],
             )
+            if emb_model_ver is not None:
+                conn.execute(
+                    "UPDATE analyzer.failure_mode "
+                    "SET emb_model_ver = COALESCE(emb_model_ver, %s), last_seen_at = now() "
+                    "WHERE project_id = %s AND mode_id = %s",
+                    (emb_model_ver, project_id, mode_id),
+                )
         return len(members)
 
     def update_purity(self, project_id: int, mode_id: int) -> float:

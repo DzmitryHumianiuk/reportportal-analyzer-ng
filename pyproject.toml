@@ -59,7 +59,7 @@ analyzer_ng = ["seeds/*.yaml", "seeds/*.json", "db/migrations/*.sql", "db/bootst
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "tests", "inspector"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B"]
@@ -75,7 +75,7 @@ module = ["pika.*", "yaml"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "inspector/tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: requires Docker; spins real containers via testcontainers",
