@@ -54,6 +54,30 @@ class SignatureIn(BaseModel):
     emb_model_ver: int = 0
 
 
+class StoredSignature(BaseModel):
+    """An item's persisted ``failure_signature`` identity, read back verbatim (§2.5).
+
+    The *canonical* signature for read-path comparisons. ``error_hash`` and
+    ``template_ids`` are computed at index time against that index's Drain3 state;
+    the read path (analyze/suggest) mines against a read-only Drain clone whose
+    templates have since drifted, so a recompute would differ. Any hash-identity
+    comparison (Stage-A exact match, KB ``exception_fps`` GIN, burst novelty,
+    launch-group fingerprint) MUST use these stored values so it only ever compares
+    identities computed the same way (spec 03 §6.1 identity invariant).
+    """
+
+    project_id: int
+    item_id: int
+    exception_fp: int
+    error_hash: int
+    top_frames: list[str] = []
+    template_ids: list[int] = []
+    exc_text: str = ""
+    msg_text: str = ""
+    status_codes: list[str] = []
+    emb_model_ver: int = 0
+
+
 class QuerySignature(BaseModel):
     """Search-side view of a signature (built from the item under analysis)."""
 

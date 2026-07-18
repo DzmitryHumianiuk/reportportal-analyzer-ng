@@ -21,6 +21,7 @@ from analyzer_ng.db.repositories.models import (
     ModeIn,
     QuerySignature,
     SignatureIn,
+    StoredSignature,
     TestItemIn,
 )
 
@@ -60,6 +61,9 @@ class RetrievalStore(Protocol):
         k: int = 20,
         filters: CandidateFilters | None = None,
     ) -> list[Candidate]: ...
+    def get_signatures(
+        self, project_id: int, item_ids: Sequence[int]
+    ) -> dict[int, StoredSignature]: ...
 
 
 class KBStore(Protocol):

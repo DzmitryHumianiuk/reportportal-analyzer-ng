@@ -30,6 +30,7 @@ from analyzer_ng.db.repositories.models import (
     CandidateFilters,
     QuerySignature,
     SignatureIn,
+    StoredSignature,
     SuggestionIn,
     TestItemIn,
 )
@@ -413,6 +414,34 @@ class PgRetrievalStore(StoreBase):
         for r in rows:
             r["label_source"] = _LABEL_SOURCE_MAP.get(r["label_source"])
         return rows
+
+    def get_signatures(
+        self, project_id: int, item_ids: Sequence[int]
+    ) -> dict[int, StoredSignature]:
+        """Read persisted ``failure_signature`` identities by item id (spec §6.1).
+
+        The canonical identity of an already-indexed item — its ``error_hash`` /
+        ``exception_fp`` / ``template_ids`` / ``top_frames`` / ``status_codes`` /
+        ``msg_text`` as written at index time (in that index's Drain3 state). The
+        read path uses these instead of recomputing against the drifted read-only
+        Drain clone, so every hash-identity comparison stays stored-vs-stored.
+        Missing item ids are simply absent from the returned mapping (never indexed).
+        """
+        if not item_ids:
+            return {}
+        with self._conn() as conn:
+            cur = conn.cursor(row_factory=dict_row)
+            cur.execute(
+                """
+                SELECT project_id, item_id, exception_fp, error_hash, top_frames,
+                       template_ids, exc_text, msg_text, status_codes, emb_model_ver
+                FROM analyzer.failure_signature
+                WHERE project_id = %s AND item_id = ANY(%s)
+                """,
+                (project_id, list(item_ids)),
+            )
+            rows = cur.fetchall()
+        return {int(r["item_id"]): StoredSignature(**r) for r in rows}
 
     def test_case_first_seen(self, project_id: int, test_case_hash: int) -> datetime | None:
         """Earliest observation of a test case (feeds ``test_age_days``, §6.4).

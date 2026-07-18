@@ -281,6 +281,15 @@ class IndexPipeline:
         analyze/suggest paths mine template *hashes* deterministically (content
         hashes, so they align with indexed signatures) without creating new
         persisted templates.
+
+        DRIFT HAZARD (spec 03 §6.1): the read-only clone reflects the miner's state
+        *now*, which has moved on from the state each history row was indexed under
+        as intervening logs re-clustered its templates. So the ``error_hash`` /
+        ``template_ids`` recomputed here can differ from the persisted values for the
+        very same item. They are safe for grouping cohesion and embedding (compared
+        only against same-batch peers), but any comparison against *stored* history
+        must use the persisted identity instead — see
+        :meth:`AnalysisEngine._resolve_identity`.
         """
         manager, _version = load_manager(
             self._drain_store,
