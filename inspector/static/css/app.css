@@ -431,3 +431,46 @@ details.eng .eng-body { margin-top: 10px; }
   .evi-top, .evi-bar-cell { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .evi-caret { transition: none; } }
+
+/* ============================================================================
+   Matching funnel + candidate strip + Feedback timeline (Round 2) — tokens only.
+   ============================================================================ */
+
+/* Three-stage funnel */
+.funnel { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; margin: 4px 0 6px; }
+.fn-node { flex: 1 1 160px; min-width: 150px; padding: 8px 10px; background: var(--surface-2);
+  border: 1px solid var(--hairline); border-radius: var(--radius-s); }
+.fn-node[data-state="won"] { border-color: var(--stage-c); box-shadow: inset 3px 0 0 var(--stage-c); }
+.fn-node[data-state="won"] .fn-cap { color: var(--stage-c); font-weight: 600; }
+.fn-node[data-state="skip"] { border-style: dashed; opacity: .55; }
+.fn-k { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--ink-2); font-weight: 600; }
+.fn-cap { font-size: 11.5px; margin-top: 3px; color: var(--muted); }
+.fn-art { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.fn-arrow { align-self: center; color: var(--muted); }
+.fn-term { align-self: center; font-size: 11px; color: var(--ink-2); padding-left: 4px; }
+@media (max-width: 720px) { .funnel { flex-direction: column; }
+  .fn-arrow { transform: rotate(90deg); align-self: flex-start; margin-left: 12px; } }
+
+/* Top-3 candidate evidence strip */
+.cand-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 860px) { .cand-strip { grid-template-columns: 1fr; } }
+.cand-card { padding: 9px 11px; background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--radius-s); }
+.cand-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cand-rank { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+.cand-cos { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.cc-k { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.cc-bar { flex: 1; }
+.cc-v { font-size: 11px; color: var(--ink-2); font-family: var(--mono); }
+.cand-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 7px; }
+
+/* Feedback timeline spine */
+.tl { list-style: none; margin: 0; padding: 0; position: relative; }
+.tl::before { content: ""; position: absolute; left: 5px; top: 8px; bottom: 8px; width: 1px; background: var(--hairline); }
+.tl-ev { position: relative; display: flex; align-items: center; gap: 10px; padding: 9px 0 9px 20px; }
+.tl-ev.now { background: color-mix(in srgb, var(--accent) 5%, transparent); border-radius: var(--radius-s); padding-right: 10px; }
+.tl-dot { position: absolute; left: 0; top: 14px; width: 11px; height: 11px; border-radius: 50%;
+  background: var(--c, var(--lbl-none)); box-shadow: 0 0 0 2px var(--surface-1); }
+.tl-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; }
+.tl-ev time { font-size: 11px; flex: none; color: var(--muted); font-family: var(--mono); }
+.tl-decay { font-size: 10.5px; color: var(--muted); margin-top: 3px; }
+.cap-line { font-size: 11px; color: var(--muted); margin-top: 8px; padding-left: 20px; }

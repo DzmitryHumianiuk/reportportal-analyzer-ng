@@ -175,6 +175,40 @@ export function highlightPattern(pattern) {
   return s;
 }
 
+// Label-provenance vocabulary. Covers the label_event.source CHECK values
+// (rp_defect_update / analyzer_suggestion_accepted / human_ui) AND the
+// feature-vector label_source tokens (rp / human / ai_suggested / seed) so both
+// the Feedback timeline and the Matching candidate strip read from one map.
+// `weight` is the src_weight (features.py _SRC_WEIGHT / spec §6.4) — the vote a
+// label of this provenance casts as future retrieval evidence.
+export const SOURCE_LABELS = {
+  rp_defect_update: { k: 'rp', text: 'defect update', plain: 'human · RP', actor: 'human (RP defect edit)', weight: 1.0 },
+  analyzer_suggestion_accepted: { k: 'human', text: 'UI accept', plain: 'human · accepted', actor: 'human accepted analyzer suggestion', weight: 0.9 },
+  human_ui: { k: 'human', text: 'UI edit', plain: 'human · UI', actor: 'human (Inspector UI)', weight: 0.9 },
+  rp: { k: 'rp', text: 'defect update', plain: 'human · RP', actor: 'human (RP defect edit)', weight: 1.0 },
+  human: { k: 'human', text: 'UI accept', plain: 'human', actor: 'human (Inspector UI)', weight: 0.9 },
+  ai_suggested: { k: 'ai_suggested', text: 'auto', plain: 'analyzer', actor: "analyzer's auto-label", weight: 0.3 },
+  seed: { k: 'seed', text: 'catalog', plain: 'seed', actor: 'seed catalog rule', weight: 0.6 },
+};
+export function srcInfo(token) {
+  if (token == null) return { k: '—', text: '', plain: '—', actor: 'unrecorded actor', weight: null, raw: null };
+  return { ...(SOURCE_LABELS[token] || { k: token, text: '', plain: token, actor: token, weight: null }), raw: token };
+}
+
+// Relative time: "just now" / "{m}m ago" / "{h}h ago" / "{d}d ago" / shortTime.
+// The full ISO always rides title= elsewhere — this is a convenience layer only.
+export function relTime(iso) {
+  if (!iso) return '—';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return String(iso);
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 2592000) return `${Math.floor(s / 86400)}d ago`;
+  return shortTime(iso);
+}
+
 export function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
@@ -203,12 +237,12 @@ export function card(title, opts = {}, ...body) {
     h('div', { class: 'card-body' }, ...body));
 }
 
-// Shared "Details for engineers" disclosure (L4). Native <details>, closed by
+// Shared "Technical Details" disclosure (L4). Native <details>, closed by
 // default, open-state persisted per key across items/launches so an ML engineer
 // opens it once and it stays open (localStorage `inspector.eng.<key>`).
-export function engDetails(key, ...children) {
+export function engDrawer(key, summaryText, ...children) {
   const details = h('details', { class: 'eng' });
-  const summary = h('summary', {}, 'Details for engineers ', h('span', { class: 'eng-caret' }, '▸'));
+  const summary = h('summary', {}, summaryText + ' ', h('span', { class: 'eng-caret' }, '▸'));
   details.append(summary, h('div', { class: 'eng-body' }, ...children));
   const sk = 'inspector.eng.' + key;
   try { if (localStorage.getItem(sk) === '1') details.open = true; } catch (_) { /* storage off */ }
@@ -216,6 +250,9 @@ export function engDetails(key, ...children) {
     try { localStorage.setItem(sk, details.open ? '1' : '0'); } catch (_) { /* storage off */ }
   });
   return details;
+}
+export function engDetails(key, ...children) {
+  return engDrawer(key, 'Technical Details', ...children);
 }
 
 // ECharts shared dark options

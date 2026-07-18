@@ -3,7 +3,7 @@
 import { api } from '../api.js';
 import {
   h, clear, card, defectBadge, defectBadgeAbbr, defectName, idChip, setDefects, fmt,
-  shortTime, highlightPattern, emptyState, loading, engDetails,
+  shortTime, relTime, highlightPattern, emptyState, loading, engDetails, engDrawer, srcInfo,
   FEATURE_GROUP_COLORS, INK, MUTED,
 } from '../util.js';
 
@@ -216,7 +216,7 @@ function groupingCard(d) {
   const isBurst = !!(g && g.dominant && g.member_count > 1);
   const c = card('Grouping', {
     step: 2,
-    sub: 'who else failed like this in the same run (co-failure launch group, spec §5)',
+    sub: 'who else failed like this in the same run (co-failure launch group)',
     class: isBurst ? 'burst-accent' : null,
   });
   const body = c.querySelector('.card-body');
@@ -258,7 +258,7 @@ function groupingCard(d) {
       ...(g.launch_failed_count != null
         ? [h('dt', {}, 'launch_failed_count'), h('dd', { class: 'mono' }, String(g.launch_failed_count))]
         : [])),
-    h('p', { class: 'note', style: { marginTop: '8px' } }, 'co-failure launch group (spec §5)')));
+    h('p', { class: 'note', style: { marginTop: '8px' } }, 'co-failure launch group')));
 
   if (isBurst) pulseOnce(c);
   return c;
@@ -349,7 +349,7 @@ function memberKey(g, members) {
 // L2 banded si_prior meter (scale 0 → 0.9, the documented cap).
 function siMeter(v) {
   const width = Math.max(0, Math.min(1, v / 0.9)) * 100;
-  return h('div', { class: 'si-meter', title: 'burst signal (si_prior) — burst prior from spec §5 · range 0 to 0.9' },
+  return h('div', { class: 'si-meter', title: 'burst signal (si_prior) — burst prior · range 0 to 0.9' },
     h('div', { class: 'si-label' }, 'burst signal (si_prior)'),
     h('div', { class: 'si-track' },
       h('i', { class: 'si-fill', style: { width: width + '%' } }),
@@ -361,55 +361,272 @@ function siMeter(v) {
 }
 
 // ---- Stage 3: matching + reconstruction ----
+const STAGE_COLOR = { A: 'var(--lbl-nd)', AB: 'var(--lbl-si)', C: 'var(--accent)' };
+
 function matchingCard(d) {
   const m = d.matching;
-  const c = card('Matching trace', { step: 3, sub: m.stage_label });
+  const c = card('Matching', { step: 3, sub: 'stage A → B → C cascade' });
   const body = c.querySelector('.card-body');
 
-  const stageColor = { A: 'var(--lbl-nd)', AB: 'var(--lbl-si)', C: 'var(--accent)', abstain: 'var(--lbl-ti)', none: 'var(--muted)' }[m.stage] || 'var(--muted)';
-  body.appendChild(h('div', { class: 'flex gap-8 center wrap mb-8' },
-    h('span', { class: 'badge', style: { background: 'color-mix(in srgb,' + stageColor + ' 16%, transparent)', color: stageColor, borderColor: stageColor } },
-      h('span', { class: 'dot', style: { background: stageColor } }), m.stage_label),
-    m.matched_item_id ? idChip(`matched item ${m.matched_item_id}`, m.matched_item_url, 'chip mono') : null,
-    m.matched_mode_id ? h('span', { class: 'chip mono' }, `matched mode ${m.matched_mode_id}`) : null));
-  body.appendChild(h('p', { class: 'note' }, m.stage_note || m.explanation || ''));
+  if (!m.has_suggestion) {
+    body.appendChild(emptyState('🎯', 'Not matched yet',
+      'Not matched yet — no suggestion row; the matcher has not run for this item (or it was never a failure).',
+      'analyzer.suggestion'));
+    return c;
+  }
 
+  // L1 takeaway
+  body.appendChild(matchTakeaway(m));
+
+  // L2 — three-stage funnel
+  body.appendChild(funnel(d));
+
+  // L2 — matched-mode panel (when a mode is on the row) with thresholds printed
   if (m.matched_mode) {
     const mm = m.matched_mode;
-    body.appendChild(h('div', { class: 'flex gap-8 center wrap mt-8' },
+    body.appendChild(h('div', { class: 'flex gap-8 center wrap', style: { marginTop: '12px' } },
       defectBadge(mm.label, mm.label_group),
       h('span', { class: 'chip' }, mm.title || `mode ${mm.mode_id}`),
-      h('span', { class: 'chip' }, `purity ${fmt(mm.purity, 2)}`),
-      h('span', { class: 'chip' }, `support ${mm.support}`),
+      h('span', { class: 'chip', title: "Share of this mode's members carrying its label — 1.00 = unanimous. ≥ 0.95 required to short-circuit." },
+        `purity ${fmt(mm.purity, 2)} `, h('span', { class: 'muted' }, '(≥ 0.95)')),
+      h('span', { class: 'chip', title: 'Confirmed members of this mode. ≥ 10 required to short-circuit.' },
+        `support ${mm.support} `, h('span', { class: 'muted' }, '(≥ 10)')),
+      mm.status ? h('span', { class: 'chip mono' }, mm.status) : null,
       mm.seed_key ? h('span', { class: 'chip mono' }, `seed:${mm.seed_key}`) : null));
   }
 
-  // ---- live reconstruction ----
+  // L2 — top-3 evidence strip + full reconstruction
   const r = d.reconstruction;
-  body.appendChild(h('div', { class: 'section-title', style: { marginTop: '18px' } }, 'Live Stage‑B reconstruction'));
-  body.appendChild(h('p', { class: 'note recon' }, r.note || ''));
-  if (!r.candidates || !r.candidates.length) {
+  if (!r || !r.candidates || !r.candidates.length) {
+    body.appendChild(h('div', { class: 'section-title', style: { marginTop: '16px' } },
+      `Live retrieval re-run (Stage C, HYBRID_RETRIEVAL v${r ? r.hybrid_retrieval_version : '?'})`));
     body.appendChild(emptyState('🔍', 'No candidates retrieved',
-      'The versioned hybrid RRF SQL returned no rows against current data (too few comparable signatures, or no lexical/dense hit).',
-      'HYBRID_RETRIEVAL v' + (r.hybrid_retrieval_version ?? '?')));
+      `0 candidates from HYBRID_RETRIEVAL v${r ? r.hybrid_retrieval_version : '?'} — no lexical or dense hit in scope against current data (too few comparable signatures).`));
+    body.appendChild(matchingEng(d));
     return c;
   }
+  body.appendChild(candStrip(d));
+  body.appendChild(rrfDrawer(r));
+  body.appendChild(matchingEng(d));
+  return c;
+}
+
+function matchTakeaway(m) {
+  const p = h('p', { class: 'takeaway' });
+  const mono = (t) => h('span', { class: 'mono' }, t);
+  const mut = (t) => h('span', { class: 'muted' }, t);
+  const mm = m.matched_mode;
+  if (m.stage === 'A') {
+    p.append(h('b', {}, 'Inherited via exact hash'), ` from item ${m.matched_item_id} — same `,
+      mono('error_hash'), ', guards passed (≤ 180 d, human-trusted); conf fixed 0.95 ', mut('(Stage A)'), '.');
+  } else if (m.stage === 'AB' && mm) {
+    p.append(h('b', {}, 'Matched KB mode'), ` “${mm.title || 'mode ' + m.matched_mode_id}” (#${m.matched_mode_id}) — purity ${fmt(mm.purity, 2)}, support ${mm.support}`,
+      mm.seed_key ? `, seed:${mm.seed_key}` : '', ' ', mut('(Stage B; conf cap 0.93)'), '.');
+  } else if (m.stage === 'AB') {
+    p.append(h('b', {}, 'Matched KB mode'), ` #${m.matched_mode_id} — mode row not found in failure_mode (retired?); score details unavailable `, mut('(Stage B)'), '.');
+  } else if (m.stage === 'abstain') {
+    p.append(h('b', {}, 'Nothing matched'), ' — no inheritable hash (A), no confident mode (B), no trusted candidate (C); item stays ',
+      mono('ti'), '. Reason on the Decision card.');
+  } else { // C
+    p.append(h('b', {}, 'No exact hash, no KB short-circuit'), ' — went to hybrid retrieval: FTS + cosine fused by ',
+      mono('RRF'), ', top-20 → GBM scored the evidence ', mut('(Stage C)'), '.');
+  }
+  return p;
+}
+
+// Three-stage funnel derived from matching.stage (A runs first, then B, then C).
+function funnel(d) {
+  const m = d.matching;
+  const sig = d.signature;
+  const stage = m.stage;
+  // state per node: won / fell / skip
+  const states = {
+    A: stage === 'A' ? 'won' : 'fell',
+    B: stage === 'AB' ? 'won' : (stage === 'A' ? 'skip' : 'fell'),
+    C: stage === 'C' ? 'won' : ((stage === 'A' || stage === 'AB') ? 'skip' : 'fell'),
+  };
+  const rail = h('div', { class: 'funnel', role: 'list' });
+  const arrow = () => h('span', { class: 'fn-arrow', 'aria-hidden': 'true' }, '→');
+
+  // Node A
+  const aArt = h('div', { class: 'fn-art' });
+  if (states.A === 'won') {
+    aArt.append(idChip(`item ${m.matched_item_id}`, m.matched_item_url, 'chip mono'));
+  } else if (states.A === 'fell') {
+    if (sig && sig.exception_fp === '0') {
+      // handled in caption below
+    } else if (sameHashHistory(d)) {
+      aArt.append(h('span', { class: 'chip', title: 'An identical error_hash is in labeled history but the Stage-A guards did not inherit it.' }, 'same-hash history exists'));
+    } else {
+      aArt.append(h('span', { class: 'chip mono', title: "No non-self candidate shares this item's error_hash — no inheritable exact match exists." }, 'no same-hash history'));
+    }
+  }
+  const aCap = (states.A === 'fell' && sig && sig.exception_fp === '0')
+    ? 'disabled — exception_fp = 0'
+    : fnCaption(states.A, 'A');
+  rail.append(fnNode('A · exact hash', states.A, aCap, aArt, 'A'));
+  rail.append(arrow());
+
+  // Node B
+  const bArt = h('div', { class: 'fn-art' });
+  if (states.B === 'won' && m.matched_mode) {
+    bArt.append(defectBadge(m.matched_mode.label, m.matched_mode.label_group),
+      h('span', { class: 'chip' }, m.matched_mode.title || `mode ${m.matched_mode_id}`));
+  } else if (states.B === 'won') {
+    bArt.append(h('span', { class: 'chip mono' }, `mode #${m.matched_mode_id}`));
+  }
+  rail.append(fnNode('B · KB modes', states.B, fnCaption(states.B, 'B'), bArt, 'B'));
+  rail.append(arrow());
+
+  // Node C
+  const cArt = h('div', { class: 'fn-art' });
+  if (states.C === 'won') {
+    const nonSelf = (d.reconstruction && d.reconstruction.candidates || []).filter((x) => !x.is_self).length;
+    cArt.append(h('span', { class: 'chip mono', title: 'Top-1 candidate fed the 46-feature vector → GBM. The GBM confidence lives on the Decision card.' },
+      `top-1 of ${nonSelf} → GBM`));
+  }
+  rail.append(fnNode('C · hybrid + GBM', states.C, fnCaption(states.C, 'C'), cArt, 'C'));
+  rail.append(arrow());
+
+  // terminal
+  const term = stage === 'abstain'
+    ? h('span', { class: 'fn-term', style: { color: 'var(--lbl-ti)' } }, 'abstain → To Investigate')
+    : h('span', { class: 'fn-term' }, `decided at ${stage === 'AB' ? 'B' : stage}`);
+  rail.append(term);
+  return rail;
+}
+
+function fnNode(kText, state, cap, art, letter) {
+  const node = h('div', { class: 'fn-node', role: 'listitem', dataset: { state } },
+    h('div', { class: 'fn-k' }, kText),
+    h('div', { class: 'fn-cap' }, cap));
+  if (state === 'won') node.style.setProperty('--stage-c', STAGE_COLOR[letter] || 'var(--accent)');
+  if (art && art.childNodes.length) node.appendChild(art);
+  return node;
+}
+function fnCaption(state, letter) {
+  if (state === 'won') return '✓ decided here';
+  if (state === 'skip') return 'not reached';
+  return letter === 'B' ? 'passed — scored, no short-circuit' : 'passed — no decision';
+}
+// True when a non-self live candidate carries this item's exact error_hash.
+function sameHashHistory(d) {
+  const eh = d.signature && d.signature.error_hash;
+  if (!eh || !d.reconstruction) return false;
+  return (d.reconstruction.candidates || []).some((c) => !c.is_self && c.error_hash === eh);
+}
+
+// Top-3 non-self candidate evidence strip.
+function candStrip(d) {
+  const r = d.reconstruction;
+  const sig = d.signature || {};
+  const n = r.candidates.length;
+  const cands = r.candidates.filter((c) => !c.is_self).slice(0, 3);
+  const wrap = h('div', {});
+  wrap.appendChild(h('div', { class: 'section-title', style: { marginTop: '16px' } },
+    `Closest labeled history — top ${cands.length} of ${n} retrieved (live)`));
+  const strip = h('div', { class: 'cand-strip' });
+  for (let i = 0; i < cands.length; i++) {
+    const cd = cands[i];
+    const chips = h('div', { class: 'cand-chips' });
+    if (cd.exception_fp != null && sig.exception_fp != null && cd.exception_fp === sig.exception_fp) {
+      chips.append(h('span', { class: 'chip mono', title: `same exception_fp ${cd.exception_fp}` }, 'fp ='));
+    }
+    if (cd.error_hash != null && sig.error_hash != null && cd.error_hash === sig.error_hash) {
+      chips.append(h('span', { class: 'chip mono', title: 'same error_hash — Stage-A grade match' }, 'hash ='));
+    }
+    chips.append(h('span', { class: 'chip mono', title: 'template-set Jaccard vs this item' }, `jac ${fmt(cd.jaccard_templates, 2)}`));
+    const si = srcInfo(cd.label_source);
+    chips.append(h('span', { class: 'chip', title: `label_source: ${si.raw ?? 'not recorded'}${si.weight != null ? ` — src_weight ${si.weight}` : ''}` }, `src ${si.plain}`));
+    if (cd.launch_number != null) chips.append(h('span', { class: 'chip mono' }, `launch #${cd.launch_number}`));
+    if (cd.mode_id != null) chips.append(h('span', { class: 'chip mono' }, `mode ${cd.mode_id}`));
+
+    const cosBar = h('span', { class: 'microbar cc-bar' });
+    if (cd.cosine != null) cosBar.appendChild(h('i', { style: { width: `${Math.max(0, Math.min(1, cd.cosine)) * 100}%` } }));
+    strip.appendChild(h('div', { class: 'cand-card' },
+      h('div', { class: 'cand-head' },
+        h('span', { class: 'cand-rank' }, `#${i + 1}`),
+        idChip(`item ${cd.item_id}`, cd.ui_url, 'chip mono'),
+        defectBadge(cd.issue_type, grp(cd.issue_type))),
+      h('div', { class: 'cand-cos' },
+        h('span', { class: 'cc-k' }, 'cos'),
+        cosBar,
+        h('span', { class: 'cc-v', title: cd.cosine == null ? 'no dense score — dense leg inactive for this pair' : null }, cd.cosine == null ? '—' : fmt(cd.cosine, 3))),
+      chips));
+  }
+  wrap.appendChild(strip);
+  // drift check (both numbers real): stored top1_cosine vs live top non-self cosine
+  const stored = decisionFeatureValue(d, 'top1_cosine');
+  const liveTop = cands.find((c) => c.cosine != null);
+  if (stored != null && liveTop && Math.abs(stored - liveTop.cosine) > 0.005) {
+    wrap.appendChild(h('p', { class: 'note', style: { marginTop: '8px' } },
+      `stored top1_cosine at decision time ${fmt(stored, 3)} vs ${fmt(liveTop.cosine, 3)} now — retrieval has drifted since the decision.`));
+  }
+  return wrap;
+}
+function decisionFeatureValue(d, key) {
+  if (!d.decision || !d.decision.features) return null;
+  const f = d.decision.features.find((x) => x.key === key);
+  return f ? f.value : null;
+}
+
+// Full reconstruction table behind an expander, with the RRF explainer.
+function rrfDrawer(r) {
   const maxRrf = Math.max(...r.candidates.map((x) => x.rrf_score || 0), 1e-9);
   const tbl = h('table', { class: 'data' },
     h('thead', {}, h('tr', {},
-      ...['item', 'label', 'lex rank', 'dense rank', 'cosine', 'jaccard', 'RRF fused'].map((t) => h('th', {}, t)))),
-    h('tbody', {}, ...r.candidates.map((cd) => h('tr', { class: cd.is_self ? 'is-self' : '' },
-      h('td', {}, idChip(cd.item_id, cd.ui_url, 'mono'), cd.is_self ? h('span', { class: 'chip', style: { marginLeft: '6px' } }, 'this item') : ''),
-      h('td', {}, defectBadge(cd.issue_type, grp(cd.issue_type))),
-      h('td', { class: 'rank' }, cd.sparse_rank ?? '—'),
-      h('td', { class: 'rank' }, cd.dense_rank ?? '—'),
-      h('td', { class: 'num' }, cd.cosine == null ? '—' : fmt(cd.cosine, 3)),
-      h('td', { class: 'num' }, fmt(cd.jaccard_templates, 2)),
-      h('td', {}, h('div', { class: 'flex center gap-8' },
-        h('div', { class: 'microbar', style: { width: '80px' } }, h('i', { style: { width: (100 * (cd.rrf_score || 0) / maxRrf) + '%' } })),
-        h('span', { class: 'mono', style: { fontSize: '11px' } }, fmt(cd.rrf_score, 4))))))));
-  body.appendChild(h('div', { class: 'table-wrap' }, tbl));
-  return c;
+      ...['#', 'item', 'label', 'src', 'lex rank', 'dense rank', 'cosine', 'jaccard', 'RRF fused'].map((t) => h('th', {}, t)))),
+    h('tbody', {}, ...r.candidates.map((cd, i) => {
+      const si = srcInfo(cd.label_source);
+      return h('tr', { class: cd.is_self ? 'is-self' : '' },
+        h('td', { class: 'rank' }, String(i + 1)),
+        h('td', {}, idChip(cd.item_id, cd.ui_url, 'mono'), cd.is_self ? h('span', { class: 'chip', style: { marginLeft: '6px' }, title: 'The query item retrieved itself — proof the index sees it; excluded from candidate features.' }, 'this item') : ''),
+        h('td', {}, defectBadge(cd.issue_type, grp(cd.issue_type))),
+        h('td', {}, h('span', { class: 'chip', title: `raw label_source: ${si.raw ?? 'none'}` }, si.plain)),
+        h('td', { class: 'rank' }, cd.sparse_rank ?? '—'),
+        h('td', { class: 'rank' }, cd.dense_rank ?? '—'),
+        h('td', { class: 'num' }, cd.cosine == null ? '—' : fmt(cd.cosine, 3)),
+        h('td', { class: 'num' }, fmt(cd.jaccard_templates, 2)),
+        h('td', {}, h('div', { class: 'flex center gap-8' },
+          h('div', { class: 'microbar', style: { width: '80px' } }, h('i', { style: { width: (100 * (cd.rrf_score || 0) / maxRrf) + '%' }, title: `1/(60+${cd.sparse_rank ?? '∞'}) + 1/(60+${cd.dense_rank ?? '∞'}) = ${fmt(cd.rrf_score, 4)}` })),
+          h('span', { class: 'mono', style: { fontSize: '11px' } }, fmt(cd.rrf_score, 4)))));
+    })));
+  return engDrawer('matching-recon',
+    `Live Stage-C reconstruction — ${r.candidates.length} candidates · HYBRID_RETRIEVAL v${r.hybrid_retrieval_version}`,
+    h('p', { class: 'note', style: { marginBottom: '8px' } },
+      h('b', {}, 'RRF'), ' fuses the two rank lists — lexical (weighted tsvector) and dense (cosine): each candidate scores ',
+      h('span', { class: 'mono' }, 'Σ 1/(k + rank)'), ' over the lists it appears in, ',
+      h('span', { class: 'mono' }, 'k = 60'), '. The large k damps rank-1 dominance so one leg cannot outvote the other.'),
+    h('p', { class: 'note recon', style: { marginBottom: '10px' } }, r.note || ''),
+    h('div', { class: 'table-wrap' }, tbl),
+    h('p', { class: 'note', style: { marginTop: '8px' } }, 'ordered by ', h('span', { class: 'mono' }, 'rrf_score DESC, item_id DESC'), ' (tie-break).'));
+}
+
+function matchingEng(d) {
+  const m = d.matching;
+  const r = d.reconstruction || {};
+  const q = r.query || {};
+  const mm = m.matched_mode;
+  return engDetails('matching',
+    h('dl', { class: 'kv' },
+      h('dt', {}, 'stage'), h('dd', { class: 'mono' }, m.stage),
+      h('dt', {}, 'matched_item_id'), h('dd', { class: 'mono' }, m.matched_item_id ?? 'null'),
+      h('dt', {}, 'matched_mode_id'), h('dd', { class: 'mono' }, m.matched_mode_id ?? 'null'),
+      h('dt', {}, 'suggestion_id'), h('dd', { class: 'mono' }, m.suggestion_id ?? '—'),
+      ...(mm ? [
+        h('dt', {}, 'mode.label'), h('dd', { class: 'mono' }, mm.label),
+        h('dt', {}, 'mode.purity'), h('dd', { class: 'mono' }, String(mm.purity)),
+        h('dt', {}, 'mode.support'), h('dd', { class: 'mono' }, String(mm.support)),
+        h('dt', {}, 'mode.seed_key'), h('dd', { class: 'mono' }, mm.seed_key ?? '—'),
+      ] : []),
+      h('dt', {}, 'hybrid_retrieval_version'), h('dd', { class: 'mono' }, String(r.hybrid_retrieval_version ?? '—')),
+      h('dt', {}, 'stage_note'), h('dd', {}, m.stage_note || '—')),
+    h('div', { class: 'section-title', style: { margin: '12px 0 6px' } }, 'reconstruction query (bound into the versioned SQL)'),
+    h('dl', { class: 'kv' },
+      h('dt', {}, 'salient_terms'), h('dd', { class: 'mono', style: { fontSize: '11px', wordBreak: 'break-word' } }, q.salient_terms || '—'),
+      h('dt', {}, 'template_ids'), h('dd', { class: 'mono' }, `[${(q.template_ids || []).join(', ')}]`),
+      h('dt', {}, 'emb_model_ver'), h('dd', { class: 'mono' }, String(q.emb_model_ver ?? '—')),
+      h('dt', {}, 'dense_active'), h('dd', { class: 'mono' }, String(q.dense_active ?? '—'))));
 }
 
 function grp(label) {
@@ -451,7 +668,8 @@ const OUTCOME_TIP = {
 
 function decisionCard(d) {
   const dec = d.decision;
-  const c = card('Decision', { step: 4, sub: 'what the analyzer decided, how sure it was, and why (features & policy, spec §6)' });
+  const c = card('Decision', { step: 4, sub: 'what the analyzer decided, how sure it was, and why (features & policy)' });
+  c.id = 'j-decision'; // scroll target for the Feedback → Decision cross-link
   const body = c.querySelector('.card-body');
   if (!dec) {
     body.appendChild(emptyState('🎯', 'No decision recorded',
@@ -739,24 +957,123 @@ function eviRow(m, maxSum, open) {
 
 // ---- Stage 5: feedback ----
 function feedbackCard(d) {
-  const c = card('Feedback', { step: 5, sub: 'label_event history' });
+  const F = d.feedback; // newest-first (payload ORDER BY ts DESC)
+  const c = card('Feedback', { step: 5, sub: 'label_event log — append-only' });
   const body = c.querySelector('.card-body');
-  if (!d.feedback.length) {
+  if (!F.length) {
     body.appendChild(emptyState('✍️', 'No label events',
-      'This item has never been (re)labeled. label_events are appended on RP defect updates, accepted suggestions, or human UI edits.',
+      'No label events — never labeled or relabeled since ingest. Events append on RP defect updates (rp), UI accepts (human), auto-apply (ai_suggested), seed catalog (seed).',
       'analyzer.label_event'));
     return c;
   }
-  const list = h('div', { class: 'grid', style: { gap: '8px' } });
-  for (const e of d.feedback) {
-    list.appendChild(h('div', { class: 'flex between center', style: { padding: '9px 12px', background: 'var(--surface-2)', border: '1px solid var(--hairline)', borderRadius: '8px' } },
-      h('div', { class: 'flex center gap-8 wrap' },
-        e.old_label ? defectBadge(e.old_label, e.old_group) : h('span', { class: 'muted' }, '(new)'),
-        h('span', { class: 'muted' }, '→'),
-        defectBadge(e.new_label, e.new_group),
-        h('span', { class: 'chip', style: { fontSize: '11px' } }, e.source)),
-      h('span', { class: 'muted mono', style: { fontSize: '11px' } }, shortTime(e.ts))));
+
+  // L1 takeaway
+  body.appendChild(feedbackGlance(F, d.decision, d.matching));
+
+  // L2 — timeline, oldest → newest, newest emphasized
+  const ol = h('ol', { class: 'tl' });
+  const chrono = F.slice().reverse(); // oldest → newest
+  for (let i = 0; i < chrono.length; i++) {
+    const e = chrono[i];
+    const isNewest = i === chrono.length - 1;
+    const si = srcInfo(e.source);
+    const main = h('div', { class: 'tl-main' },
+      e.old_label ? defectBadge(e.old_label, e.old_group) : h('span', { class: 'muted', title: 'First label event for this item — no prior label recorded.' }, '(first label)'),
+      h('span', { class: 'muted', title: 'old_label → new_label as stored on the event; the log is append-only, current label = newest event.' }, '→'),
+      defectBadge(e.new_label, e.new_group),
+      srcChip(si),
+      suggestionChip(e, d));
+    const row = h('li', { class: 'tl-ev' + (isNewest ? ' now' : '') },
+      h('i', { class: 'tl-dot', style: { '--c': `var(--lbl-${e.new_group || 'none'})` }, 'aria-hidden': 'true' }),
+      h('div', { style: { flex: '1' } }, main, decayLine(e, si)),
+      h('time', { datetime: e.ts, class: 'mono', title: e.ts || '' }, relTime(e.ts)));
+    ol.appendChild(row);
   }
-  body.appendChild(list);
+  body.appendChild(ol);
+
+  if (F.length === 50) {
+    body.appendChild(h('div', { class: 'cap-line' }, 'showing the latest 50 events (query cap).'));
+  }
+
+  // L4 — table twin
+  body.appendChild(engDetails('feedback',
+    h('div', { class: 'table-wrap' },
+      h('table', { class: 'data' },
+        h('thead', {}, h('tr', {}, ...['event_id', 'old_label', 'new_label', 'source (raw)', 'suggestion_id', 'ts (ISO)'].map((t) => h('th', {}, t)))),
+        h('tbody', {}, ...F.map((e) => h('tr', {},
+          h('td', { class: 'mono' }, String(e.event_id)),
+          h('td', { class: 'mono' }, e.old_label ?? '—'),
+          h('td', { class: 'mono' }, e.new_label ?? '—'),
+          h('td', { class: 'mono' }, e.source ?? '—'),
+          h('td', { class: 'mono' }, e.suggestion_id ?? '—'),
+          h('td', { class: 'mono' }, e.ts ?? '—')))))),
+    h('p', { class: 'note', style: { marginTop: '8px' } }, 'append-only ', h('span', { class: 'mono' }, 'analyzer.label_event'), ', newest-first query, cap 50.')));
   return c;
+}
+
+function feedbackGlance(F, dec, matching) {
+  const p = h('p', { class: 'takeaway' });
+  const mono = (t) => h('span', { class: 'mono' }, t);
+  const mut = (t) => h('span', { class: 'muted' }, t);
+  const N = F.length;
+  const last = F[0];
+  const first = F[N - 1];
+  const actor = (e) => srcInfo(e.source).actor;
+  if (N === 1 && last.old_label == null) {
+    p.append('Labeled once: ', mono(last.new_label), ` set by ${actor(last)} — `, mono(shortTime(last.ts)), '.');
+  } else if (N === 1 && last.old_label != null && last.old_label !== last.new_label) {
+    p.append('Relabeled once: ', mono(last.old_label), ' → ', mono(last.new_label), ` by ${actor(last)} — `, mono(shortTime(last.ts)), '.');
+  } else if (N === 1) {
+    p.append('Label ', mono(last.new_label), ` re-confirmed by ${actor(last)} — `, mono(shortTime(last.ts)), '.');
+  } else {
+    p.append(h('b', {}, `Labeled ${N}×`), ': ');
+    const sugId = matching && matching.suggestion_id;
+    if (last.suggestion_id != null && dec && sugId != null && last.suggestion_id === sugId && last.old_label === dec.predicted_label) {
+      p.append("analyzer's ", mono(dec.predicted_label), ' overridden — ');
+    }
+    p.append('latest ', mono(last.old_label ?? '(none)'), ' → ', mono(last.new_label), ` by ${actor(last)}`);
+    if (last.old_label != null && last.old_label !== last.new_label) p.append(' ', mut('(correction)'));
+    p.append(' — ', mono(shortTime(last.ts)), '; first ', mono(shortTime(first.ts)), '.');
+    if (N === 50) p.append(' Showing the last 50 events (query cap).');
+  }
+  return p;
+}
+
+function srcChip(si) {
+  const title = `raw source: ${si.raw ?? 'not recorded'}${si.weight != null ? ` — src_weight ${si.weight}` : ''}`;
+  return h('span', { class: 'method-chip', title }, h('span', { class: 'k' }, si.k), si.text);
+}
+
+// suggestion_id chip; when it equals the on-page decision's suggestion, it links to it.
+function suggestionChip(e, d) {
+  if (e.suggestion_id == null) return null;
+  const onPage = d.matching && d.matching.suggestion_id;
+  if (onPage != null && e.suggestion_id === onPage) {
+    return h('button', {
+      class: 'chip mono js-link',
+      title: `Overrides suggestion ${e.suggestion_id} — the decision shown on stage 4. Click to locate.`,
+      onclick: () => scrollPulse('j-decision'),
+    }, `sug ${e.suggestion_id} ↑ stage 4`);
+  }
+  return h('span', { class: 'chip mono', title: 'The suggestion this event answered (an older decision — not the one shown on this page).' }, `sug ${e.suggestion_id}`);
+}
+
+function decayLine(e, si) {
+  if (si.weight == null || !e.ts) return null;
+  const ageDays = Math.max(0, Math.floor((Date.now() - new Date(e.ts).getTime()) / 86400000));
+  const decay = Math.exp(-Math.LN2 * ageDays / 90);
+  const eff = si.weight * decay;
+  const line = h('div', { class: 'tl-decay', title: 'decay(d) = exp(−ln2 · d/90), half-life 90 d. Effective pull on future decisions = src_weight × decay(age).' },
+    `evidence weight now: src_weight ${si.weight} × decay ${decay.toFixed(2)} = ${eff.toFixed(2)}`);
+  if (si.weight >= 0.9) line.appendChild(h('span', { style: { color: 'var(--good)' } }, ' · trains the model'));
+  return line;
+}
+
+// Scroll to a card by id and pulse it (motion suppressed under reduced-motion).
+function scrollPulse(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (el.animate) el.animate([{ boxShadow: '0 0 0 2px var(--accent)' }, { boxShadow: 'var(--shadow)' }], { duration: 900 });
 }
