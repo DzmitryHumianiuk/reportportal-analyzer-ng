@@ -2,7 +2,7 @@
 // node color = final label; halo = auto-analyzed; burst groups flagged si_prior.
 import { api } from '../api.js';
 import {
-  h, clear, card, emptyState, loading, setDefects, defectColor, defectName, defectInfo,
+  h, clear, card, emptyState, loading, setDefects, defectColor, defectName, defectInfo, idChip,
   fmt, MUTED, INK, INK2, HAIRLINE,
 } from '../util.js';
 
@@ -50,7 +50,7 @@ function renderGroupList(el, groups) {
         h('span', { class: 'chip mono' }, `group ${g.group_id}`),
         g.dominant ? h('span', { class: 'badge', style: { background: 'color-mix(in srgb, var(--warning) 16%, transparent)', color: 'var(--warning)' } }, `🔥 burst · si ${fmt(g.si_prior, 2)}`) : h('span', { class: 'muted', style: { fontSize: '11px' } }, `si ${fmt(g.si_prior, 2)}`)),
       h('div', { class: 'flex gap-8 mt-8', style: { fontSize: '11px' } },
-        h('span', { class: 'muted' }, `launch ${g.launch_id}`),
+        idChip(`launch ${g.launch_id}`, g.launch_url, 'muted'),
         h('span', { class: 'muted' }, `${g.member_count} members`),
         h('span', { class: 'mono muted' }, `fp ${String(g.fingerprint).slice(0, 8)}…`))));
   }
@@ -81,9 +81,18 @@ function renderForce(el, d) {
     .attr('fill', (n) => defectColor(n.issue_type, n.label_group))
     .attr('stroke', (n) => (n.is_auto_analyzed ? 'var(--accent)' : '#0d0d0d'))
     .attr('stroke-width', (n) => (n.is_auto_analyzed ? 3 : 1.2));
-  node.append('title').text((n) => `item ${n.item_id}\n${n.name || ''}\nlabel ${nodeLabelText(n)}\ngroup ${n.group_id ?? 'none'}${n.is_auto_analyzed ? '\n⭑ auto-analyzed' : ''}`);
-  node.append('text').text((n) => n.item_id).attr('text-anchor', 'middle').attr('dy', 26)
-    .attr('fill', INK2).attr('font-size', 10).attr('font-family', 'ui-monospace, monospace').style('pointer-events', 'none');
+  node.append('title').text((n) => `item ${n.item_id}\n${n.name || ''}\nlabel ${nodeLabelText(n)}\ngroup ${n.group_id ?? 'none'}${n.is_auto_analyzed ? '\n⭑ auto-analyzed' : ''}${n.ui_url ? '\n↗ click id to open in ReportPortal' : ''}`);
+  // Wrap the id label in an SVG <a> so it opens the item in the RP UI (new tab)
+  // when a real deep link exists; plain text otherwise. pointer-events enabled
+  // only on the linked text so it stays clickable without blocking node drag.
+  const label = node.append('a')
+    .attr('href', (n) => n.ui_url || null)
+    .attr('target', (n) => (n.ui_url ? '_blank' : null))
+    .attr('rel', (n) => (n.ui_url ? 'noopener' : null))
+    .attr('class', (n) => (n.ui_url ? 'idlink' : null));
+  label.append('text').text((n) => n.item_id).attr('text-anchor', 'middle').attr('dy', 26)
+    .attr('fill', INK2).attr('font-size', 10).attr('font-family', 'ui-monospace, monospace')
+    .style('pointer-events', (n) => (n.ui_url ? 'auto' : 'none'));
 
   const sim = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links).id((n) => n.item_id).distance(46).strength(0.5))

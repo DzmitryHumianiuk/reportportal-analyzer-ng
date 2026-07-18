@@ -86,11 +86,11 @@ def _build_inner(cfg: Config) -> FastAPI:
 
     @app.get("/api/launches")
     def api_launches(project: int = Query(...)) -> dict[str, Any]:
-        return {"launches": payloads.list_launches(db, project, limit)}
+        return {"launches": payloads.list_launches(db, project, limit, rp)}
 
     @app.get("/api/items")
     def api_items(project: int = Query(...), launch: int = Query(...)) -> dict[str, Any]:
-        return {"items": payloads.list_items(db, project, launch, limit)}
+        return {"items": payloads.list_items(db, project, launch, limit, rp)}
 
     # ---- Item Journey ----
     @app.get("/api/item/{project}/{item_id}/journey")

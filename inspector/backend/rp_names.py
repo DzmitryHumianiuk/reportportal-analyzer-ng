@@ -40,6 +40,10 @@ _ISSUE_TYPE_SQL = (
     "FROM issue_type_project itp "
     "JOIN issue_type it ON it.id = itp.issue_type_id"
 )
+# Per-item launch + ancestor path (an ltree of item ids whose last label is the
+# item's own id). Used to build the RP UI deep-link. item->launch/path is
+# immutable in RP, so results are memoized permanently (no TTL).
+_ITEM_PATH_SQL = "SELECT item_id, launch_id, path::text AS path FROM test_item WHERE item_id = ANY(%s)"
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,8 @@ class RPNameResolver:
         self._loaded_at = 0.0
         self._projects: dict[int, str] = {}
         self._defects: dict[int, dict[str, dict[str, Any]]] = {}
+        # item_id -> (launch_id, [path segments]); immutable, memoized forever.
+        self._item_meta: dict[int, tuple[int, list[str]]] = {}
         self._reachable = False
         self._error: str | None = None
 
@@ -140,6 +146,83 @@ class RPNameResolver:
     def defects(self, project_id: int) -> dict[str, dict[str, Any]]:
         self._ensure_fresh()
         return self._defects.get(int(project_id), {})
+
+    # -- RP UI deep links ------------------------------------------------- #
+    def launch_link(self, project_id: int, launch_id: Any) -> str | None:
+        """Host-relative RP UI link to a launch, or None when unresolvable.
+
+        The inspector is served on the same host as the RP UI, so a root-relative
+        ``/ui/#...`` link opens the launch without any host/config knowledge.
+        Returns None (never a guessed link) when RP is not configured/reachable
+        or the project name is unknown — the frontend then shows plain text.
+        """
+        if not self._dsn or launch_id is None:
+            return None
+        name = self.project_name(project_id)
+        if not name:
+            return None
+        return f"/ui/#{name}/launches/all/{launch_id}"
+
+    def _fetch_item_meta(self, item_ids: list[int]) -> None:
+        """Fetch launch_id + path for uncached item ids from RP. Raises on error."""
+        missing = [i for i in item_ids if i not in self._item_meta]
+        if not missing:
+            return
+        with psycopg.connect(
+            self._dsn, autocommit=True, connect_timeout=_CONNECT_TIMEOUT
+        ) as conn:
+            conn.execute("SET default_transaction_read_only = on")
+            conn.execute(f"SET statement_timeout = '{_STATEMENT_TIMEOUT_MS}ms'")
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(_ITEM_PATH_SQL, (missing,))
+                for r in cur.fetchall():
+                    iid = int(r["item_id"])
+                    segs = [s for s in (r["path"] or "").split(".") if s]
+                    # RP's ltree path ends with the item's own id; guard anyway so
+                    # the deep link always terminates at the item being linked.
+                    if not segs or segs[-1] != str(iid):
+                        segs.append(str(iid))
+                    self._item_meta[iid] = (r["launch_id"], segs)
+
+    def item_links(self, project_id: int, item_ids: Any) -> dict[int, str]:
+        """Map item_id -> RP UI deep link for the given ids (batched, cached).
+
+        Builds ``/ui/#<project>/launches/all/<launchId>/<path…>/log`` per item.
+        Missing ids (unknown to RP) and every failure path degrade to an omitted
+        entry, so the frontend falls back to plain-text ids — never a dead link.
+        """
+        if not self._dsn:
+            return {}
+        name = self.project_name(project_id)  # triggers _ensure_fresh
+        if not name:
+            return {}
+        ids: list[int] = []
+        seen: set[int] = set()
+        for i in item_ids or ():
+            if i is None:
+                continue
+            try:
+                iv = int(i)
+            except (TypeError, ValueError):
+                continue
+            if iv not in seen:
+                seen.add(iv)
+                ids.append(iv)
+        if not ids:
+            return {}
+        try:
+            with self._lock:
+                self._fetch_item_meta(ids)
+        except Exception:  # unreachable / timeout — honest fallback, no links
+            return {}
+        out: dict[int, str] = {}
+        for iv in ids:
+            meta = self._item_meta.get(iv)
+            if meta is None:
+                continue
+            launch_id, segs = meta
+            out[iv] = f"/ui/#{name}/launches/all/{launch_id}/{'/'.join(segs)}/log"
+        return out
 
     def block(self, project_id: int) -> dict[str, Any]:
         """The per-project ``rp`` block attached to every label-bearing payload.

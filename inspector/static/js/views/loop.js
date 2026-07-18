@@ -3,7 +3,7 @@
 // optional live analyzer /health snapshot.
 import { api } from '../api.js';
 import {
-  h, clear, card, emptyState, loading, setDefects, defectBadge, defectColor, defectName, defectInfo,
+  h, clear, card, emptyState, loading, setDefects, defectBadge, defectColor, defectName, defectInfo, idChip,
   shortTime, fmt, echartsBase, MUTED, INK, INK2, HAIRLINE, BAND, WARNING,
 } from '../util.js';
 
@@ -53,9 +53,13 @@ function renderEvents(el, events) {
       yAxis: { type: 'category', data: cats, axisLabel: { color: INK2, formatter: (g) => defectName(null, g) }, splitLine: { lineStyle: { color: HAIRLINE } } },
       tooltip: {
         ...echartsBase().tooltip,
+        enterable: true,
         formatter: (p) => {
           const e = p.data.meta;
-          return `<b>item ${e.item_id}</b><br>${transitionText(e.old_label, e.old_group) || '(new)'} → <b>${transitionText(e.new_label, e.new_group)}</b><br><span style="color:${MUTED}">${e.source} · ${shortTime(e.ts)}</span>`;
+          const id = e.ui_url
+            ? `<a href="${e.ui_url}" target="_blank" rel="noopener" style="color:${INK}">item ${e.item_id} ↗</a>`
+            : `item ${e.item_id}`;
+          return `<b>${id}</b><br>${transitionText(e.old_label, e.old_group) || '(new)'} → <b>${transitionText(e.new_label, e.new_group)}</b><br><span style="color:${MUTED}">${e.source} · ${shortTime(e.ts)}</span>`;
         },
       },
       series: [{ type: 'scatter', symbolSize: 15, data, encode: { x: 0, y: 1 }, itemStyle: { borderColor: '#0d0d0d', borderWidth: 1 } }],
@@ -66,7 +70,7 @@ function renderEvents(el, events) {
   for (const e of [...events].reverse().slice(0, 12)) {
     list.appendChild(h('div', { class: 'flex between center', style: { padding: '7px 11px', background: 'var(--surface-2)', border: '1px solid var(--hairline)', borderRadius: '8px' } },
       h('div', { class: 'flex center gap-8 wrap' },
-        h('span', { class: 'mono', style: { fontSize: '11px', color: 'var(--muted)' } }, `item ${e.item_id}`),
+        h('span', { class: 'mono', style: { fontSize: '11px', color: 'var(--muted)' } }, idChip(`item ${e.item_id}`, e.ui_url, '')),
         e.old_label ? defectBadge(e.old_label, e.old_group) : h('span', { class: 'muted' }, '(new)'),
         h('span', { class: 'muted' }, '→'), defectBadge(e.new_label, e.new_group),
         h('span', { class: 'chip', style: { fontSize: '11px' } }, e.source)),

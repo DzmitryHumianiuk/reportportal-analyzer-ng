@@ -79,6 +79,36 @@ export function defectBadge(locator, group) {
     h('span', { class: 'chip mono', title: info ? 'RP locator' : 'locator (RP name unavailable)' }, locator));
 }
 
+// Compact defect badge for dense lists: shows the RP abbreviation
+// (issue_type.abbreviation). Falls back to the group code (PB/AB/SI/ND/TI —
+// RP's stock abbreviations) when RP names are unavailable; full name + locator
+// stay reachable in the tooltip.
+export function defectBadgeAbbr(locator, group) {
+  const g = group || labelGroup(locator);
+  const col = defectColor(locator, g);
+  const info = defectInfo(locator);
+  const abbr = (info && (info.short_name || info.name))
+    || (['pb', 'ab', 'si', 'nd', 'ti'].includes(g) ? g.toUpperCase() : labelName(g));
+  const title = [info && info.name, locator].filter(Boolean).join(' · ');
+  return h('span', { class: 'badge defect', title: title || null,
+    style: { color: col, borderColor: col, background: `color-mix(in srgb, ${col} 15%, transparent)` } },
+    h('span', { class: 'dot', style: { background: col } }), abbr);
+}
+
+// Render a test-item / launch id as a hyperlink into the ReportPortal UI when a
+// real deep link (ui_url/launch_url resolved from RP's DB) is present; otherwise
+// return exactly today's plain node. Keeps the no-dummy-data rule: no link when
+// there is no real URL. `cls` is the class of the surrounding chip/text so the
+// link inherits its look and only gains a link affordance (see .idlink in CSS).
+// Opens in a new tab (target=_blank, rel=noopener).
+export function idChip(label, url, cls = 'chip') {
+  if (!url) return h('span', cls ? { class: cls } : {}, label);
+  return h('a', {
+    href: url, target: '_blank', rel: 'noopener',
+    class: (cls ? cls + ' ' : '') + 'idlink', title: 'Open in ReportPortal ↗',
+  }, label);
+}
+
 // tiny hyperscript
 export function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);

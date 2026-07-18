@@ -79,7 +79,7 @@ function draw3d(el, d) {
     itemStyle: { opacity: 1, borderColor: '#fff', borderWidth: 1 },
   });
   chart.setOption({
-    tooltip: { backgroundColor: '#26292d', borderColor: HAIRLINE, textStyle: { color: INK }, formatter: tip },
+    tooltip: { backgroundColor: '#26292d', borderColor: HAIRLINE, textStyle: { color: INK }, enterable: true, formatter: tip },
     xAxis3D: axis('PC1'), yAxis3D: axis('PC2'), zAxis3D: axis('PC3'),
     grid3D: {
       viewControl: { autoRotate: true, autoRotateSpeed: 6, distance: 190 },
@@ -105,7 +105,7 @@ function draw2d(el, d) {
     itemStyle: { borderColor: '#fff', borderWidth: 1.5 },
   });
   chart.setOption({
-    tooltip: { backgroundColor: '#26292d', borderColor: HAIRLINE, textStyle: { color: INK }, formatter: tip },
+    tooltip: { backgroundColor: '#26292d', borderColor: HAIRLINE, textStyle: { color: INK }, enterable: true, formatter: tip },
     grid: { left: 30, right: 20, top: 20, bottom: 30, containLabel: true },
     xAxis: { name: 'PC1', nameTextStyle: { color: MUTED }, axisLabel: { color: MUTED }, splitLine: { lineStyle: { color: HAIRLINE } } },
     yAxis: { name: 'PC2', nameTextStyle: { color: MUTED }, axisLabel: { color: MUTED }, splitLine: { lineStyle: { color: HAIRLINE } } },
@@ -126,5 +126,8 @@ function tip(p) {
   if (m.kind === 'mode') {
     return `<b>★ ${m.name}</b><br>label ${labelText(m.label, m.label_group)} · status ${m.status}<br>purity ${fmt(m.purity, 2)} · support ${m.support}`;
   }
-  return `<b>item ${m.item_id}</b><br>${m.name || ''}<br>label ${labelText(m.label, m.label_group)}${m.is_auto_analyzed ? ' · ⭑ auto' : ''}`;
+  const id = m.ui_url
+    ? `<a href="${m.ui_url}" target="_blank" rel="noopener" style="color:${INK}">item ${m.item_id} ↗</a>`
+    : `item ${m.item_id}`;
+  return `<b>${id}</b><br>${m.name || ''}<br>label ${labelText(m.label, m.label_group)}${m.is_auto_analyzed ? ' · ⭑ auto' : ''}`;
 }

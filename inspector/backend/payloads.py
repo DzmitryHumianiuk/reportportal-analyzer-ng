@@ -55,6 +55,15 @@ def _slist(v: Any) -> list[str]:
     return [str(x) for x in (v or [])]
 
 
+def _ui_url(url: str | None, key: str = "ui_url") -> dict[str, str]:
+    """Spread-in a real RP UI link field, or nothing when there is no link.
+
+    Keeps the no-dummy-data rule: absent RP resolution → the field is simply
+    omitted and the frontend renders exactly today's plain-text id.
+    """
+    return {key: url} if url else {}
+
+
 # --------------------------------------------------------------------------- #
 # Pickers
 # --------------------------------------------------------------------------- #
@@ -89,7 +98,9 @@ def list_projects(
     ]
 
 
-def list_launches(db: Database, project_id: int, limit: int) -> list[dict[str, Any]]:
+def list_launches(
+    db: Database, project_id: int, limit: int, rp: RPNameResolver | None = None
+) -> list[dict[str, Any]]:
     rows = db.rows(
         """
         SELECT launch_id,
@@ -115,12 +126,16 @@ def list_launches(db: Database, project_id: int, limit: int) -> list[dict[str, A
             "item_count": r["item_count"],
             "labeled_count": r["labeled_count"],
             "last_start": _iso(r["last_start"]),
+            # Real RP UI deep link when resolvable; omitted otherwise (plain text).
+            **_ui_url(rp.launch_link(project_id, r["launch_id"]) if rp else None),
         }
         for r in rows
     ]
 
 
-def list_items(db: Database, project_id: int, launch_id: int, limit: int) -> list[dict[str, Any]]:
+def list_items(
+    db: Database, project_id: int, launch_id: int, limit: int, rp: RPNameResolver | None = None
+) -> list[dict[str, Any]]:
     rows = db.rows(
         """
         SELECT ti.item_id, ti.item_name, ti.issue_type, ti.issue_type_group,
@@ -135,6 +150,7 @@ def list_items(db: Database, project_id: int, launch_id: int, limit: int) -> lis
         """,
         (project_id, launch_id, limit),
     )
+    links = rp.item_links(project_id, [r["item_id"] for r in rows]) if rp else {}
     return [
         {
             "item_id": r["item_id"],
@@ -145,6 +161,7 @@ def list_items(db: Database, project_id: int, launch_id: int, limit: int) -> lis
             "log_count": r["log_count"],
             "exc_text": r["exc_text"],
             "has_emb": r["has_emb"],
+            **_ui_url(links.get(r["item_id"])),
         }
         for r in rows
     ]
@@ -280,6 +297,28 @@ def item_journey(
     )
     matching_block, decision_block = _matching_decision(db, project_id, sug)
 
+    # ---- RP UI deep links (batched): the item, a matched item, candidates ----
+    if rp is not None:
+        want: list[Any] = [item_id]
+        if matching_block.get("matched_item_id"):
+            want.append(matching_block["matched_item_id"])
+        want.extend(c["item_id"] for c in reconstruction.get("candidates", []))
+        links = rp.item_links(project_id, want)
+        for c in reconstruction.get("candidates", []):
+            url = links.get(c["item_id"])
+            if url:
+                c["ui_url"] = url
+        mi = matching_block.get("matched_item_id")
+        if mi is not None:
+            murl = links.get(int(mi)) if str(mi).lstrip("-").isdigit() else None
+            if murl:
+                matching_block["matched_item_url"] = murl
+        item_url = links.get(int(item_id))
+        launch_url = rp.launch_link(project_id, item["launch_id"])
+    else:
+        item_url = None
+        launch_url = None
+
     # ---- Feedback (label events) ----
     events = db.rows(
         """
@@ -319,6 +358,8 @@ def item_journey(
             "issue_type": item["issue_type"],
             "label_group": _grp(item["issue_type"]),
             "log_count": item["log_count"],
+            **_ui_url(item_url),
+            **_ui_url(launch_url, "launch_url"),
         },
         "signature": signature_block,
         "templates": templates_block,
@@ -520,6 +561,7 @@ def modes3d(
         (project_id,),
     )
 
+    item_links = rp.item_links(project_id, [r["item_id"] for r in sig_rows]) if rp else {}
     points: list[dict[str, Any]] = []
     vectors: list[list[float]] = []
     for r in sig_rows:
@@ -535,6 +577,7 @@ def modes3d(
                 "label_group": _grp(r["issue_type"]),
                 "name": r["item_name"],
                 "is_auto_analyzed": r["is_auto_analyzed"],
+                **_ui_url(item_links.get(r["item_id"])),
             }
         )
     n_items = len(vectors)
@@ -622,6 +665,7 @@ def groups(
             "member_count": g["member_count"],
             "dominant": g["dominant"],
             "si_prior": float(g["si_prior"]),
+            **_ui_url(rp.launch_link(project_id, g["launch_id"]) if rp else None, "launch_url"),
         }
         for g in group_rows
     ]
@@ -641,6 +685,7 @@ def groups(
         (project_id, launch_id, launch_id, limit),
     )
     fp_to_group = {(g["launch_id"], str(g["fingerprint"])): g["group_id"] for g in group_rows}
+    links = rp.item_links(project_id, [it["item_id"] for it in item_rows]) if rp else {}
     nodes = []
     for it in item_rows:
         eh = _s(it["error_hash"])
@@ -655,6 +700,7 @@ def groups(
                 "is_auto_analyzed": it["is_auto_analyzed"],
                 "group_id": gid,
                 "error_hash": eh,
+                **_ui_url(links.get(it["item_id"])),
             }
         )
     return {"groups": groups_out, "nodes": nodes, "rp": _rp_block(rp, project_id)}
@@ -676,6 +722,7 @@ def timeline(
         """,
         (project_id, limit),
     )
+    ev_links = rp.item_links(project_id, [e["item_id"] for e in events]) if rp else {}
     label_events = [
         {
             "event_id": e["event_id"],
@@ -686,6 +733,7 @@ def timeline(
             "new_group": _grp(e["new_label"]),
             "source": e["source"],
             "ts": _iso(e["ts"]),
+            **_ui_url(ev_links.get(e["item_id"])),
         }
         for e in events
     ]

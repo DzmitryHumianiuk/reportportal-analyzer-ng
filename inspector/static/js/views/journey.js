@@ -2,7 +2,7 @@
 // expandable stage cards, connected visually, plus the live Stage-B reconstruction.
 import { api } from '../api.js';
 import {
-  h, clear, card, defectBadge, setDefects, fmt, pct, shortTime,
+  h, clear, card, defectBadge, defectBadgeAbbr, idChip, setDefects, fmt, pct, shortTime,
   highlightPattern, emptyState, loading, echartsBase, INK, INK2, MUTED, HAIRLINE,
   FEATURE_GROUP_COLORS,
 } from '../util.js';
@@ -61,8 +61,8 @@ export async function renderJourney(root, app) {
       const iel = h('div', { class: 'list-item' + (it.is_auto_analyzed ? ' halo-auto' : ''), onclick: () => selectItem(it, iel) },
         h('div', { class: 'li-main' },
           h('div', { class: 'li-title' }, it.item_name || `item ${it.item_id}`),
-          h('div', { class: 'li-sub' }, `id ${it.item_id} · ${it.exc_text || 'no exc'}`)),
-        defectBadge(it.issue_type, it.label_group));
+          h('div', { class: 'li-sub' }, idChip(`id ${it.item_id}`, it.ui_url, ''), ` · ${it.exc_text || 'no exc'}`)),
+        defectBadgeAbbr(it.issue_type, it.label_group));
       itemList.appendChild(iel);
     }
     // auto-select first (or previously chosen) item
@@ -96,8 +96,8 @@ function renderJourneyDetail(root, d) {
       defectBadge(it.issue_type, it.label_group),
       it.is_auto_analyzed ? h('span', { class: 'badge', style: { background: 'var(--accent-soft)', color: 'var(--accent)' } }, '⭑ auto‑analyzed') : null),
     h('div', { class: 'flex gap-8 wrap' },
-      h('span', { class: 'chip' }, `item ${it.item_id}`),
-      h('span', { class: 'chip' }, `launch ${it.launch_id}`),
+      idChip(`item ${it.item_id}`, it.ui_url),
+      idChip(`launch ${it.launch_id}`, it.launch_url),
       h('span', { class: 'chip' }, `${it.log_count} logs`),
       h('span', { class: 'chip mono' }, `tch ${it.test_case_hash ?? '—'}`))));
 
@@ -256,7 +256,7 @@ function matchingCard(d) {
   body.appendChild(h('div', { class: 'flex gap-8 center wrap mb-8' },
     h('span', { class: 'badge', style: { background: 'color-mix(in srgb,' + stageColor + ' 16%, transparent)', color: stageColor, borderColor: stageColor } },
       h('span', { class: 'dot', style: { background: stageColor } }), m.stage_label),
-    m.matched_item_id ? h('span', { class: 'chip mono' }, `matched item ${m.matched_item_id}`) : null,
+    m.matched_item_id ? idChip(`matched item ${m.matched_item_id}`, m.matched_item_url, 'chip mono') : null,
     m.matched_mode_id ? h('span', { class: 'chip mono' }, `matched mode ${m.matched_mode_id}`) : null));
   body.appendChild(h('p', { class: 'note' }, m.stage_note || m.explanation || ''));
 
@@ -285,7 +285,7 @@ function matchingCard(d) {
     h('thead', {}, h('tr', {},
       ...['item', 'label', 'lex rank', 'dense rank', 'cosine', 'jaccard', 'RRF fused'].map((t) => h('th', {}, t)))),
     h('tbody', {}, ...r.candidates.map((cd) => h('tr', { class: cd.is_self ? 'is-self' : '' },
-      h('td', {}, h('span', { class: 'mono' }, cd.item_id), cd.is_self ? h('span', { class: 'chip', style: { marginLeft: '6px' } }, 'this item') : ''),
+      h('td', {}, idChip(cd.item_id, cd.ui_url, 'mono'), cd.is_self ? h('span', { class: 'chip', style: { marginLeft: '6px' } }, 'this item') : ''),
       h('td', {}, defectBadge(cd.issue_type, grp(cd.issue_type))),
       h('td', { class: 'rank' }, cd.sparse_rank ?? '—'),
       h('td', { class: 'rank' }, cd.dense_rank ?? '—'),
