@@ -12,7 +12,7 @@ import pytest
 from _ml_synth import base_of, synth_frame, synth_random_frame
 
 from analyzer_ng.core.decision import DecisionInputs, decide
-from analyzer_ng.core.features import to_vector
+from analyzer_ng.core.features import FEATURES, feature_names, to_vector
 from analyzer_ng.ml.calibration import CALIB_MIN_EVENTS
 from analyzer_ng.ml.trainer import (
     GBM_MIN_EVENTS,
@@ -57,7 +57,49 @@ def test_build_xy_skips_rows_without_snapshot_or_class():
     x, y, projects = build_xy(rows)
     assert y == ["pb"]
     assert projects == [1]
-    assert x.shape == (1, 41)
+    assert x.shape == (1, 45)
+
+
+def test_build_xy_fills_missing_new_columns_with_defaults_not_drop():
+    # Forward-compat (schema bump): a historical snapshot predating the newest
+    # columns is NOT dropped — to_vector back-fills the missing columns with their
+    # registered defaults, so old snapshots stay trainable across schema versions.
+    old_names = [f.name for f in FEATURES][:41]  # pre-errata snapshot (no 4 new cols)
+    rows = [
+        {
+            "project_id": 1,
+            "item_id": i,
+            "new_label": ("pb001" if i % 2 else "ab001"),
+            "features": {n: 0.3 for n in old_names},
+        }
+        for i in range(10)
+    ]
+    x, y, _p = build_xy(rows)
+    assert x.shape == (10, 45)  # padded to the full current width
+    assert len(y) == 10  # every historical row kept
+    # The 4 errata columns default to 0.0 (their registered default).
+    assert x[:, 41:].tolist() == [[0.0, 0.0, 0.0, 0.0]] * 10
+
+
+def test_gbm_model_stamps_and_roundtrips_feature_names():
+    rows = synth_frame(n=200, seed=31)
+    model = train_gbm(rows)
+    assert model.feature_names == feature_names()  # trained on the current registry
+    back = GbmModel.from_bytes(model.to_bytes())
+    assert back.feature_names == model.feature_names
+
+
+def test_from_bytes_defaults_feature_names_for_pre_v3_blob():
+    # A pre-v3 artifact blob carries no feature_names; from_bytes falls back to the
+    # current registry order (serving only ever loads a matching-schema blob).
+    import json
+
+    rows = synth_frame(n=120, seed=32)
+    model = train_gbm(rows)
+    payload = json.loads(model.to_bytes().decode("utf-8"))
+    del payload["feature_names"]  # simulate an old blob
+    legacy = GbmModel.from_bytes(json.dumps(payload).encode("utf-8"))
+    assert legacy.feature_names == feature_names()
 
 
 def test_build_xy_dedups_to_latest_event_per_item():

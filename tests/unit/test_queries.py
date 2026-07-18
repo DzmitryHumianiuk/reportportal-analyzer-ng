@@ -16,7 +16,13 @@ from analyzer_ng.db.repositories.queries import (
 
 
 def test_version_is_pinned() -> None:
-    assert HYBRID_RETRIEVAL_VERSION == 2
+    assert HYBRID_RETRIEVAL_VERSION == 3
+
+
+def test_stage_b_projects_neighbour_text_for_boilerplate_guard() -> None:
+    # errata: neighbour msg_text/exc_text are projected so the decision layer can run
+    # the deterministic boilerplate-only guard on the GBM top-1 neighbour.
+    assert "fs.msg_text, fs.exc_text" in STAGE_B_HYBRID_SQL
 
 
 def test_dense_and_mode_match_carry_deterministic_tiebreaks() -> None:

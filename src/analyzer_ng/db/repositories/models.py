@@ -124,6 +124,10 @@ class Candidate(BaseModel):
     same_test_case: bool = False
     same_error_hash: bool = False
     same_exception_fp: bool = False
+    # un-masked neighbour text (2026-07-18 errata) — carried so the decision layer can
+    # run the deterministic boilerplate-only guard on the GBM top-1 neighbour.
+    msg_text: str = ""
+    exc_text: str = ""
     launch_distance: int | None = None  # |query.launch_number - cand.launch_number|
     launch_id: int | None = None  # candidate's launch (analyzerMode scope, §6.0)
     launch_name: str | None = None

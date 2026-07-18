@@ -21,7 +21,10 @@ from typing import Any
 # Bump whenever STAGE_B_HYBRID_SQL or STAGE_A_MODE_MATCH_SQL changes (spec 02 §5).
 # v2: added deterministic tie-breaks to the dense-CTE LIMIT and the mode-match
 # ORDER BY so rows tied on distance/score select stably (item_id / mode_id DESC).
-HYBRID_RETRIEVAL_VERSION = 2
+# v3: project fs.msg_text / fs.exc_text onto each candidate (2026-07-18 errata) so the
+# decision layer can run the deterministic boilerplate-only guard on the GBM top-1
+# neighbour (identifier-token overlap). Fusion/ordering are unchanged.
+HYBRID_RETRIEVAL_VERSION = 3
 
 # Session tuning that must precede STAGE_B_HYBRID_SQL in the same transaction
 # (SET LOCAL). pgvector >= 0.8 iterative scans make the post-filter on
@@ -105,7 +108,8 @@ SELECT f.item_id, f.sparse_rank, f.dense_rank, f.lex_score, f.cosine, f.rrf_scor
        ti.issue_type, ti.test_case_hash, ti.launch_id, ti.launch_number,
        ti.is_auto_analyzed,
        le.source AS label_source, le.ts AS label_ts,
-       mm.mode_id
+       mm.mode_id,
+       fs.msg_text, fs.exc_text            -- errata: neighbour text for the boilerplate guard
 FROM fused f
 JOIN analyzer.failure_signature fs ON fs.project_id = $1 AND fs.item_id = f.item_id
 JOIN analyzer.test_item          ti ON ti.project_id = $1 AND ti.item_id = f.item_id

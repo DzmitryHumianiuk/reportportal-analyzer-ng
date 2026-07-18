@@ -14,6 +14,7 @@ when the underlying data is missing: **no NaN/inf ever reaches the model**
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -21,8 +22,10 @@ from analyzer_ng.db.repositories.models import Candidate
 
 # Bump when the ordered FEATURES list or any definition changes; stamped into
 # suggestion.features and model_artifact (spec 03 §6.4). v2 appends the two
-# optional LLM-extractor categorical columns (spec 04 §4.2).
-FEATURE_SCHEMA_VER = 2
+# optional LLM-extractor categorical columns (spec 04 §4.2). v3 appends the four
+# discriminant-agreement columns (2026-07-18 errata) so the un-masked evidence the
+# Stage-A gate uses also reaches the GBM.
+FEATURE_SCHEMA_VER = 3
 
 # spec 04 §4.2: the extractor's categorical outputs enter the GBM as ordinal
 # columns. The sentinel ``unknown`` (= 0) is the on-miss / LLM-off value, so a
@@ -65,6 +68,47 @@ _LN4 = math.log(4.0)
 TIME_DECAY_PER_DAY = 2.0 ** (-1.0 / 90.0)
 # si_prior is capped at 0.9 (spec §5 / feature #32 range [0,0.9]).
 SI_PRIOR_MAX = 0.9
+
+
+# --------------------------------------------------------------------------- #
+# Identifier-token Jaccard (shared with the Stage-A discriminant gate)
+# --------------------------------------------------------------------------- #
+# The single source of truth for the message-similarity tokenizer used by BOTH the
+# Stage-A inherit gate (decision.py) and the ``identifier_jaccard_top1`` feature, so
+# the model learns exactly the signal the gate measured (2026-07-18 errata). Lives
+# here (features imports nothing from decision) to avoid an import cycle.
+#
+# Identifier-like token: carries a dotted path (``com.hawkins.shop.auth.Session``),
+# a scope-resolution ``::`` (C++/Rust), or a camelCase hump (``getDiscount``). These
+# are the *discriminating* tokens of an exception message; boilerplate words
+# (``cannot``, ``invoke``, ``because``, ``null``) are not.
+_IDENTIFIER_TOKEN_RE = re.compile(r"\.|::|[a-z][A-Z]")
+
+
+def jaccard(a: frozenset[str], b: frozenset[str]) -> float:
+    """Jaccard similarity; two empty sets → 1.0, exactly one empty → 0.0."""
+    if not a and not b:
+        return 1.0
+    union = a | b
+    if not union:
+        return 1.0
+    return len(a & b) / len(union)
+
+
+def identifier_tokens(tokens: frozenset[str]) -> frozenset[str]:
+    """The identifier-bearing subset of a masked-message token set (may be empty)."""
+    return frozenset(t for t in tokens if _IDENTIFIER_TOKEN_RE.search(t))
+
+
+def identifier_jaccard(query: frozenset[str], match: frozenset[str]) -> float:
+    """Message similarity over identifier tokens when either side carries any (so
+    shared NPE/assertion boilerplate can no longer inflate the score for two
+    genuinely different app areas); both-sides-empty identifier sets fall back to the
+    all-token Jaccard so boilerplate-only messages behave exactly as before."""
+    qi, mi = identifier_tokens(query), identifier_tokens(match)
+    if qi or mi:
+        return jaccard(qi, mi)
+    return jaccard(query, match)
 
 
 @dataclass(frozen=True)
@@ -119,9 +163,24 @@ FEATURES: tuple[FeatureDef, ...] = (
     # spec 04 §4.2 optional LLM-extractor columns (sentinel 0 = unknown / LLM-off).
     FeatureDef("llm_failing_layer", 0.0),
     FeatureDef("llm_error_class", 0.0),
+    # 2026-07-18 errata: discriminant-agreement columns. error_hash is computed over
+    # Drain3-masked templates + normalized frames, so it collapses HTTP 500 vs 503
+    # and same-exception failures from different app areas — the retrieval features
+    # are all masked-similarity-based and cannot see the un-masked disagreement the
+    # Stage-A gate acts on. These four carry that evidence to the GBM so it learns to
+    # distrust near-miss hash traps. All default to 0.0 = "nothing to compare".
+    FeatureDef("status_codes_present", 0.0),  # query has any un-masked status code
+    FeatureDef("status_codes_match_top1", 0.0),  # 1.0 exact set match w/ top-1 evidence
+    FeatureDef("identifier_jaccard_top1", 0.0),  # identifier-token Jaccard vs top-1
+    FeatureDef("hash_gate_blocked", 0.0),  # 1.0 = exact hash existed, gate rejected it
 )
 
-assert len(FEATURES) == 41, "spec 03 §6.4 (39) + spec 04 §4.2 (2 LLM columns)"
+assert len(FEATURES) == 45, (
+    "spec 03 §6.4 (39) + spec 04 §4.2 (2 LLM) + 2026-07-18 errata (4 discriminant)"
+)
+
+# name → registered default, for the forward/backward-compat vector assembly rule.
+FEATURE_DEFAULTS: dict[str, float] = {f.name: f.default for f in FEATURES}
 
 # Candidate.label_source vocabulary → label-source weight (spec §6.4 src_w).
 # rp=rp_defect_update (human confirm) 1.0; human=human_ui accept 0.9;
@@ -218,6 +277,17 @@ class FeatureContext:
     # spec 04 §4.2 LLM-extractor categoricals; ``unknown`` on miss / LLM-off.
     llm_failing_layer: str = LLM_UNKNOWN
     llm_error_class: str = LLM_UNKNOWN
+    # Discriminant-agreement evidence (2026-07-18 errata). The query's un-masked
+    # discriminants and those of its top-1 exact-hash neighbour (the near-miss trap);
+    # ``has_hash_top1`` says whether such a neighbour exists to compare against, and
+    # ``hash_gate_blocked`` whether the Stage-A gate rejected every exact-hash match.
+    # decision.decide() folds these in from the DecisionInputs — see _with_candidates.
+    query_status_codes: tuple[str, ...] = ()
+    query_msg_tokens: frozenset[str] = frozenset()
+    top1_status_codes: tuple[str, ...] = ()
+    top1_msg_tokens: frozenset[str] = frozenset()
+    has_hash_top1: bool = False
+    hash_gate_blocked: bool = False
     # Per-day recency decay factor (ANALYZER_TIME_DECAY); default = 90-day half-life.
     time_decay_per_day: float = TIME_DECAY_PER_DAY
 
@@ -332,12 +402,50 @@ def extract_features(ctx: FeatureContext) -> dict[str, float]:
     values["llm_failing_layer"] = float(FAILING_LAYER_ORDINAL.get(ctx.llm_failing_layer, 0))
     values["llm_error_class"] = float(ERROR_CLASS_ORDINAL.get(ctx.llm_error_class, 0))
 
+    # 2026-07-18 errata: discriminant-agreement signals. Encoding (documented):
+    #   status_codes_present  — 1.0 iff the query carries any un-masked status code,
+    #       so the model separates "match" from "nothing to compare" (present=0).
+    #   status_codes_match_top1 — 1.0 iff a top-1 exact-hash neighbour exists AND its
+    #       status-code set equals the query's; 0.0 otherwise. With present=1 a 0 here
+    #       is a genuine mismatch (the near-miss trap); has_hash_top1 / n_candidates /
+    #       hash_gate_blocked disambiguate a mismatch from an absent neighbour.
+    #   identifier_jaccard_top1 — the SAME identifier-token Jaccard the Stage-A gate
+    #       uses, between query and top-1 neighbour (0.0 when no neighbour exists).
+    #   hash_gate_blocked — 1.0 iff ≥1 exact error_hash match existed but the Stage-A
+    #       discriminant gate rejected all of them (a strong distrust-this-hash cue).
+    values["status_codes_present"] = 1.0 if ctx.query_status_codes else 0.0
+    if ctx.has_hash_top1:
+        values["status_codes_match_top1"] = (
+            1.0 if set(ctx.query_status_codes) == set(ctx.top1_status_codes) else 0.0
+        )
+        values["identifier_jaccard_top1"] = _clamp01(
+            identifier_jaccard(
+                frozenset(ctx.query_msg_tokens), frozenset(ctx.top1_msg_tokens)
+            )
+        )
+    values["hash_gate_blocked"] = 1.0 if ctx.hash_gate_blocked else 0.0
+
     return values
 
 
 def to_vector(values: dict[str, float]) -> list[float]:
-    """Order a name→value mapping into the canonical 39-float vector."""
+    """Order a name→value mapping into the canonical feature vector, filling any
+    missing name with its registered default (forward-compat: an old snapshot lacking
+    the newest columns trains with those columns at their defaults, never dropped)."""
     return [float(values.get(f.name, f.default)) for f in FEATURES]
+
+
+def to_vector_for(values: dict[str, float], names: Sequence[str]) -> list[float]:
+    """Assemble a vector for an *explicit* ordered feature-name list (a model's stored
+    ``feature_names``), filling any name absent from the snapshot with its registered
+    default (0.0 if the name is not in the current registry).
+
+    This is the general forward/backward-compat serving rule: a model trained on
+    feature list L is always fed a vector assembled per L — so columns a stale model
+    never saw are dropped, and columns missing from an older snapshot are back-filled
+    with defaults — independent of whatever the ambient FEATURES registry now holds.
+    """
+    return [float(values.get(n, FEATURE_DEFAULTS.get(n, 0.0))) for n in names]
 
 
 def feature_names() -> list[str]:

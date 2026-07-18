@@ -15,6 +15,7 @@ from analyzer_ng.core.decision import (
     HashMatch,
     best_kb_match,
     decide,
+    discriminant_gate_blocked,
     kb_short_circuit,
     stage_a_inherit,
 )
@@ -270,7 +271,7 @@ def test_decide_stage_a_auto():
     assert res.confidence == 0.95
     assert res.relevant_item_id == 7
     assert res.issue_type == "pb001"
-    assert len(res.features) == 41
+    assert len(res.features) == 45
 
 
 def test_decide_kb_short_circuit():
@@ -317,7 +318,7 @@ def test_decide_pure_abstain_features_present():
     res = decide(DecisionInputs(exception_fp=0), now=NOW)
     assert res.label == "ti"
     assert res.action == ACTION_ABSTAIN
-    assert len(res.features) == 41
+    assert len(res.features) == 45
 
 
 # --------------------------------------------------------------------------- #
@@ -418,3 +419,144 @@ def test_gbm_overrides_seed_cold_fallback():
     )
     assert res.method == METHOD_GBM
     assert res.label == "ab"
+
+
+# --------------------------------------------------------------------------- #
+# Discriminant-agreement signals reaching the GBM feature vector (errata)
+# --------------------------------------------------------------------------- #
+def test_discriminant_gate_blocked_helper():
+    # ≥1 exact-hash match but the discriminant gate rejects all of them (503 vs 500).
+    trap = [_hm(1, "pb001", "rp", status_codes=("500",))]
+    assert discriminant_gate_blocked(9, trap, query_status_codes=("503",)) is True
+    # Agreeing discriminants → not blocked.
+    ok = [_hm(1, "pb001", "rp", status_codes=("503",))]
+    assert discriminant_gate_blocked(9, ok, query_status_codes=("503",)) is False
+    # No matches / no fingerprint → nothing to block.
+    assert discriminant_gate_blocked(9, [], query_status_codes=("503",)) is False
+    assert discriminant_gate_blocked(0, trap, query_status_codes=("503",)) is False
+
+
+def test_decide_threads_hash_gate_blocked_into_features():
+    # The 503 near-miss trap: exact hash exists (500-labeled) but status disagrees, so
+    # Stage A abstains AND the feature snapshot records the trap for the GBM to learn.
+    res = decide(
+        DecisionInputs(
+            exception_fp=9,
+            hash_matches=[_hm(1, "pb001", "rp", status_codes=("500",))],
+            query_status_codes=("503",),
+        ),
+        now=NOW,
+    )
+    assert res.method != METHOD_HASH  # gate blocked the inherit
+    assert res.features["hash_gate_blocked"] == 1.0
+    assert res.features["status_codes_present"] == 1.0
+    assert res.features["status_codes_match_top1"] == 0.0
+
+
+def test_decide_threads_status_match_when_discriminants_agree():
+    res = decide(
+        DecisionInputs(
+            exception_fp=9,
+            hash_matches=[_hm(1, "pb001", "rp", status_codes=("503",))],
+            query_status_codes=("503",),
+        ),
+        now=NOW,
+    )
+    # Agreeing status → Stage A inherits; the snapshot still records the agreement.
+    assert res.features["hash_gate_blocked"] == 0.0
+    assert res.features["status_codes_present"] == 1.0
+    assert res.features["status_codes_match_top1"] == 1.0
+
+
+# --------------------------------------------------------------------------- #
+# Deterministic boilerplate-only guard on the GBM suggest band (errata)
+# --------------------------------------------------------------------------- #
+def _plain_cand(**kw):
+    base = dict(
+        item_id=5,
+        mode_id=None,
+        cosine=0.93,
+        issue_type="pb001",
+        same_exception_fp=False,
+        same_error_hash=False,
+        jaccard_templates=0.0,
+        msg_text="connection pool timeout exhausted",  # no identifier tokens
+    )
+    base.update(kw)
+    return Candidate(**base)
+
+
+# A query message whose only salient tokens are identifiers with NO overlap with the
+# neighbour's boilerplate — a NullReferenceException on a novel call site.
+_NOVEL_Q = frozenset({"NullReferenceException", "getUserProfile"})
+
+
+def test_boilerplate_only_neighbor_demotes_suggest_to_abstain():
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            stage_c=[_plain_cand()],
+            query_msg_tokens=_NOVEL_Q,
+            gbm_predict=_gbm("pb", 0.6),  # suggest band
+        ),
+        now=NOW,
+    )
+    assert res.method == METHOD_GBM
+    assert res.label == "ti"
+    assert res.action == ACTION_ABSTAIN
+    assert res.abstain_reason == "gbm_boilerplate_only_neighbor"
+
+
+def test_guard_does_not_fire_with_any_structural_overlap():
+    # Any of: exact fp, exact hash, template overlap, or identifier-token overlap
+    # ≥ threshold keeps the suggest.
+    for overlap in (
+        {"same_exception_fp": True},
+        {"same_error_hash": True},
+        {"jaccard_templates": 0.4},
+        {"msg_text": "NullReferenceException getUserProfile"},  # identifier overlap
+    ):
+        res = decide(
+            DecisionInputs(
+                exception_fp=0,
+                stage_c=[_plain_cand(**overlap)],
+                query_msg_tokens=_NOVEL_Q,
+                gbm_predict=_gbm("pb", 0.6),
+            ),
+            now=NOW,
+        )
+        assert res.action == ACTION_SUGGEST, overlap
+        assert res.label == "pb"
+
+
+def test_guard_bypassed_on_auto_band():
+    # p ≥ τ_auto is auto-labeled regardless of a boilerplate-only neighbour.
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            stage_c=[_plain_cand()],
+            query_msg_tokens=_NOVEL_Q,
+            gbm_predict=_gbm("pb", 0.9),
+        ),
+        now=NOW,
+    )
+    assert res.action == ACTION_AUTO
+    assert res.label == "pb"
+
+
+def test_guard_both_empty_identifier_sets_follow_stage_a_fallback():
+    # Neither side has identifier tokens → fall back to all-token Jaccard (Stage A
+    # semantics). Identical boilerplate → Jaccard 1.0 ≥ threshold → guard does NOT
+    # fire even with no fingerprint/hash/template overlap.
+    q = frozenset({"connection", "pool", "timeout", "exhausted"})
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            stage_c=[_plain_cand()],
+            query_msg_tokens=q,
+            gbm_predict=_gbm("pb", 0.6),
+        ),
+        now=NOW,
+    )
+    assert res.action == ACTION_SUGGEST
+    assert res.label == "pb"
