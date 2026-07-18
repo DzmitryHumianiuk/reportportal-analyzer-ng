@@ -37,6 +37,38 @@ def _rp_block(rp: RPNameResolver | None, project_id: int) -> dict[str, Any]:
 # Label class palette keys (frontend maps to colors). pb/ab/si/nd + ti/other.
 LABEL_GROUPS = ("pb", "ab", "si", "nd", "ti")
 
+# Decision policy thresholds (spec §6.6). Defined once here with a comment rather
+# than magic numbers scattered in the view; the payload always carries them so a
+# config change can never desync the takeaway sentence from the gauge.
+TAU_SUGGEST = 0.45
+TAU_AUTO = 0.75
+
+# ``method`` and ``abstain_reason`` are produced by DecisionResult
+# (src/analyzer_ng/core/decision.py) but are not part of the original suggestion
+# DDL; they are persisted once the analyzer migration adds the columns. Detect
+# them at runtime so the Inspector surfaces the stored values verbatim when they
+# exist and degrades to a deterministic derivation otherwise. Memoized per
+# process (schema is stable within a deployed image).
+# Cap for the grouping member dot-strip (mirrors the signatures member cap).
+_GROUP_MEMBER_CAP = 60
+
+_SUGGESTION_OPT_COLS: set[str] | None = None
+
+
+def _suggestion_opt_cols(db: Database) -> set[str]:
+    global _SUGGESTION_OPT_COLS
+    if _SUGGESTION_OPT_COLS is None:
+        rows = db.rows(
+            """
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'analyzer' AND table_name = 'suggestion'
+              AND column_name = ANY(%s)
+            """,
+            (["method", "abstain_reason"],),
+        )
+        _SUGGESTION_OPT_COLS = {r["column_name"] for r in rows}
+    return _SUGGESTION_OPT_COLS
+
 
 def _grp(label: str | None) -> str:
     if not label:
@@ -272,7 +304,47 @@ def item_journey(
             (project_id, item["launch_id"]),
         )
     grouping_block = None
+    group_members: list[dict[str, Any]] = []
     if grouping:
+        # Total analyzed failing items in this launch — makes the burst share /
+        # dominance concrete (same count the launches list reports as item_count).
+        lfc = db.one(
+            "SELECT count(*) AS n FROM analyzer.test_item "
+            "WHERE project_id = %s AND launch_id = %s",
+            (project_id, item["launch_id"]),
+        )
+        launch_failed_count = lfc["n"] if lfc else 0
+
+        # Group members: the launch's failing items whose masked error_hash equals
+        # the group's representative fingerprint. Self is forced ahead of the cap so
+        # the "this item" dot is never dropped. Capped at 60 (mirrors the existing
+        # signatures member cap). If the group was chosen by fallback (its
+        # fingerprint != this item's error_hash) the list may not contain self and
+        # may be short of member_count — the frontend degrades to the count chip.
+        member_rows = db.rows(
+            """
+            SELECT ti.item_id, ti.item_name, ti.issue_type, ti.issue_type_group,
+                   ti.is_auto_analyzed
+            FROM analyzer.failure_signature fs
+            JOIN analyzer.test_item ti USING (project_id, item_id)
+            WHERE fs.project_id = %s AND ti.launch_id = %s AND fs.error_hash = %s
+            ORDER BY (ti.item_id = %s) DESC, ti.item_id
+            LIMIT %s
+            """,
+            (project_id, item["launch_id"], grouping["fingerprint"], item_id, _GROUP_MEMBER_CAP),
+        )
+        for m in member_rows:
+            group_members.append(
+                {
+                    "item_id": m["item_id"],
+                    "item_name": m["item_name"],
+                    "issue_type": m["issue_type"],
+                    "label_group": _grp(m["issue_type"]),
+                    "is_auto_analyzed": m["is_auto_analyzed"],
+                    "is_self": m["item_id"] == item_id,
+                }
+            )
+
         grouping_block = {
             "group_id": grouping["group_id"],
             "fingerprint": _s(grouping["fingerprint"]),
@@ -280,14 +352,21 @@ def item_journey(
             "dominant": grouping["dominant"],
             "si_prior": float(grouping["si_prior"]),
             "created_at": _iso(grouping["created_at"]),
+            "launch_failed_count": launch_failed_count,
+            "members": group_members,
+            "member_shown": len(group_members),
         }
 
     # ---- Matching + decision (latest suggestion for this item) ----
+    # method / abstain_reason appended only when the columns exist (see
+    # _suggestion_opt_cols); _matching_decision derives method otherwise.
+    opt_cols = _suggestion_opt_cols(db)
+    extra_cols = "".join(f", {c}" for c in ("method", "abstain_reason") if c in opt_cols)
     sug = db.one(
-        """
+        f"""
         SELECT suggestion_id, group_id, predicted_label, confidence, matched_mode_id,
                matched_item_id, features, model_ver, llm_used, explanation, outcome,
-               outcome_ts, created_at
+               outcome_ts, created_at{extra_cols}
         FROM analyzer.suggestion
         WHERE project_id = %s AND item_id = %s
         ORDER BY created_at DESC, suggestion_id DESC
@@ -297,17 +376,23 @@ def item_journey(
     )
     matching_block, decision_block = _matching_decision(db, project_id, sug)
 
-    # ---- RP UI deep links (batched): the item, a matched item, candidates ----
+    # ---- RP UI deep links (batched): the item, a matched item, candidates,
+    #      grouping members ----
     if rp is not None:
         want: list[Any] = [item_id]
         if matching_block.get("matched_item_id"):
             want.append(matching_block["matched_item_id"])
         want.extend(c["item_id"] for c in reconstruction.get("candidates", []))
+        want.extend(m["item_id"] for m in group_members)
         links = rp.item_links(project_id, want)
         for c in reconstruction.get("candidates", []):
             url = links.get(c["item_id"])
             if url:
                 c["ui_url"] = url
+        for m in group_members:  # same dict objects held by grouping_block["members"]
+            url = links.get(m["item_id"])
+            if url:
+                m["ui_url"] = url
         mi = matching_block.get("matched_item_id")
         if mi is not None:
             murl = links.get(int(mi)) if str(mi).lstrip("-").isdigit() else None
@@ -453,21 +538,40 @@ def _matching_decision(
     feat_rows.sort(key=lambda r: abs(r["value"]), reverse=True)
 
     confidence = float(sug["confidence"] or 0.0)
-    if confidence >= 0.75:
+    if confidence >= TAU_AUTO:
         band = "auto"
-    elif confidence >= 0.45:
+    elif confidence >= TAU_SUGGEST:
         band = "suggest"
     else:
         band = "abstain"
+
+    # Deciding mechanism. Stored verbatim when the suggestion row carries it;
+    # otherwise derived deterministically from the stage + model_ver (lens §4.1) —
+    # an honest derivation of real fields, never an invented value.
+    method = sug.get("method")
+    if not method:
+        if stage == "A":
+            method = "hash"
+        elif stage == "AB":
+            method = "kb"
+        elif (sug["model_ver"] or "").split(";")[0] == "rule_cold":
+            method = "rule_cold"
+        else:
+            method = "gbm"
 
     decision = {
         "predicted_label": predicted,
         "predicted_group": _grp(predicted),
         "confidence": confidence,
         "band": band,
-        "tau_suggest": 0.45,
-        "tau_auto": 0.75,
+        "tau_suggest": TAU_SUGGEST,
+        "tau_auto": TAU_AUTO,
         "model_ver": sug["model_ver"],
+        # Verbatim when stored; derived (see above) so the field is always present.
+        "method": method,
+        # Verbatim when the suggestion row stores it; None otherwise (the frontend
+        # omits the reason clause rather than guessing).
+        "abstain_reason": sug.get("abstain_reason"),
         "llm_used": sug["llm_used"],
         "explanation": sug["explanation"],
         "outcome": sug["outcome"],

@@ -21,7 +21,10 @@ export const GOOD = getVar('--good');
 export const BAND = { auto: getVar('--band-auto'), suggest: getVar('--band-suggest'), abstain: getVar('--band-abstain') };
 export const FEATURE_GROUP_COLORS = {
   retrieval: getVar('--accent'), history: getVar('--lbl-ab'), kb: getVar('--lbl-si'),
-  grouping: getVar('--warning'), signal: getVar('--lbl-nd'), other: getVar('--muted'),
+  grouping: getVar('--warning'), signal: getVar('--lbl-nd'),
+  // v4 groups (2026-07-18): discriminant → --lbl-pb (mockup C5 note); llm → --serious.
+  discriminant: getVar('--lbl-pb'), llm: getVar('--serious'),
+  other: getVar('--muted'),
 };
 
 function getVar(name) {
@@ -198,6 +201,21 @@ export function card(title, opts = {}, ...body) {
     opts.sub ? h('div', { class: 'card-sub' }, opts.sub) : (opts.right || null));
   return h('div', { class: 'card' + (opts.class ? ' ' + opts.class : '') }, head,
     h('div', { class: 'card-body' }, ...body));
+}
+
+// Shared "Details for engineers" disclosure (L4). Native <details>, closed by
+// default, open-state persisted per key across items/launches so an ML engineer
+// opens it once and it stays open (localStorage `inspector.eng.<key>`).
+export function engDetails(key, ...children) {
+  const details = h('details', { class: 'eng' });
+  const summary = h('summary', {}, 'Details for engineers ', h('span', { class: 'eng-caret' }, '▸'));
+  details.append(summary, h('div', { class: 'eng-body' }, ...children));
+  const sk = 'inspector.eng.' + key;
+  try { if (localStorage.getItem(sk) === '1') details.open = true; } catch (_) { /* storage off */ }
+  details.addEventListener('toggle', () => {
+    try { localStorage.setItem(sk, details.open ? '1' : '0'); } catch (_) { /* storage off */ }
+  });
+  return details;
 }
 
 // ECharts shared dark options

@@ -2,12 +2,18 @@
 // expandable stage cards, connected visually, plus the live Stage-B reconstruction.
 import { api } from '../api.js';
 import {
-  h, clear, card, defectBadge, defectBadgeAbbr, idChip, setDefects, fmt, pct, shortTime,
-  highlightPattern, emptyState, loading, echartsBase, INK, INK2, MUTED, HAIRLINE,
-  FEATURE_GROUP_COLORS,
+  h, clear, card, defectBadge, defectBadgeAbbr, defectName, idChip, setDefects, fmt,
+  shortTime, highlightPattern, emptyState, loading, engDetails,
+  FEATURE_GROUP_COLORS, INK, MUTED,
 } from '../util.js';
 
-const jstate = { launch: null, item: null };
+const jstate = { launch: null, item: null, selectItem: null, itemEls: null };
+
+// Navigate the journey to another item in the current launch (member-dot click).
+function navToItem(itemId) {
+  const rec = jstate.itemEls && jstate.itemEls.get(itemId);
+  if (rec && jstate.selectItem) jstate.selectItem(rec.it, rec.el);
+}
 
 export async function renderJourney(root, app) {
   clear(root);
@@ -57,6 +63,10 @@ export async function renderJourney(root, app) {
     if (!items.length) { itemBody.appendChild(h('div', { class: 'muted' }, 'No items in this launch.')); return; }
     const itemList = h('div', { class: 'list' });
     itemBody.appendChild(itemList);
+    // Expose the item-select path + an id→{it,el} index so grouping member dots
+    // can navigate to a co-failing item (same launch, already in this list).
+    jstate.selectItem = selectItem;
+    jstate.itemEls = new Map();
     for (const it of items) {
       const iel = h('div', { class: 'list-item' + (it.is_auto_analyzed ? ' halo-auto' : ''), onclick: () => selectItem(it, iel) },
         h('div', { class: 'li-main' },
@@ -64,6 +74,7 @@ export async function renderJourney(root, app) {
           h('div', { class: 'li-sub' }, idChip(`id ${it.item_id}`, it.ui_url, ''), ` · ${it.exc_text || 'no exc'}`)),
         defectBadgeAbbr(it.issue_type, it.label_group));
       itemList.appendChild(iel);
+      jstate.itemEls.set(it.item_id, { it, el: iel });
     }
     // auto-select first (or previously chosen) item
     const pick = items.find((x) => x.item_id === jstate.item) || items[0];
@@ -201,49 +212,152 @@ function fpChip(name, val) {
 // ---- Stage 2: grouping ----
 function groupingCard(d) {
   const g = d.grouping;
-  const c = card('Grouping', { step: 2, sub: 'co-failure launch group (spec §5)' });
+  // Degenerate guard (lens §3.1): dominant + solo cannot be a burst → render solo.
+  const isBurst = !!(g && g.dominant && g.member_count > 1);
+  const c = card('Grouping', {
+    step: 2,
+    sub: 'who else failed like this in the same run (co-failure launch group, spec §5)',
+    class: isBurst ? 'burst-accent' : null,
+  });
   const body = c.querySelector('.card-body');
   if (!g) {
-    body.appendChild(emptyState('🧩', 'No launch group',
-      'No launch_group covers this item’s error_hash in its launch. Grouping runs when ≥1 failure shares a fingerprint.',
+    body.appendChild(emptyState('🧩', 'No group',
+      'No group — grouping needs at least one failure with a comparable error ID (error_hash) in this launch. This item’s failure was not comparable to any other.',
       'analyzer.launch_group'));
     return c;
   }
-  body.appendChild(h('div', { class: 'flex gap-12 wrap center' },
-    siDial(g.si_prior),
+  if (isBurst) {
+    c.querySelector('.card-title').appendChild(
+      h('span', { class: 'badge', style: { marginLeft: '4px', background: 'color-mix(in srgb,var(--warning) 16%,transparent)', color: 'var(--warning)', borderColor: 'var(--warning)' } },
+        h('span', { class: 'dot', style: { background: 'var(--warning)' } }), '🔥 burst'));
+  }
+
+  // L1 takeaway
+  body.appendChild(groupTakeaway(g, isBurst));
+
+  // L2 — member strip (+ count key)  |  si-meter (si_prior>0) or "no burst signal" note
+  const l2 = h('div', { class: 'grp-l2' });
+  l2.appendChild(memberStrip(g));
+  if (g.si_prior > 0) {
+    l2.appendChild(siMeter(g.si_prior));
+  } else {
+    l2.appendChild(h('div', { class: 'si-note' },
+      h('div', { class: 'si-label' }, 'burst signal (si_prior)'),
+      'No burst signal: fingerprint not new to history or share of launch failures below the gate (new fp · ≥5 members · >40% share).'));
+  }
+  body.appendChild(l2);
+
+  // L4 — engineer details (every raw field, unchanged, one click away)
+  body.appendChild(engDetails('grouping',
     h('dl', { class: 'kv' },
-      h('dt', {}, 'group_id'), h('dd', { class: 'mono' }, g.group_id),
-      h('dt', {}, 'fingerprint'), h('dd', { class: 'mono' }, g.fingerprint),
-      h('dt', {}, 'members'), h('dd', {}, String(g.member_count)),
-      h('dt', {}, 'dominant'), h('dd', {}, g.dominant ? h('span', { class: 'badge', style: { background: 'var(--accent-soft)', color: 'var(--accent)' } }, '🔥 burst') : 'no'),
-      h('dt', {}, 'si_prior'), h('dd', {}, fmt(g.si_prior, 2)))));
+      h('dt', {}, 'group_id'), h('dd', { class: 'mono' }, String(g.group_id)),
+      h('dt', {}, 'fingerprint'), h('dd', { class: 'mono' }, String(g.fingerprint)),
+      h('dt', {}, 'member_count'), h('dd', { class: 'mono' }, String(g.member_count)),
+      h('dt', {}, 'dominant'), h('dd', { class: 'mono' }, String(g.dominant)),
+      h('dt', {}, 'si_prior'), h('dd', { class: 'mono' }, String(g.si_prior)),
+      ...(g.launch_failed_count != null
+        ? [h('dt', {}, 'launch_failed_count'), h('dd', { class: 'mono' }, String(g.launch_failed_count))]
+        : [])),
+    h('p', { class: 'note', style: { marginTop: '8px' } }, 'co-failure launch group (spec §5)')));
+
+  if (isBurst) pulseOnce(c);
   return c;
 }
 
-function siDial(v) {
-  const size = 92, r = 38, cx = size / 2, cy = size / 2;
-  const frac = Math.max(0, Math.min(1, (v || 0) / 0.9));
-  const NS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(NS, 'svg');
-  svg.setAttribute('width', size); svg.setAttribute('height', size);
-  const bg = document.createElementNS(NS, 'circle');
-  const fg = document.createElementNS(NS, 'circle');
-  const circ = 2 * Math.PI * r;
-  for (const [ci, col, dash] of [[bg, HAIRLINE, 0], [fg, 'var(--warning)', frac]]) {
-    ci.setAttribute('cx', cx); ci.setAttribute('cy', cy); ci.setAttribute('r', r);
-    ci.setAttribute('fill', 'none'); ci.setAttribute('stroke', col); ci.setAttribute('stroke-width', 8);
-    ci.setAttribute('stroke-linecap', 'round');
-    ci.setAttribute('transform', `rotate(-90 ${cx} ${cy})`);
-    if (ci === fg) { ci.setAttribute('stroke-dasharray', `${dash * circ} ${circ}`); }
-    svg.appendChild(ci);
+// Single attention pulse on first render (respects prefers-reduced-motion).
+function pulseOnce(el) {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  requestAnimationFrame(() => {
+    if (el.animate) el.animate([{ boxShadow: '0 0 0 2px var(--warning)' }, { boxShadow: 'var(--shadow)' }], { duration: 900 });
+  });
+}
+
+// L1 grouping takeaway — deterministic template (solo / shared / burst).
+function groupTakeaway(g, isBurst) {
+  const p = h('p', { class: 'takeaway' });
+  const n = g.member_count;
+  const si = fmt(g.si_prior, 2);
+  if (n === 1) {
+    p.append(h('b', {}, 'Alone in this launch'),
+      ' — no other failure shares this signature; no group diagnosis applied ',
+      h('span', { class: 'muted' }, '(solo group)'), '.');
+  } else if (isBurst) {
+    const lfc = g.launch_failed_count;
+    const hasShare = lfc != null && lfc > 0 && n <= lfc;
+    p.append(h('b', {}, 'Burst:'), ' a new fingerprint covers ');
+    if (hasShare) {
+      p.append(h('b', {}, `${n} of ${lfc} failures`), ` in this launch (${Math.round(100 * n / lfc)}%) — strong `);
+    } else {
+      p.append(h('b', {}, `${n} failures`), ' of this launch — strong ');
+    }
+    p.append(h('b', {}, 'System Issue'), ' prior applied ',
+      h('span', { class: 'muted' }, `(dominant; si_prior ${si})`), '.');
+  } else {
+    p.append(h('b', {}, `${n} failures share this signature`),
+      ` in this launch — one diagnosis should cover all ${n} `,
+      h('span', { class: 'muted' }, '(shared-cause group)'), '.');
   }
-  const wrap = h('div', { class: 'dial', style: { display: 'grid', placeItems: 'center' } });
-  wrap.appendChild(svg);
-  const label = h('div', { style: { position: 'absolute', textAlign: 'center' } },
-    h('div', { style: { fontSize: '17px', fontWeight: 700 } }, fmt(v || 0, 2)),
-    h('div', { class: 'muted', style: { fontSize: '9px', textTransform: 'uppercase', letterSpacing: '.5px' } }, 'si prior'));
-  wrap.appendChild(label);
+  return p;
+}
+
+// L2 member dot-strip + count key; honest degradation when members not linkable.
+function memberStrip(g) {
+  const wrap = h('div', { style: { flex: '1 1 240px' } });
+  wrap.appendChild(h('div', { class: 'si-label' }, 'failures with this error'));
+  const members = g.members || [];
+  if (!members.length) {
+    wrap.appendChild(h('div', { class: 'dot-strip' },
+      h('span', { class: 'chip' }, `${g.member_count} failures with this signature`)));
+    wrap.appendChild(h('div', { class: 'dot-strip-key' }, 'individual members not linkable for this group.'));
+    return wrap;
+  }
+  const strip = h('div', { class: 'dot-strip', role: 'list', 'aria-label': 'group members' });
+  for (const m of members) {
+    const cls = ['pb', 'ab', 'si', 'nd', 'ti'].includes(m.label_group) ? m.label_group : 'none';
+    const title = `item ${m.item_id}${m.is_self ? ' · this item' : ''} · ${defectName(m.issue_type, m.label_group)}`;
+    strip.appendChild(h('button', {
+      class: 'm-dot ' + cls + (m.is_self ? ' self' : ''),
+      role: 'listitem', title, 'aria-label': title,
+      onclick: () => navToItem(m.item_id),
+    }));
+  }
+  if (g.member_count > members.length) {
+    strip.appendChild(h('span', { class: 'chip' }, `+${g.member_count - members.length} more`));
+  }
+  wrap.append(strip, memberKey(g, members));
   return wrap;
+}
+
+function memberKey(g, members) {
+  const byGroup = new Map();
+  for (const m of members) {
+    const e = byGroup.get(m.label_group) || { count: 0, locator: m.issue_type, group: m.label_group };
+    e.count += 1; byGroup.set(m.label_group, e);
+  }
+  const prefix = members.length < g.member_count
+    ? `${members.length} of ${g.member_count} members: `
+    : `${g.member_count} member${g.member_count === 1 ? '' : 's'}: `;
+  const key = h('div', { class: 'dot-strip-key' }, prefix);
+  const entries = [...byGroup.values()].sort((a, b) => b.count - a.count);
+  entries.forEach((e, i) => {
+    key.append(defectBadgeAbbr(e.locator, e.group), h('span', {}, `×${e.count}`));
+    if (i < entries.length - 1) key.append(h('span', { class: 'muted' }, '·'));
+  });
+  return key;
+}
+
+// L2 banded si_prior meter (scale 0 → 0.9, the documented cap).
+function siMeter(v) {
+  const width = Math.max(0, Math.min(1, v / 0.9)) * 100;
+  return h('div', { class: 'si-meter', title: 'burst signal (si_prior) — burst prior from spec §5 · range 0 to 0.9' },
+    h('div', { class: 'si-label' }, 'burst signal (si_prior)'),
+    h('div', { class: 'si-track' },
+      h('i', { class: 'si-fill', style: { width: width + '%' } }),
+      h('b', { class: 'si-tick', style: { left: '50%' } })),
+    h('div', { class: 'si-scale' },
+      h('span', {}, '0'), h('span', { class: 'si-val mono' }, fmt(v, 2)), h('span', {}, '0.9 max')),
+    h('p', { class: 'note', style: { marginTop: '6px', maxWidth: '320px' } },
+      'Prior evidence input for si, capped at 0.9 — one decision signal, not a verdict.'));
 }
 
 // ---- Stage 3: matching + reconstruction ----
@@ -305,102 +419,322 @@ function grp(label) {
 }
 
 // ---- Stage 4: features + decision ----
+const GROUP_NAME = {
+  retrieval: 'similar past failures (retrieval)',
+  history: 'this test’s track record (history)',
+  kb: 'known failure modes (kb)',
+  grouping: 'this launch’s failure pattern (grouping)',
+  signal: 'log contents (signal)',
+  llm: 'LLM extractor (llm)',
+  discriminant: 'exact-detail agreement (discriminant)',
+  other: 'uncatalogued (other)',
+};
+const METHOD_PLAIN = { hash: 'exact match', kb: 'known failure mode', gbm: 'learned model', rule_cold: 'starter rules' };
+const METHOD_TIP = {
+  hash: 'An identical failure (same error ID, error_hash) was seen before and labeled by a human. That label is inherited. Extra guards: recent (≤ 180 days), trusted (confidence ≥ 0.9), and the two failures still agree on unmasked details such as status codes and identifiers (discriminant gate). Confidence is fixed at 0.95 (Stage A).',
+  kb: 'This failure matches an entry in the catalog of known, confirmed failure modes (knowledge base): match score ≥ 0.85, catalog entry ≥ 95 % label-pure with ≥ 10 confirmed members. Confidence is capped at 0.93.',
+  gbm: 'A trained model (gradient-boosted trees, LightGBM) weighed all evidence signals — similar past failures, this test’s track record, the launch failure pattern, log contents — and produced a calibrated probability for each label.',
+  rule_cold: 'No trained model is available yet (cold start). Simple safety rules decide: exact match, then catalog, then a pre-configured seed rule for this failure kind (needs confidence ≥ 0.7); otherwise the analyzer abstains.',
+};
+const BAND_CHIP = { auto: 'auto-applied', suggest: 'suggested — needs a human', abstain: 'abstain → To Investigate' };
+const BAND_TIP = {
+  auto: 'Confidence is at or above 0.75 (tau_auto). The label was applied without waiting for a human. A human can still correct it later.',
+  suggest: 'Confidence is between 0.45 (tau_suggest) and 0.75 (tau_auto). The label is shown as a suggestion; a human confirms or corrects it.',
+  abstain: 'Confidence is below 0.45 (tau_suggest), or a safety guard fired. The analyzer says “I do not know” instead of guessing. The item goes to To Investigate.',
+};
+const OUTCOME_TIP = {
+  accepted: 'A person reviewed the suggestion and kept it.',
+  corrected: 'A person reviewed the suggestion and picked a different label. This correction feeds future training.',
+  ignored: 'Nobody acted on the suggestion before it expired or the item moved on.',
+  pending: 'The suggestion is still open; no person has acted on it yet.',
+};
+
 function decisionCard(d) {
   const dec = d.decision;
-  const c = card('Features & decision', { step: 4, sub: dec ? dec.model_ver : 'no suggestion' });
+  const c = card('Decision', { step: 4, sub: 'what the analyzer decided, how sure it was, and why (features & policy, spec §6)' });
   const body = c.querySelector('.card-body');
   if (!dec) {
     body.appendChild(emptyState('🎯', 'No decision recorded',
-      'No suggestion row exists for this item — the LightGBM policy has not scored it.',
+      'No decision recorded — the analyzer has not scored this item yet (no suggestion row).',
       'analyzer.suggestion'));
     return c;
   }
-  // top: gauge + predicted/outcome
-  const top = h('div', { class: 'flex gap-12 wrap center between', style: { marginBottom: '14px' } });
-  const gaugeWrap = h('div', { class: 'chart', style: { width: '280px', height: '150px' } });
-  top.appendChild(gaugeWrap);
-  const info = h('div', { class: 'flex gap-8 wrap' },
+  const method = dec.method || 'gbm';
+  const label = defectName(dec.predicted_label, dec.predicted_group);
+  const matchedItemId = d.matching && d.matching.matched_item_id;
+  const matchedMode = d.matching && d.matching.matched_mode;
+  const modeTitle = matchedMode && matchedMode.title;
+
+  // L1 takeaway (band × method matrix)
+  body.appendChild(decisionTakeaway(dec, method, label, matchedItemId, modeTitle));
+
+  // verdict chip row: band + method + (label, unless abstain) + outcome
+  const chips = h('div', { class: 'flex gap-8 wrap center', style: { marginBottom: '16px' } });
+  chips.appendChild(bandChip(dec));
+  chips.appendChild(methodChip(method));
+  if (dec.band !== 'abstain') chips.appendChild(labelChip(dec, label));
+  chips.appendChild(outcomeBadge(dec.outcome));
+  if (dec.llm_used) {
+    chips.appendChild(h('span', { class: 'badge', title: 'A large language model was asked to double-check this decision before it was stored.', style: { background: 'var(--accent-soft)', color: 'var(--accent)' } }, '🧠 LLM judge consulted'));
+  }
+  body.appendChild(chips);
+
+  // L2 — banded confidence gauge + active-band legend
+  const gaugeRow = h('div', { class: 'flex gap-12 wrap center', style: { marginBottom: '6px' } });
+  const gaugeWrap = h('div', { class: 'gauge-wrap' });
+  gaugeRow.append(gaugeWrap, h('div', { style: { flex: '1 1 220px' } }, bandLegend(dec)));
+  body.appendChild(gaugeRow);
+  requestAnimationFrame(() => drawGauge(gaugeWrap, dec));
+
+  // abstain reason (only when the row stores one — verbatim, honest omission otherwise)
+  if (dec.band === 'abstain' && dec.abstain_reason) body.appendChild(abstainReasonBlock(dec, label));
+
+  // analyzer explanation (real stored field, no decorative quotes)
+  if (dec.explanation) {
+    body.appendChild(h('p', { class: 'note', style: { margin: '8px 0 16px' } },
+      h('span', { class: 'muted', style: { textTransform: 'uppercase', letterSpacing: '.5px', fontSize: '10px' } }, 'analyzer’s explanation'),
+      h('br'), dec.explanation));
+  }
+
+  // L2 — evidence groups (feature vector, grouped by evidence type, Σ|v|-sorted)
+  body.appendChild(h('div', { class: 'section-title', style: { marginTop: '4px' } },
+    `Evidence the decision weighed (${dec.feature_count} of ${dec.feature_total} signals, largest first) (feature vector)`));
+  body.appendChild(evidenceGroups(dec.features));
+
+  // L4 — engineer details (all raw fields, one click away)
+  body.appendChild(engDetails('decision',
     h('dl', { class: 'kv' },
-      h('dt', {}, 'predicted'), h('dd', {}, defectBadge(dec.predicted_label, dec.predicted_group)),
-      h('dt', {}, 'band'), h('dd', {}, h('span', { class: 'badge', style: bandStyle(dec.band) }, bandName(dec.band))),
-      h('dt', {}, 'outcome'), h('dd', {}, outcomeBadge(dec.outcome)),
       h('dt', {}, 'model_ver'), h('dd', { class: 'mono', style: { fontSize: '12px' } }, dec.model_ver),
-      h('dt', {}, 'llm'), h('dd', {}, dec.llm_used ? h('span', { class: 'badge', style: { background: 'var(--accent-soft)', color: 'var(--accent)' } }, '🧠 judge used') : h('span', { class: 'muted' }, 'no'))));
-  top.appendChild(info);
-  body.appendChild(top);
-  if (dec.explanation) body.appendChild(h('p', { class: 'note', style: { marginBottom: '12px' } }, '“' + dec.explanation + '”'));
-
-  // feature waterfall
-  body.appendChild(h('div', { class: 'section-title' }, `Feature vector (${dec.feature_count} of ${dec.feature_total}, sorted by magnitude)`));
-  const chart = h('div', { class: 'chart', style: { height: Math.max(220, dec.features.length * 15) + 'px' } });
-  body.appendChild(chart);
-
-  requestAnimationFrame(() => {
-    drawGauge(gaugeWrap, dec);
-    drawFeatureBars(chart, dec.features);
-  });
+      h('dt', {}, 'method'), h('dd', { class: 'mono' }, method),
+      ...(dec.abstain_reason ? [h('dt', {}, 'abstain_reason'), h('dd', { class: 'mono' }, dec.abstain_reason)] : []),
+      ...(matchedItemId ? [h('dt', {}, 'matched_item_id'), h('dd', { class: 'mono' }, String(matchedItemId))] : []),
+      ...(d.matching && d.matching.matched_mode_id ? [h('dt', {}, 'matched_mode_id'), h('dd', { class: 'mono' }, String(d.matching.matched_mode_id))] : []),
+      h('dt', {}, 'llm_used'), h('dd', { class: 'mono' }, String(dec.llm_used)),
+      h('dt', {}, 'outcome'), h('dd', { class: 'mono' }, dec.outcome))));
   return c;
 }
 
-function bandStyle(band) {
-  const col = { auto: 'var(--band-auto)', suggest: 'var(--band-suggest)', abstain: 'var(--band-abstain)' }[band];
-  return { background: `color-mix(in srgb, ${col} 18%, transparent)`, color: col, borderColor: col };
+function muted(t) { return h('span', { class: 'muted' }, t); }
+
+// L1 decision takeaway — first matching (band, method) variant wins.
+function decisionTakeaway(dec, method, label, matchedItemId, modeTitle) {
+  const p = h('p', { class: 'takeaway' });
+  const C = fmt(dec.confidence, 2);
+  const TA = fmt(dec.tau_auto, 2);
+  const TS = fmt(dec.tau_suggest, 2);
+  const mode = modeTitle ? `“${modeTitle}”` : 'in the catalog';
+  if (dec.band === 'auto') {
+    if (method === 'hash' && matchedItemId) {
+      p.append(h('b', {}, label), ', auto-applied — inherited from human-labeled identical failure ',
+        h('span', { class: 'mono' }, `#${matchedItemId}`), ' ', muted(`(exact hash match; ${C} ≥ τ_auto ${TA})`));
+    } else if (method === 'kb') {
+      p.append(h('b', {}, label), `, auto-applied — matches known failure mode ${mode} `, muted(`(kb; ${C} ≥ τ_auto ${TA})`));
+    } else if (method === 'rule_cold') {
+      p.append(h('b', {}, label), ', auto-applied by starter rules — no trained model yet ', muted(`(rule_cold; ${C} ≥ τ_auto ${TA})`));
+    } else {
+      p.append(h('b', {}, label), ', auto-applied — the learned model was confident enough to act ', muted(`(gbm; ${C} ≥ τ_auto ${TA})`));
+    }
+  } else if (dec.band === 'suggest') {
+    p.append(h('b', {}, `Suggests ${label}`), ' — ');
+    if (method === 'hash' && matchedItemId) {
+      p.append('resembles labeled failure ', h('span', { class: 'mono' }, `#${matchedItemId}`), ', a human confirms ');
+    } else if (method === 'kb') {
+      p.append(`matches known failure mode ${mode}, a human confirms `);
+    } else if (method === 'rule_cold') {
+      p.append('a starter rule points here, a human confirms ');
+    } else {
+      p.append('the learned model leans this way, a human confirms ');
+    }
+    p.append(muted(`(${method}; ${TS} ≤ ${C} < τ_auto ${TA})`));
+  } else { // abstain
+    p.append(h('b', {}, 'Abstained → To Investigate'), ' — ');
+    if (method === 'hash' && matchedItemId) {
+      p.append('an exact-match candidate ', h('span', { class: 'mono' }, `#${matchedItemId}`), ' fell below the suggest bar ');
+    } else if (method === 'kb') {
+      p.append('a catalog match fell below the suggest bar ');
+    } else if (method === 'rule_cold') {
+      p.append('no confident rule and no trained model yet ');
+    } else {
+      p.append('confidence below the suggest bar ');
+    }
+    p.append(muted(`(${method}; ${method === 'gbm' ? 'p* ' : ''}${C} < τ_suggest ${TS})`));
+  }
+  return p;
+}
+
+function bandChip(dec) {
+  const col = `var(--band-${dec.band})`;
+  const isAbstain = dec.band === 'abstain';
+  return h('span', { class: 'badge', title: BAND_TIP[dec.band],
+    style: { background: `color-mix(in srgb, ${col} ${isAbstain ? 22 : 18}%, transparent)`, color: isAbstain ? 'var(--ink-2)' : col, borderColor: col } },
+    h('span', { class: 'dot', style: { background: col } }), BAND_CHIP[dec.band]);
+}
+function methodChip(method) {
+  return h('span', { class: 'method-chip', title: METHOD_TIP[method] || '' },
+    h('span', { class: 'k' }, method), METHOD_PLAIN[method] || method);
+}
+function labelChip(dec, label) {
+  const g = dec.predicted_group;
+  const cls = ['pb', 'ab', 'si', 'nd', 'ti'].includes(g) ? g : 'none';
+  return h('span', { class: `badge lbl ${cls}` }, h('span', { class: 'dot' }), `label: ${label}`);
 }
 function outcomeBadge(o) {
   const map = { accepted: 'var(--good)', corrected: 'var(--warning)', ignored: 'var(--muted)', pending: 'var(--accent)' };
   const col = map[o] || 'var(--muted)';
-  return h('span', { class: 'badge', style: { background: `color-mix(in srgb, ${col} 16%, transparent)`, color: col } }, o);
+  const text = o === 'pending' ? 'pending review' : o;
+  return h('span', { class: 'badge', title: OUTCOME_TIP[o] || null, style: { background: `color-mix(in srgb, ${col} 16%, transparent)`, color: col } }, text);
 }
 
+function bandLegend(dec) {
+  const TS = fmt(dec.tau_suggest, 2), TA = fmt(dec.tau_auto, 2);
+  const item = (band, text, active) => h('span', { class: 'bl-item', role: 'listitem', ...(active ? { 'data-active': '' } : {}) },
+    h('i', { class: 'dot', style: { background: `var(--band-${band})` } }), text);
+  return h('div', { class: 'band-legend', role: 'list' },
+    item('abstain', `abstain · < ${TS} → TI`, dec.band === 'abstain'),
+    item('suggest', `suggest · ${TS}–${TA}`, dec.band === 'suggest'),
+    item('auto', `auto · ≥ ${TA}`, dec.band === 'auto'));
+}
+
+function abstainReasonText(dec, label) {
+  const C = fmt(dec.confidence, 2);
+  const TS = fmt(dec.tau_suggest, 2);
+  switch (dec.abstain_reason) {
+    case 'no_confident_rule':
+      return 'No rule was confident enough: no identical labeled failure (hash), no catalog match (kb), and no trusted seed rule. With no trained model yet, the honest answer is “investigate”.';
+    case 'gbm_below_suggest':
+      return dec.predicted_group === 'ti'
+        ? `The model scored every label below the suggestion bar of ${TS} (tau_suggest).`
+        : `The model scored every label below the suggestion bar of ${TS} (tau_suggest). Best guess was ${label} at ${C}, which is too weak to show.`;
+    case 'gbm_boilerplate_only_neighbor':
+      return 'The model’s only support was a look-alike failure that shares no concrete evidence with this one — no matching error ID, no shared log templates, no shared identifiers, only generic error text. That is not real support, so the suggestion was withdrawn.';
+    default:
+      return `The analyzer abstained for reason “${dec.abstain_reason}” (code not yet documented in the Inspector).`;
+  }
+}
+function abstainReasonBlock(dec, label) {
+  return h('div', { class: 'abstain-reason' },
+    abstainReasonText(dec, label),
+    h('div', { style: { marginTop: '6px' } }, h('span', { class: 'code' }, dec.abstain_reason)));
+}
+
+// ---- Banded confidence gauge (inline SVG, geometry per lens §2.2) ----
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888'; }
+function gaugeAngle(v) { return 200 - 220 * v; }
+function gaugePolar(cx, cy, r, deg) { const a = deg * Math.PI / 180; return { x: cx + r * Math.cos(a), y: cy - r * Math.sin(a) }; }
+function gaugeArc(cx, cy, r, v0, v1) {
+  const steps = Math.max(2, Math.round((v1 - v0) * 90));
+  let dstr = '';
+  for (let i = 0; i <= steps; i++) {
+    const v = v0 + (v1 - v0) * i / steps;
+    const p = gaugePolar(cx, cy, r, gaugeAngle(v));
+    dstr += (i === 0 ? 'M' : 'L') + p.x.toFixed(2) + ' ' + p.y.toFixed(2) + ' ';
+  }
+  return dstr;
+}
 function drawGauge(el, dec) {
-  const chart = echarts.init(el, null, { renderer: 'canvas' });
-  chart.setOption({
-    series: [{
-      type: 'gauge', min: 0, max: 1, radius: '100%', center: ['50%', '68%'],
-      startAngle: 200, endAngle: -20, splitNumber: 5,
-      axisLine: { lineStyle: { width: 14, color: [
-        [dec.tau_suggest, '#5a5d61'], [dec.tau_auto, '#c98500'], [1, '#34a853']] } },
-      pointer: { width: 4, length: '62%', itemStyle: { color: INK } },
-      axisTick: { show: false }, splitLine: { length: 10, lineStyle: { color: '#0d0d0d' } },
-      axisLabel: { color: MUTED, fontSize: 9, distance: -18 },
-      anchor: { show: true, size: 8, itemStyle: { color: INK } },
-      detail: { valueAnimation: true, formatter: (v) => v.toFixed(2), color: INK, fontSize: 26, offsetCenter: [0, '38%'] },
-      title: { offsetCenter: [0, '68%'], color: MUTED, fontSize: 10 },
-      data: [{ value: dec.confidence, name: 'confidence' }],
-    }],
-  });
+  clear(el);
+  const W = 260, H = 150, cx = 130, cy = 118, R = 92, sw = 14;
+  const NS = 'http://www.w3.org/2000/svg';
+  const bands = [
+    [0, dec.tau_suggest, cssVar('--band-abstain')],
+    [dec.tau_suggest, dec.tau_auto, cssVar('--band-suggest')],
+    [dec.tau_auto, 1, cssVar('--band-auto')],
+  ];
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('width', W); svg.setAttribute('height', H); svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  for (const [a, b, col] of bands) {
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', gaugeArc(cx, cy, R, a, b));
+    path.setAttribute('fill', 'none'); path.setAttribute('stroke', col);
+    path.setAttribute('stroke-width', sw); path.setAttribute('stroke-linecap', 'butt');
+    svg.appendChild(path);
+  }
+  const conf = Math.max(0, Math.min(1, dec.confidence));
+  const np = gaugePolar(cx, cy, R - 4, gaugeAngle(conf));
+  const needle = document.createElementNS(NS, 'line');
+  needle.setAttribute('x1', cx); needle.setAttribute('y1', cy);
+  needle.setAttribute('x2', np.x.toFixed(2)); needle.setAttribute('y2', np.y.toFixed(2));
+  needle.setAttribute('stroke', INK); needle.setAttribute('stroke-width', 3); needle.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(needle);
+  const hub = document.createElementNS(NS, 'circle');
+  hub.setAttribute('cx', cx); hub.setAttribute('cy', cy); hub.setAttribute('r', 5); hub.setAttribute('fill', INK);
+  svg.appendChild(hub);
+  const val = document.createElementNS(NS, 'text');
+  val.setAttribute('x', cx); val.setAttribute('y', cy - 26); val.setAttribute('text-anchor', 'middle');
+  val.setAttribute('fill', INK); val.setAttribute('font-size', '26'); val.setAttribute('font-weight', '700');
+  val.textContent = dec.confidence.toFixed(2);
+  svg.appendChild(val);
+  const cap = document.createElementNS(NS, 'text');
+  cap.setAttribute('x', cx); cap.setAttribute('y', cy + 22); cap.setAttribute('text-anchor', 'middle');
+  cap.setAttribute('fill', MUTED); cap.setAttribute('font-size', '10');
+  cap.textContent = 'confidence';
+  svg.appendChild(cap);
+  el.appendChild(svg);
+  // threshold chips (positioned HTML — values from the payload, never hardcoded)
+  for (const t of [dec.tau_suggest, dec.tau_auto]) {
+    const p = gaugePolar(cx, cy, R + 15, gaugeAngle(t));
+    el.appendChild(h('span', { class: 'thresh-chip mono', style: { left: p.x + 'px', top: p.y + 'px' } }, t.toFixed(2).replace(/^0/, '')));
+  }
 }
 
-function drawFeatureBars(el, features) {
-  const chart = echarts.init(el, null, { renderer: 'canvas' });
-  const names = features.map((f) => f.label).reverse();
-  const vals = features.map((f) => f.value).reverse();
-  const colors = features.map((f) => groupColor(f.group)).reverse();
-  chart.setOption({
-    ...echartsBase(),
-    grid: { left: 8, right: 40, top: 6, bottom: 6, containLabel: true },
-    xAxis: { type: 'value', axisLabel: { color: MUTED }, splitLine: { lineStyle: { color: HAIRLINE } } },
-    yAxis: { type: 'category', data: names, axisLabel: { color: INK2, fontSize: 10 }, axisLine: { lineStyle: { color: HAIRLINE } }, axisTick: { show: false } },
-    tooltip: {
-      ...echartsBase().tooltip,
-      formatter: (p) => {
-        const f = features[features.length - 1 - p.dataIndex];
-        return `<b>${f.label}</b> <span style="color:${MUTED}">#${f.index}</span><br>` +
-          `<span style="font-family:monospace">${f.key}</span> = <b>${fmt(f.value, 4)}</b><br>` +
-          `<span style="color:${INK2}">${f.definition}</span><br>` +
-          `<span style="color:${MUTED}">range ${f.range} · default ${f.default} · ${f.group}</span>`;
-      },
-    },
-    series: [{
-      type: 'bar', data: vals.map((v, i) => ({ value: v, itemStyle: { color: colors[i], borderRadius: [0, 3, 3, 0] } })),
-      barMaxWidth: 12,
-      label: { show: true, position: 'right', color: INK2, fontSize: 9, formatter: (p) => (p.value ? fmt(p.value, 2) : '') },
-    }],
+// ---- Evidence groups (feature vector → group rows, lazy per-feature bars) ----
+function evidenceGroups(features) {
+  const wrap = h('div', {});
+  if (!features || !features.length) {
+    wrap.appendChild(h('p', { class: 'note' }, 'No stored feature vector for this suggestion.'));
+    return wrap;
+  }
+  const byGroup = new Map();
+  for (const f of features) {
+    const g = f.group || 'other';
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g).push(f);
+  }
+  const models = [...byGroup.entries()].map(([group, feats]) => {
+    const sum = feats.reduce((s, f) => s + Math.abs(f.value), 0);
+    const top = feats.reduce((m, f) => (Math.abs(f.value) > Math.abs(m.value) ? f : m), feats[0]);
+    const singleMax = Math.max(...feats.map((f) => Math.abs(f.value)));
+    return { group, feats, sum, top, singleMax };
   });
+  models.sort((a, b) => b.sum - a.sum); // "largest first" = Σ|v| desc
+  const maxSum = Math.max(...models.map((m) => m.sum), 1e-9);
+  // auto-expand the group holding the single largest |value| feature
+  const autoGroup = models.reduce((a, b) => (b.singleMax > a.singleMax ? b : a), models[0]).group;
+  for (const m of models) wrap.appendChild(eviRow(m, maxSum, m.group === autoGroup));
+  return wrap;
 }
 
-function groupColor(group) {
-  return FEATURE_GROUP_COLORS[group] || FEATURE_GROUP_COLORS.other;
+function eviRow(m, maxSum, open) {
+  const col = FEATURE_GROUP_COLORS[m.group] || FEATURE_GROUP_COLORS.other;
+  const row = h('div', { class: 'evi-row', dataset: { group: m.group } });
+  const head = h('button', { class: 'evi-head', 'aria-expanded': String(open) },
+    h('i', { class: 'dot', style: { background: col } }),
+    h('span', { class: 'evi-name' }, GROUP_NAME[m.group] || m.group),
+    h('span', { class: 'chip' }, String(m.feats.length)),
+    h('span', { class: 'evi-top' }, `top: ${m.top.label} ${fmt(m.top.value, 2)}`),
+    h('span', { class: 'evi-bar-cell' },
+      h('span', { class: 'microbar', style: { display: 'block' } },
+        h('i', { style: { width: (m.sum / maxSum * 100).toFixed(0) + '%', background: col } }))),
+    h('span', { class: 'evi-sum mono' }, `Σ|v| ${fmt(m.sum, 2)}`),
+    h('span', { class: 'evi-caret' }, '▸'));
+  const bodyEl = h('div', { class: 'evi-body' });
+  if (!open) bodyEl.hidden = true;
+  const feats = m.feats.slice().sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+  const gmax = Math.max(...feats.map((f) => Math.abs(f.value)), 1e-9);
+  for (const f of feats) {
+    const title = `${f.key} = ${fmt(f.value, 4)} · ${f.definition} · range ${f.range} · default ${f.default}`;
+    bodyEl.appendChild(h('div', { class: 'feat-row', title },
+      h('span', {}, h('span', { class: 'feat-lbl' }, f.label), h('br'), h('span', { class: 'feat-key' }, f.key)),
+      h('span', { class: 'feat-bar' }, h('i', { style: { width: (Math.abs(f.value) / gmax * 100) + '%', background: col } })),
+      h('span', { class: 'feat-val' }, fmt(f.value, 2))));
+  }
+  head.addEventListener('click', () => {
+    const now = head.getAttribute('aria-expanded') === 'true';
+    head.setAttribute('aria-expanded', String(!now));
+    bodyEl.hidden = now;
+  });
+  row.append(head, bodyEl);
+  return row;
 }
 
 // ---- Stage 5: feedback ----

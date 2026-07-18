@@ -1,8 +1,12 @@
-"""Static metadata for the 39-element LightGBM feature vector (spec 03 §6.4).
+"""Static metadata for the 46-element LightGBM feature vector (spec 03 §6.4, v4).
 
 Used to render the Features & Decision view with human-readable names, the exact
 definition, the valid range and the documented default so an inspector viewer
 can read a stored ``suggestion.features`` vector the way the model does.
+
+Indices 0-38 are the original schema; 39-45 are the v4 additions (llm extractor
++ discriminant / exact-detail-agreement groups, 2026-07-18). Their labels and
+definitions are the ready-to-paste microcopy strings (lens-microcopy §3).
 """
 
 from __future__ import annotations
@@ -50,6 +54,15 @@ FEATURE_DEFS: list[tuple[int, str, str, str, str, float, str]] = [
     (36, "is_assertion", "Is assertion", "§3.4 flag", "{0,1}", 0.0, "signal"),
     (37, "is_merged_small_logs", "Merged small logs", "§3.4 flag", "{0,1}", 0.0, "signal"),
     (38, "exception_count", "Exception count", "min(len(exceptions),5)/5", "[0,1]", 0.0, "signal"),
+    # v4 (2026-07-18) — LLM extractor + exact-detail agreement (discriminant). Labels
+    # and definitions are the microcopy §3 strings so the waterfall/tooltip read plainly.
+    (39, "llm_failing_layer", "LLM: which layer failed", "Layer where the failure sits according to the LLM extractor, as a code; 0 = unknown or LLM off (spec 04 §4.2).", "{0,1,2,3,4}", 0.0, "llm"),
+    (40, "llm_error_class", "LLM: error class", "Error class according to the LLM extractor, as a code; 0 = unknown or LLM off (spec 04 §4.2).", "{0..13}", 0.0, "llm"),
+    (41, "status_codes_present", "has status codes to compare", "1 = this failure's text contains unmasked status codes (e.g. HTTP codes), so agreement can be checked at all.", "{0,1}", 0.0, "discriminant"),
+    (42, "status_codes_match_top1", "status codes match best match", "1 = this failure and the best match carry exactly the same set of status codes.", "{0,1}", 0.0, "discriminant"),
+    (43, "identifier_jaccard_top1", "shared identifiers with best match", "Overlap of identifier tokens (class names, endpoints, test names) with the best match, 0 to 1 (identifier-token Jaccard). 0 can mean \"nothing to compare\" — see \"has identifiers to compare\".", "[0,1]", 0.0, "discriminant"),
+    (44, "hash_gate_blocked", "exact match found but rejected", "1 = an identical error ID (error_hash) existed, but the safety gate rejected inheriting its label because unmasked details disagreed (status codes / identifiers). A warning sign for look-alike traps.", "{0,1}", 0.0, "discriminant"),
+    (45, "identifiers_present", "has identifiers to compare", "1 = this failure's message contains identifier tokens, so \"shared identifiers\" 0 means real disagreement, not missing data (v4, 2026-07-18b).", "{0,1}", 0.0, "discriminant"),
 ]
 
 FEATURE_INDEX = {key: i for i, key, *_ in FEATURE_DEFS}
