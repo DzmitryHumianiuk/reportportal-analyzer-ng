@@ -172,18 +172,19 @@ function signatureCard(d) {
 
   // signature text with field badges
   const fields = [
-    ['EXC', 'fb-exc', s.exc_text],
-    ['MSG', 'fb-msg', s.msg_text],
+    ['EXCEPTION', 'fb-exc', s.exc_text],
+    ['MESSAGE', 'fb-msg', s.msg_text],
     ['FRAMES', 'fb-frames', (s.top_frames || []).join('  ›  ')],
     ['TEMPLATES', 'fb-templates', (s.template_ids || []).join(', ')],
     ['CODES', 'fb-codes', (s.status_codes || []).join(', ')],
   ];
-  const grid = h('div', { class: 'grid', style: { gap: '8px' } });
+  // Two-column grid: fixed label column (badges right-aligned so their right
+  // edges line up) + one uniform gap to the value text.
+  const grid = h('div', { style: { display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '8px 12px', alignItems: 'baseline' } });
   for (const [name, cls, val] of fields) {
     if (!val) continue;
-    grid.appendChild(h('div', { class: 'flex gap-8', style: { alignItems: 'baseline' } },
-      h('span', { class: `field-badge ${cls}` }, name),
-      h('span', { class: 'mono', style: { fontSize: '12.5px', color: 'var(--ink-2)', wordBreak: 'break-word' } }, val)));
+    grid.appendChild(h('span', { class: `field-badge ${cls}`, style: { justifySelf: 'end' } }, name));
+    grid.appendChild(h('span', { class: 'mono', style: { fontSize: '12.5px', color: 'var(--ink-2)', wordBreak: 'break-word', minWidth: 0 } }, val));
   }
   body.appendChild(grid);
 
