@@ -10,6 +10,11 @@ import {
 export async function renderModes(root, app) {
   clear(root);
   const c = card('Modes Map', { sub: 'PCA of 384‑dim embeddings · items ● / centroids ★' });
+  // Break out of .view's 1440px cap: center a near-viewport-wide card inside the
+  // narrower container (100% below = container width).
+  const BLEED = 'min(100vw - 48px, 1800px)';
+  c.style.width = BLEED;
+  c.style.marginLeft = `calc((100% - ${BLEED}) / 2)`;
   root.appendChild(c);
   const body = c.querySelector('.card-body');
   clear(body).appendChild(loading('Projecting embeddings…'));
@@ -32,10 +37,31 @@ export async function renderModes(root, app) {
   const evr = d.explained_variance_ratio || [];
   c.querySelector('.card-sub').textContent =
     `${d.n_items} items · ${d.n_modes} centroids · ${d.dimensions}D · variance ${evr.map((v) => pct(v, 0)).join(' / ')}`;
-  body.appendChild(legend());
+  const lg = legend();
+  body.appendChild(lg);
 
-  const chart = h('div', { class: 'chart', style: { height: '560px' } });
-  body.appendChild(chart);
+  // Fullscreen wrapper: the Fullscreen API elevates this element; ECharts follows
+  // via the ResizeObserver below. Default height fills most of the window.
+  const chart = h('div', { class: 'chart', style: { height: 'max(560px, 72vh)' } });
+  const fsWrap = h('div', { class: 'modes-fswrap' });
+  fsWrap.appendChild(chart);
+  const fsBtn = h('button', {
+    class: 'chip', style: { padding: '2px 10px', cursor: 'pointer', marginLeft: 'auto' },
+    title: 'Toggle fullscreen',
+    onclick: () => {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else fsWrap.requestFullscreen().catch(() => {});
+    },
+  }, '⛶ fullscreen');
+  lg.appendChild(fsBtn);
+  document.addEventListener('fullscreenchange', () => {
+    chart.style.height = document.fullscreenElement === fsWrap ? 'calc(100vh - 24px)' : 'max(560px, 72vh)';
+  });
+  body.appendChild(fsWrap);
+  new ResizeObserver(() => {
+    const inst = window.echarts && echarts.getInstanceByDom(chart);
+    if (inst) inst.resize();
+  }).observe(chart);
   requestAnimationFrame(() => (d.dimensions >= 3 ? draw3d(chart, d) : draw2d(chart, d)));
 
   if (d.dimensions < 3) {

@@ -303,3 +303,6 @@ table.data .rank { color: var(--muted); font-family: var(--mono); }
 .mt-8 { margin-top: 8px; } .mt-16 { margin-top: 16px; } .mb-8 { margin-bottom: 8px; }
 .muted { color: var(--muted); } .mono { font-family: var(--mono); }
 .right { text-align: right; } .nowrap { white-space: nowrap; }
+
+/* Modes Map fullscreen wrapper: opaque backdrop + breathing room when elevated. */
+.modes-fswrap:fullscreen { background: var(--plane); padding: 12px; overflow: hidden; }
