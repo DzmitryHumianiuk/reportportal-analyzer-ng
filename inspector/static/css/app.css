@@ -77,6 +77,9 @@ a { color: var(--accent); text-decoration: none; }
 .brand-title { font-size: 15px; letter-spacing: 0.2px; }
 .brand-title b { color: var(--accent); font-weight: 700; }
 .brand-sub { font-size: 11.5px; color: var(--muted); }
+/* RP name-resolution status — data-driven (live / unavailable / not configured). */
+#rp-status.ok { color: var(--good); }
+#rp-status.warn { color: var(--warning); }
 
 .topbar-controls { display: flex; align-items: center; gap: 20px; }
 .field { display: flex; flex-direction: column; gap: 4px; }

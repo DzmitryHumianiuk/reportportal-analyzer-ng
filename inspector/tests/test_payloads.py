@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend import payloads
+from backend import features_meta, payloads
 from backend.payloads import _grp, _matching_decision
 
 
@@ -92,6 +92,12 @@ def test_features_sorted_by_magnitude_and_enriched():
     top = dec["features"][0]
     assert top["index"] == 32
     assert "burst" in top["definition"]
+
+
+def test_feature_total_is_data_driven():
+    # The decision payload carries the real schema width (not a UI magic number).
+    _, dec = _matching_decision(_FakeDB(), 1, _sug())
+    assert dec["feature_total"] == len(features_meta.FEATURE_DEFS) == 39
 
 
 def test_no_suggestion():

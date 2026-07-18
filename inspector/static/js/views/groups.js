@@ -2,7 +2,8 @@
 // node color = final label; halo = auto-analyzed; burst groups flagged si_prior.
 import { api } from '../api.js';
 import {
-  h, clear, card, emptyState, loading, labelColor, labelName, fmt, MUTED, INK, INK2, HAIRLINE,
+  h, clear, card, emptyState, loading, setDefects, defectColor, defectName, defectInfo,
+  fmt, MUTED, INK, INK2, HAIRLINE,
 } from '../util.js';
 
 let _launch = null;
@@ -28,6 +29,7 @@ export async function renderGroups(root, app) {
     clear(graphBody).appendChild(loading());
     clear(legendBody);
     const d = await api.groups(app.project, _launch);
+    if (d.rp) setDefects(d.rp.defects);
     clear(graphBody);
     if (!d.nodes.length) {
       graphBody.appendChild(emptyState('🕸️', 'No items', 'No test items for this selection.', 'analyzer.test_item'));
@@ -76,10 +78,10 @@ function renderForce(el, d) {
   const node = svg.append('g').selectAll('g').data(nodes).join('g').style('cursor', 'grab');
   node.append('circle')
     .attr('r', 11)
-    .attr('fill', (n) => labelColor(n.label_group))
+    .attr('fill', (n) => defectColor(n.issue_type, n.label_group))
     .attr('stroke', (n) => (n.is_auto_analyzed ? 'var(--accent)' : '#0d0d0d'))
     .attr('stroke-width', (n) => (n.is_auto_analyzed ? 3 : 1.2));
-  node.append('title').text((n) => `item ${n.item_id}\n${n.name || ''}\nlabel ${n.issue_type || 'ti'}\ngroup ${n.group_id ?? 'none'}${n.is_auto_analyzed ? '\n⭑ auto-analyzed' : ''}`);
+  node.append('title').text((n) => `item ${n.item_id}\n${n.name || ''}\nlabel ${nodeLabelText(n)}\ngroup ${n.group_id ?? 'none'}${n.is_auto_analyzed ? '\n⭑ auto-analyzed' : ''}`);
   node.append('text').text((n) => n.item_id).attr('text-anchor', 'middle').attr('dy', 26)
     .attr('fill', INK2).attr('font-size', 10).attr('font-family', 'ui-monospace, monospace').style('pointer-events', 'none');
 
@@ -100,7 +102,13 @@ function renderForce(el, d) {
 
   el.appendChild(h('div', { class: 'flex gap-8 wrap mb-8' },
     ...['pb', 'ab', 'si', 'nd', 'ti'].map((g) => h('span', { class: 'flex center gap-8', style: { fontSize: '12px' } },
-      h('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: labelColor(g) } }), labelName(g))),
+      h('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: defectColor(null, g) } }), defectName(null, g))),
     h('span', { class: 'muted', style: { fontSize: '12px' } }, '◯ accent ring = auto‑analyzed')));
   el.appendChild(svg.node());
+}
+
+function nodeLabelText(n) {
+  if (!n.issue_type) return defectName(null, n.label_group);
+  const info = defectInfo(n.issue_type);
+  return info && info.name ? `${info.name} (${n.issue_type})` : n.issue_type;
 }

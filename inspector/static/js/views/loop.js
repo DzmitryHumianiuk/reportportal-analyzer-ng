@@ -3,8 +3,8 @@
 // optional live analyzer /health snapshot.
 import { api } from '../api.js';
 import {
-  h, clear, card, emptyState, loading, labelBadge, labelColor, shortTime, fmt,
-  echartsBase, MUTED, INK, INK2, HAIRLINE, BAND, WARNING,
+  h, clear, card, emptyState, loading, setDefects, defectBadge, defectColor, defectName, defectInfo,
+  shortTime, fmt, echartsBase, MUTED, INK, INK2, HAIRLINE, BAND, WARNING,
 } from '../util.js';
 
 export async function renderLoop(root, app) {
@@ -21,6 +21,7 @@ export async function renderLoop(root, app) {
   for (const c of [evCard, modelCard, metricsCard]) clear(c.querySelector('.card-body')).appendChild(loading());
 
   const d = await api.timeline(app.project);
+  if (d.rp) setDefects(d.rp.defects);
   renderEvents(evCard.querySelector('.card-body'), d.label_events);
   renderModels(modelCard.querySelector('.card-body'), d.model_artifacts);
   renderMetrics(metricsCard.querySelector('.card-body'), d.metrics_daily);
@@ -42,19 +43,19 @@ function renderEvents(el, events) {
     const data = events.map((e) => ({
       value: [e.ts, e.new_group],
       meta: e,
-      itemStyle: { color: labelColor(e.new_group) },
+      itemStyle: { color: defectColor(e.new_label, e.new_group) },
     }));
     const cats = ['pb', 'ab', 'si', 'nd', 'ti', 'none'];
     c.setOption({
       ...echartsBase(),
       grid: { left: 40, right: 24, top: 20, bottom: 40, containLabel: true },
       xAxis: { type: 'time', axisLabel: { color: MUTED }, splitLine: { show: false } },
-      yAxis: { type: 'category', data: cats, axisLabel: { color: INK2 }, splitLine: { lineStyle: { color: HAIRLINE } } },
+      yAxis: { type: 'category', data: cats, axisLabel: { color: INK2, formatter: (g) => defectName(null, g) }, splitLine: { lineStyle: { color: HAIRLINE } } },
       tooltip: {
         ...echartsBase().tooltip,
         formatter: (p) => {
           const e = p.data.meta;
-          return `<b>item ${e.item_id}</b><br>${e.old_label || '(new)'} → <b>${e.new_label}</b><br><span style="color:${MUTED}">${e.source} · ${shortTime(e.ts)}</span>`;
+          return `<b>item ${e.item_id}</b><br>${transitionText(e.old_label, e.old_group) || '(new)'} → <b>${transitionText(e.new_label, e.new_group)}</b><br><span style="color:${MUTED}">${e.source} · ${shortTime(e.ts)}</span>`;
         },
       },
       series: [{ type: 'scatter', symbolSize: 15, data, encode: { x: 0, y: 1 }, itemStyle: { borderColor: '#0d0d0d', borderWidth: 1 } }],
@@ -66,12 +67,18 @@ function renderEvents(el, events) {
     list.appendChild(h('div', { class: 'flex between center', style: { padding: '7px 11px', background: 'var(--surface-2)', border: '1px solid var(--hairline)', borderRadius: '8px' } },
       h('div', { class: 'flex center gap-8 wrap' },
         h('span', { class: 'mono', style: { fontSize: '11px', color: 'var(--muted)' } }, `item ${e.item_id}`),
-        e.old_label ? labelBadge(e.old_group, e.old_label) : h('span', { class: 'muted' }, '(new)'),
-        h('span', { class: 'muted' }, '→'), labelBadge(e.new_group, e.new_label),
+        e.old_label ? defectBadge(e.old_label, e.old_group) : h('span', { class: 'muted' }, '(new)'),
+        h('span', { class: 'muted' }, '→'), defectBadge(e.new_label, e.new_group),
         h('span', { class: 'chip', style: { fontSize: '11px' } }, e.source)),
       h('span', { class: 'muted mono', style: { fontSize: '11px' } }, shortTime(e.ts))));
   }
   el.appendChild(list);
+}
+
+function transitionText(locator, group) {
+  if (!locator) return '';
+  const info = defectInfo(locator);
+  return info && info.name ? `${info.name} (${locator})` : locator;
 }
 
 function renderModels(el, artifacts) {

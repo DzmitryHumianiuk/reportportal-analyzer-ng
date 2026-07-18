@@ -30,6 +30,55 @@ function getVar(name) {
 export function labelColor(group) { return LABEL_COLORS[group] || LABEL_COLORS.none; }
 export function labelName(group) { return LABEL_NAMES[group] || group; }
 
+// ---------------------------------------------------------------------------
+// ReportPortal name resolution (real defect-type names + colors).
+// A per-project locator→{name,short_name,color} map fetched from /api/rp. When
+// the map is empty (RP unconfigured/unreachable/name missing) every helper below
+// degrades to the raw locator / static group name — never an invented string.
+let _defects = {};
+export function setDefects(map) { _defects = map || {}; }
+export function defectInfo(locator) { return locator ? (_defects[locator] || null) : null; }
+export function labelGroup(locator) {
+  if (!locator) return 'none';
+  for (const g of ['pb', 'ab', 'si', 'nd', 'ti']) if (locator.startsWith(g)) return g;
+  return 'other';
+}
+// Representative RP defect for a label group (its locator starts with the group).
+export function defectForGroup(group) {
+  for (const loc of Object.keys(_defects)) if (loc.startsWith(group)) return _defects[loc];
+  return null;
+}
+export function defectColor(locator, group) {
+  const info = defectInfo(locator);
+  if (info && info.color) return info.color;
+  const g = group || labelGroup(locator);
+  const byGroup = defectForGroup(g);
+  return (byGroup && byGroup.color) || labelColor(g);
+}
+export function defectName(locator, group) {
+  const info = defectInfo(locator);
+  if (info && info.name) return info.name;
+  const g = group || labelGroup(locator);
+  const byGroup = defectForGroup(g);
+  return (byGroup && byGroup.name) || labelName(g);
+}
+
+// Badge showing the REAL defect long-name accented by the RP hex_color, with the
+// locator kept as a secondary monospace chip (locator is real data too). Falls
+// back to the static group name + palette color when RP names are unavailable.
+export function defectBadge(locator, group) {
+  const g = group || labelGroup(locator);
+  const col = defectColor(locator, g);
+  const name = defectName(locator, g);
+  const badge = h('span', { class: 'badge defect',
+    style: { color: col, borderColor: col, background: `color-mix(in srgb, ${col} 15%, transparent)` } },
+    h('span', { class: 'dot', style: { background: col } }), name);
+  if (!locator) return badge;
+  const info = defectInfo(locator);
+  return h('span', { class: 'flex center gap-8' }, badge,
+    h('span', { class: 'chip mono', title: info ? 'RP locator' : 'locator (RP name unavailable)' }, locator));
+}
+
 // tiny hyperscript
 export function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
