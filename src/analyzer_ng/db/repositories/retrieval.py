@@ -612,6 +612,8 @@ class PgRetrievalStore(StoreBase):
             label_source,
             label_ts,
             mode_id,
+            msg_text,
+            exc_text,
         ) = r
         launch_distance = (
             abs(q.launch_number - launch_number)
@@ -635,4 +637,6 @@ class PgRetrievalStore(StoreBase):
             same_exception_fp=exception_fp == q.exception_fp,
             launch_distance=launch_distance,
             launch_id=launch_id,
+            msg_text=msg_text or "",
+            exc_text=exc_text or "",
         )

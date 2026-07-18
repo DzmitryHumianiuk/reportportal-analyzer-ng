@@ -5,14 +5,17 @@ from __future__ import annotations
 import math
 
 from analyzer_ng.core.features import (
+    FEATURE_DEFAULTS,
     FEATURES,
     FeatureContext,
     KBMatch,
     SeedSignal,
     decay,
     extract_features,
+    identifier_jaccard,
     src_weight,
     to_vector,
+    to_vector_for,
 )
 from analyzer_ng.db.repositories.models import Candidate
 
@@ -24,20 +27,27 @@ def _cand(**kw):
     return Candidate(**base)
 
 
-def test_exactly_41_features_unique_order():
-    # 39 classical (spec 03 §6.4) + 2 optional LLM-extractor columns (spec 04 §4.2).
-    assert len(FEATURES) == 41
+def test_exactly_45_features_unique_order():
+    # 39 classical (spec 03 §6.4) + 2 LLM-extractor columns (spec 04 §4.2)
+    # + 4 discriminant-agreement columns (2026-07-18 errata).
+    assert len(FEATURES) == 45
     names = [f.name for f in FEATURES]
-    assert len(set(names)) == 41
+    assert len(set(names)) == 45
     assert names[0] == "top1_cosine"
     assert names[38] == "exception_count"
-    assert names[39:] == ["llm_failing_layer", "llm_error_class"]
+    assert names[39:41] == ["llm_failing_layer", "llm_error_class"]
+    assert names[41:] == [
+        "status_codes_present",
+        "status_codes_match_top1",
+        "identifier_jaccard_top1",
+        "hash_gate_blocked",
+    ]
 
 
 def test_empty_context_returns_defaults_no_nan():
     values = extract_features(FeatureContext())
     vec = to_vector(values)
-    assert len(vec) == 41
+    assert len(vec) == 45
     # LLM-extractor columns default to the ``unknown`` sentinel (spec 04 §4.2).
     assert values["llm_failing_layer"] == 0.0
     assert values["llm_error_class"] == 0.0
@@ -83,6 +93,10 @@ def test_all_ranges_respected_on_rich_context():
         assert math.isfinite(v)
     # spot-checks
     assert values["top1_cosine"] == 0.95
+    assert values["status_codes_present"] == 0.0  # no query status codes given
+    assert values["status_codes_match_top1"] == 0.0  # no hash top-1 evidence
+    assert values["identifier_jaccard_top1"] == 0.0
+    assert values["hash_gate_blocked"] == 0.0
     assert values["same_error_hash_top1"] == 1.0
     assert values["same_exception_fp_top1"] == 1.0
     assert values["same_test_case_top1"] == 1.0
@@ -150,6 +164,98 @@ def test_llm_extractor_columns_ordinal_encoded():
     junk = extract_features(FeatureContext(llm_error_class="bogus"))
     assert junk["llm_error_class"] == 0.0
     assert math.isfinite(junk["llm_error_class"])
+
+
+# --------------------------------------------------------------------------- #
+# Discriminant-agreement features (2026-07-18 errata)
+# --------------------------------------------------------------------------- #
+def test_status_codes_match_top1_encoding():
+    # present + exact set match with the top-1 exact-hash neighbour → 1.0/1.0.
+    match = extract_features(
+        FeatureContext(
+            query_status_codes=("503",),
+            top1_status_codes=("503",),
+            has_hash_top1=True,
+        )
+    )
+    assert match["status_codes_present"] == 1.0
+    assert match["status_codes_match_top1"] == 1.0
+
+    # present but disagreeing set (the near-miss trap: 503 query vs 500 neighbour).
+    mismatch = extract_features(
+        FeatureContext(
+            query_status_codes=("503",),
+            top1_status_codes=("500",),
+            has_hash_top1=True,
+        )
+    )
+    assert mismatch["status_codes_present"] == 1.0
+    assert mismatch["status_codes_match_top1"] == 0.0
+
+
+def test_status_codes_present_zero_means_nothing_to_compare():
+    # Query carries no status code → present=0 ("nothing to compare"), match stays 0.
+    absent = extract_features(
+        FeatureContext(top1_status_codes=("500",), has_hash_top1=True)
+    )
+    assert absent["status_codes_present"] == 0.0
+    assert absent["status_codes_match_top1"] == 0.0
+    # No top-1 evidence at all → match stays at its 0.0 default even if present=1.
+    no_evidence = extract_features(FeatureContext(query_status_codes=("500",)))
+    assert no_evidence["status_codes_present"] == 1.0
+    assert no_evidence["status_codes_match_top1"] == 0.0
+
+
+def test_identifier_jaccard_top1_matches_shared_tokenizer():
+    q = frozenset({"cannot", "invoke", "Session.userId", "because", "null"})
+    same = frozenset({"cannot", "invoke", "Session.userId", "because", "null"})
+    diff = frozenset({"cannot", "invoke", "Region.rate", "because", "null"})
+    hi = extract_features(
+        FeatureContext(query_msg_tokens=q, top1_msg_tokens=same, has_hash_top1=True)
+    )
+    lo = extract_features(
+        FeatureContext(query_msg_tokens=q, top1_msg_tokens=diff, has_hash_top1=True)
+    )
+    # Identical identifier token → 1.0; divergent identifier token → 0.0 (boilerplate
+    # cannot inflate it). The feature reuses the Stage-A gate tokenizer exactly.
+    assert hi["identifier_jaccard_top1"] == identifier_jaccard(q, same) == 1.0
+    assert lo["identifier_jaccard_top1"] == identifier_jaccard(q, diff) == 0.0
+    # Absent when there is no top-1 neighbour to compare against.
+    assert extract_features(FeatureContext(query_msg_tokens=q))["identifier_jaccard_top1"] == 0.0
+
+
+def test_hash_gate_blocked_flag_passes_through():
+    on = extract_features(FeatureContext(hash_gate_blocked=True))
+    off = extract_features(FeatureContext(hash_gate_blocked=False))
+    assert on["hash_gate_blocked"] == 1.0
+    assert off["hash_gate_blocked"] == 0.0
+
+
+# --------------------------------------------------------------------------- #
+# Forward/backward-compat vector assembly (schema invariant)
+# --------------------------------------------------------------------------- #
+def test_to_vector_for_old_list_drops_new_columns():
+    # A model trained on the OLD (pre-errata) 41-name list, fed a full NEW snapshot,
+    # assembles exactly its 41 trained columns in its own order — the 4 new columns
+    # it never saw are dropped.
+    old_names = [f.name for f in FEATURES][:41]
+    full = extract_features(
+        FeatureContext(query_status_codes=("503",), has_hash_top1=True)
+    )
+    vec = to_vector_for(full, old_names)
+    assert len(vec) == 41
+    assert vec == [float(full[n]) for n in old_names]
+
+
+def test_to_vector_for_new_list_backfills_missing_with_defaults():
+    # A NEW-list model fed an OLD 41-key snapshot back-fills the 4 missing columns
+    # with their registered defaults (all 0.0 here), never dropping the row.
+    all_names = [f.name for f in FEATURES]
+    old_snapshot = {n: 0.5 for n in all_names[:41]}  # lacks the 4 errata columns
+    vec = to_vector_for(old_snapshot, all_names)
+    assert len(vec) == 45
+    assert vec[:41] == [0.5] * 41
+    assert vec[41:] == [FEATURE_DEFAULTS[n] for n in all_names[41:]]
 
 
 def test_launch_fail_fraction_zero_when_total_unknown():

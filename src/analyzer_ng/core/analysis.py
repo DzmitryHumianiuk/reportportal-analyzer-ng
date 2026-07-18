@@ -393,11 +393,13 @@ class AnalysisEngine:
         ctx = self._feature_ctx(rep, group, total_failures)
         # Serving hook (spec §6.5): the shipped GBM decides once Stage A / KB have
         # not short-circuited; when no model is live the predictor returns None per
-        # vector and control falls through to the rule-based cold fallback.
-        gbm_predict: Callable[[list[float]], GbmDecision | None] | None = None
+        # snapshot and control falls through to the rule-based cold fallback. The hook
+        # receives the name→value snapshot so serving assembles the vector from the
+        # model's own stored feature list (schema-robust, 2026-07-18 errata).
+        gbm_predict: Callable[[dict[str, float]], GbmDecision | None] | None = None
         predictor = self.predictor
         if predictor is not None:
-            gbm_predict = lambda vec: predictor.predict(vec, project)  # noqa: E731
+            gbm_predict = lambda feats: predictor.predict(feats, project)  # noqa: E731
         inputs = DecisionInputs(
             exception_fp=sig.exception_fp,
             hash_matches=hash_matches,

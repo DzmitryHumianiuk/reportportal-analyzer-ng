@@ -14,7 +14,6 @@ layer renders that into the legacy wire shapes.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -28,7 +27,7 @@ from analyzer_ng.core.features import (
     SeedSignal,
     base_group,
     extract_features,
-    to_vector,
+    identifier_jaccard,
 )
 from analyzer_ng.db.repositories.models import Candidate
 
@@ -144,38 +143,43 @@ def _age_days(ts: datetime | None, now: datetime) -> float:
 # --------------------------------------------------------------------------- #
 # Stage A — exact error_hash inherit (spec §6.1)
 # --------------------------------------------------------------------------- #
-def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
-    """Jaccard similarity; two empty sets → 1.0, exactly one empty → 0.0."""
-    if not a and not b:
-        return 1.0
-    union = a | b
-    if not union:
-        return 1.0
-    return len(a & b) / len(union)
+# The identifier-token Jaccard tokenizer lives in core.features (the single feature
+# registry) so the ``identifier_jaccard_top1`` GBM feature and this gate measure the
+# exact same thing. ``_msg_gate_jaccard`` is retained as a local alias for readability
+# at the gate call sites (2026-07-18 errata).
+_msg_gate_jaccard = identifier_jaccard
 
 
-# Identifier-like token: carries a dotted path (``com.hawkins.shop.auth.Session``),
-# a scope-resolution ``::`` (C++/Rust), a quoted member ref, or a camelCase hump
-# (``getDiscount``). These are the *discriminating* tokens of an exception message;
-# boilerplate words (``cannot``, ``invoke``, ``because``, ``null``) are not.
-_IDENTIFIER_TOKEN_RE = re.compile(r"\.|::|[a-z][A-Z]")
+def _discriminant_filter(
+    matches: Sequence[HashMatch],
+    query_status_codes: tuple[str, ...],
+    query_msg_tokens: frozenset[str],
+) -> list[HashMatch]:
+    """Keep only exact-hash matches that agree with the query on the un-masked
+    discriminants (status codes + salient message terms). Shared by the inherit gate
+    and the ``hash_gate_blocked`` feature so both act on one definition of agreement."""
+    return [
+        m
+        for m in matches
+        if set(m.status_codes) == set(query_status_codes)
+        and _msg_gate_jaccard(query_msg_tokens, m.msg_tokens) >= STAGE_A_MSG_JACCARD
+    ]
 
 
-def _identifier_tokens(tokens: frozenset[str]) -> frozenset[str]:
-    """The identifier-bearing subset of a masked-message token set (may be empty)."""
-    return frozenset(t for t in tokens if _IDENTIFIER_TOKEN_RE.search(t))
-
-
-def _msg_gate_jaccard(query: frozenset[str], match: frozenset[str]) -> float:
-    """Message-gate similarity, computed over identifier tokens when either side
-    carries any (so shared NPE/assertion boilerplate can no longer inflate the
-    score above :data:`STAGE_A_MSG_JACCARD` for two genuinely different app areas);
-    both-sides-empty identifier sets fall back to the all-token Jaccard so
-    boilerplate-only messages behave exactly as before (2026-07-18 errata)."""
-    qi, mi = _identifier_tokens(query), _identifier_tokens(match)
-    if qi or mi:
-        return _jaccard(qi, mi)
-    return _jaccard(query, match)
+def discriminant_gate_blocked(
+    exception_fp: int,
+    matches: Sequence[HashMatch],
+    *,
+    query_status_codes: tuple[str, ...] = (),
+    query_msg_tokens: frozenset[str] = frozenset(),
+) -> bool:
+    """True when ≥1 exact error_hash match existed but the discriminant gate rejected
+    every one of them — the near-miss trap (identical masked hash, disagreeing
+    un-masked evidence). Feeds the ``hash_gate_blocked`` feature so the GBM learns to
+    distrust exactly the hash matches the Stage-A rule refused to inherit."""
+    if exception_fp == 0 or not matches:
+        return False
+    return not _discriminant_filter(list(matches), query_status_codes, query_msg_tokens)
 
 
 def stage_a_inherit(
@@ -220,12 +224,7 @@ def stage_a_inherit(
 
     # Discriminant gate (2026-07-18 errata) — keep only matches that agree with the
     # query on the un-masked status codes and salient message terms.
-    matches = [
-        m
-        for m in matches
-        if set(m.status_codes) == set(query_status_codes)
-        and _msg_gate_jaccard(query_msg_tokens, m.msg_tokens) >= STAGE_A_MSG_JACCARD
-    ]
+    matches = _discriminant_filter(list(matches), query_status_codes, query_msg_tokens)
     if not matches:
         return None
 
@@ -345,7 +344,10 @@ class DecisionInputs:
     stage_c: Sequence[Candidate] = ()  # top-20, post-boost order
     stage_c_ages_days: Sequence[float] = ()
     feature_ctx: FeatureContext | None = None  # non-candidate context (stats/group/flags)
-    gbm_predict: Callable[[list[float]], GbmDecision | None] | None = None
+    # Serving hook: receives the name→value feature snapshot (NOT a pre-ordered
+    # vector) so the serving layer assembles the vector from the *model's own* stored
+    # feature list (schema-robust; see analyzer_ng.ml.serving.GbmPredictor.predict).
+    gbm_predict: Callable[[dict[str, float]], GbmDecision | None] | None = None
 
 
 def decide(
@@ -434,9 +436,15 @@ def decide(
     # short-circuits have not fired. Absent a model (cold install) this hook is
     # None and control falls through to the rule-based cold fallback.
     if inputs.gbm_predict is not None:
-        gbm = inputs.gbm_predict(to_vector(features))
+        gbm = inputs.gbm_predict(features)
         if gbm is not None:
-            return _gbm_result(gbm, inputs.stage_c, result)
+            return _gbm_result(
+                gbm,
+                inputs.stage_c,
+                result,
+                query_msg_tokens=frozenset(inputs.query_msg_tokens),
+                tau_auto=tau_auto,
+            )
 
     # Cold fallback — seed prior when confident enough.
     if inputs.seed is not None and inputs.seed.confidence >= SEED_PRIOR_MIN_CONF:
@@ -460,10 +468,27 @@ def _pick_relevant(stage_c: Sequence[Candidate], base: str) -> Candidate | None:
     return None
 
 
+def _boilerplate_only_top1(top1: Candidate, query_msg_tokens: frozenset[str]) -> bool:
+    """True when the top-1 neighbour shares NO structural evidence with the query
+    (2026-07-18 errata): no exact fingerprint, no exact error_hash, no template
+    overlap, and identifier-token similarity below the Stage-A threshold — a
+    boilerplate-cosine plateau (e.g. a novel NullReferenceException landing next to an
+    unrelated NPE at cosine 0.93 with zero structural overlap). The identifier-token
+    comparison reuses the Stage-A gate's :func:`identifier_jaccard` (both-empty
+    identifier sets fall back to the all-token Jaccard exactly as the gate does)."""
+    if top1.same_exception_fp or top1.same_error_hash or top1.jaccard_templates > 0:
+        return False
+    top1_tokens = frozenset(top1.msg_text.split())
+    return _msg_gate_jaccard(query_msg_tokens, top1_tokens) < STAGE_A_MSG_JACCARD
+
+
 def _gbm_result(
     gbm: GbmDecision,
     stage_c: Sequence[Candidate],
     result_fn: Callable[..., DecisionResult],
+    *,
+    query_msg_tokens: frozenset[str] = frozenset(),
+    tau_auto: float = TAU_AUTO,
 ) -> DecisionResult:
     """Turn a calibrated GBM prediction into a banded decision (spec §6.6).
 
@@ -471,6 +496,12 @@ def _gbm_result(
     → abstain (``ti``). The concrete locator/relevantItem is taken from the best
     Stage-C candidate that shares the predicted base group, else the RP default
     locator. The full calibrated distribution is carried for audit/suggest ranking.
+
+    Deterministic suggest-band guard (2026-07-18 errata): a *suggest* (not auto)
+    prediction whose top-1 neighbour is boilerplate-only — no structural overlap of any
+    kind — is demoted to abstain, since the Stage-A discriminant gate never sees the
+    Stage-B/GBM path and a boilerplate-cosine plateau is not real support. The auto
+    band (``p* ≥ τ_auto``) is untouched.
     """
     p = max(0.0, min(1.0, float(gbm.max_prob)))
     label = gbm.label if gbm.label in BASE_LABELS else "ti"
@@ -480,6 +511,15 @@ def _gbm_result(
         return result_fn(
             "ti", "ti", p, METHOD_GBM,
             abstain_reason="gbm_below_suggest", probs=probs, model_version=version,
+        )
+    if (
+        p < tau_auto
+        and stage_c
+        and _boilerplate_only_top1(stage_c[0], query_msg_tokens)
+    ):
+        return result_fn(
+            "ti", "ti", p, METHOD_GBM,
+            abstain_reason="gbm_boilerplate_only_neighbor", probs=probs, model_version=version,
         )
     cand = _pick_relevant(stage_c, label)
     locator = cand.issue_type if cand is not None and cand.issue_type else default_locator(label)
@@ -493,13 +533,30 @@ def _gbm_result(
 def _with_candidates(
     ctx: FeatureContext, inputs: DecisionInputs, kb_best: KBMatch | None
 ) -> FeatureContext:
-    """Fold the Stage-C candidates / KB best / seed into the feature context."""
+    """Fold the Stage-C candidates / KB best / seed and the discriminant-agreement
+    evidence into the feature context (2026-07-18 errata). The top-1 exact-hash
+    neighbour (``hash_matches[0]``) carries the un-masked status codes / message
+    tokens the retrieval features cannot see; ``hash_gate_blocked`` records whether the
+    Stage-A gate rejected every exact-hash match for this item."""
     from dataclasses import replace
 
+    hm = list(inputs.hash_matches)
+    top1 = hm[0] if hm else None
     return replace(
         ctx,
         candidates=list(inputs.stage_c),
         candidate_ages_days=list(inputs.stage_c_ages_days),
         kb_best=kb_best,
         seed=inputs.seed,
+        query_status_codes=tuple(inputs.query_status_codes),
+        query_msg_tokens=frozenset(inputs.query_msg_tokens),
+        top1_status_codes=tuple(top1.status_codes) if top1 is not None else (),
+        top1_msg_tokens=frozenset(top1.msg_tokens) if top1 is not None else frozenset(),
+        has_hash_top1=top1 is not None,
+        hash_gate_blocked=discriminant_gate_blocked(
+            inputs.exception_fp,
+            hm,
+            query_status_codes=tuple(inputs.query_status_codes),
+            query_msg_tokens=frozenset(inputs.query_msg_tokens),
+        ),
     )

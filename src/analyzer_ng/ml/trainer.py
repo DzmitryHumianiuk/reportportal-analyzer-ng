@@ -26,6 +26,7 @@ from analyzer_ng.core.features import (
     FEATURE_SCHEMA_VER,
     FEATURES,
     base_group,
+    feature_names,
     to_vector,
 )
 from analyzer_ng.ml.calibration import CALIB_MIN_EVENTS, IsotonicCalibrator
@@ -119,6 +120,12 @@ class GbmModel:
     booster_text: str
     classes: list[str]
     feature_schema_ver: int = FEATURE_SCHEMA_VER
+    # The ordered feature list the booster was trained on, stamped into the artifact
+    # so serving assembles the vector from THIS list (not the ambient registry) — the
+    # robust schema invariant: a model is always fed vectors in its own trained order,
+    # new columns it never saw are dropped and columns missing from an old snapshot
+    # are back-filled with defaults. Defaults to the current registry order.
+    feature_names: list[str] = field(default_factory=feature_names)
     _booster: Booster | None = field(default=None, repr=False, compare=False)
 
     def _get_booster(self) -> Booster:
@@ -147,16 +154,22 @@ class GbmModel:
             "booster": self.booster_text,
             "classes": list(self.classes),
             "feature_schema_ver": self.feature_schema_ver,
+            "feature_names": list(self.feature_names),
         }
         return json.dumps(payload).encode("utf-8")
 
     @classmethod
     def from_bytes(cls, blob: bytes) -> GbmModel:
         data = json.loads(blob.decode("utf-8"))
+        # A pre-v3 blob has no stored feature_names; it was trained on the registry of
+        # its own schema, which serving only ever loads at the matching schema — so the
+        # current registry order is the correct fallback for those same-schema loads.
+        names = data.get("feature_names")
         return cls(
             booster_text=data["booster"],
             classes=list(data["classes"]),
             feature_schema_ver=int(data["feature_schema_ver"]),
+            feature_names=list(names) if names else feature_names(),
         )
 
 
