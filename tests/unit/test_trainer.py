@@ -57,7 +57,7 @@ def test_build_xy_skips_rows_without_snapshot_or_class():
     x, y, projects = build_xy(rows)
     assert y == ["pb"]
     assert projects == [1]
-    assert x.shape == (1, 45)
+    assert x.shape == (1, 46)
 
 
 def test_build_xy_fills_missing_new_columns_with_defaults_not_drop():
@@ -75,10 +75,10 @@ def test_build_xy_fills_missing_new_columns_with_defaults_not_drop():
         for i in range(10)
     ]
     x, y, _p = build_xy(rows)
-    assert x.shape == (10, 45)  # padded to the full current width
+    assert x.shape == (10, 46)  # padded to the full current width
     assert len(y) == 10  # every historical row kept
-    # The 4 errata columns default to 0.0 (their registered default).
-    assert x[:, 41:].tolist() == [[0.0, 0.0, 0.0, 0.0]] * 10
+    # The 4 errata + 1 v4 columns default to 0.0 (their registered default).
+    assert x[:, 41:].tolist() == [[0.0, 0.0, 0.0, 0.0, 0.0]] * 10
 
 
 def test_gbm_model_stamps_and_roundtrips_feature_names():

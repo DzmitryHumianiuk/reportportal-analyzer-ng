@@ -27,12 +27,13 @@ def _cand(**kw):
     return Candidate(**base)
 
 
-def test_exactly_45_features_unique_order():
+def test_exactly_46_features_unique_order():
     # 39 classical (spec 03 §6.4) + 2 LLM-extractor columns (spec 04 §4.2)
-    # + 4 discriminant-agreement columns (2026-07-18 errata).
-    assert len(FEATURES) == 45
+    # + 4 discriminant-agreement columns (2026-07-18 errata)
+    # + 1 identifiers_present indicator (2026-07-18b, v4).
+    assert len(FEATURES) == 46
     names = [f.name for f in FEATURES]
-    assert len(set(names)) == 45
+    assert len(set(names)) == 46
     assert names[0] == "top1_cosine"
     assert names[38] == "exception_count"
     assert names[39:41] == ["llm_failing_layer", "llm_error_class"]
@@ -41,13 +42,14 @@ def test_exactly_45_features_unique_order():
         "status_codes_match_top1",
         "identifier_jaccard_top1",
         "hash_gate_blocked",
+        "identifiers_present",
     ]
 
 
 def test_empty_context_returns_defaults_no_nan():
     values = extract_features(FeatureContext())
     vec = to_vector(values)
-    assert len(vec) == 45
+    assert len(vec) == 46
     # LLM-extractor columns default to the ``unknown`` sentinel (spec 04 §4.2).
     assert values["llm_failing_layer"] == 0.0
     assert values["llm_error_class"] == 0.0
@@ -217,11 +219,29 @@ def test_identifier_jaccard_top1_matches_shared_tokenizer():
         FeatureContext(query_msg_tokens=q, top1_msg_tokens=diff, has_hash_top1=True)
     )
     # Identical identifier token → 1.0; divergent identifier token → 0.0 (boilerplate
-    # cannot inflate it). The feature reuses the Stage-A gate tokenizer exactly.
-    assert hi["identifier_jaccard_top1"] == identifier_jaccard(q, same) == 1.0
-    assert lo["identifier_jaccard_top1"] == identifier_jaccard(q, diff) == 0.0
+    # cannot inflate it). Query carries identifier tokens → identifiers_present=1.0.
+    assert hi["identifier_jaccard_top1"] == 1.0
+    assert hi["identifiers_present"] == 1.0
+    assert lo["identifier_jaccard_top1"] == 0.0
+    assert lo["identifiers_present"] == 1.0
+    # When identifier tokens exist on either side the feature equals the gate's Jaccard.
+    assert hi["identifier_jaccard_top1"] == identifier_jaccard(q, same)
+    assert lo["identifier_jaccard_top1"] == identifier_jaccard(q, diff)
     # Absent when there is no top-1 neighbour to compare against.
     assert extract_features(FeatureContext(query_msg_tokens=q))["identifier_jaccard_top1"] == 0.0
+
+
+def test_identifier_jaccard_top1_nothing_to_compare_is_zero_not_match():
+    # v4: neither side carries an identifier token (pure boilerplate). The Stage-A GATE
+    # falls back to all-token Jaccard (→ 1.0 for identical boilerplate), but the FEATURE
+    # must encode "nothing to compare" as 0.0, never "match", with present=0 to say so.
+    boiler = frozenset({"cannot", "invoke", "because", "null"})
+    v = extract_features(
+        FeatureContext(query_msg_tokens=boiler, top1_msg_tokens=boiler, has_hash_top1=True)
+    )
+    assert identifier_jaccard(boiler, boiler) == 1.0  # gate concession (unchanged)
+    assert v["identifier_jaccard_top1"] == 0.0  # feature: nothing to compare
+    assert v["identifiers_present"] == 0.0
 
 
 def test_hash_gate_blocked_flag_passes_through():
@@ -251,9 +271,9 @@ def test_to_vector_for_new_list_backfills_missing_with_defaults():
     # A NEW-list model fed an OLD 41-key snapshot back-fills the 4 missing columns
     # with their registered defaults (all 0.0 here), never dropping the row.
     all_names = [f.name for f in FEATURES]
-    old_snapshot = {n: 0.5 for n in all_names[:41]}  # lacks the 4 errata columns
+    old_snapshot = {n: 0.5 for n in all_names[:41]}  # lacks the errata + v4 columns
     vec = to_vector_for(old_snapshot, all_names)
-    assert len(vec) == 45
+    assert len(vec) == 46
     assert vec[:41] == [0.5] * 41
     assert vec[41:] == [FEATURE_DEFAULTS[n] for n in all_names[41:]]
 

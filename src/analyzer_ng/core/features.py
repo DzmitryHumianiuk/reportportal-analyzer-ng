@@ -24,8 +24,12 @@ from analyzer_ng.db.repositories.models import Candidate
 # suggestion.features and model_artifact (spec 03 §6.4). v2 appends the two
 # optional LLM-extractor categorical columns (spec 04 §4.2). v3 appends the four
 # discriminant-agreement columns (2026-07-18 errata) so the un-masked evidence the
-# Stage-A gate uses also reaches the GBM.
-FEATURE_SCHEMA_VER = 3
+# Stage-A gate uses also reaches the GBM. v4 (2026-07-18b) re-encodes the two
+# "agreement" columns so "nothing to compare" no longer reads as "match": both-empty
+# status sets and both-no-identifier message sets now encode 0.0 (not 1.0), and a new
+# ``identifiers_present`` indicator lets the model separate 0.0-because-no-identifiers
+# from 0.0-because-they-disagree (mirrors ``status_codes_present``).
+FEATURE_SCHEMA_VER = 4
 
 # spec 04 §4.2: the extractor's categorical outputs enter the GBM as ordinal
 # columns. The sentinel ``unknown`` (= 0) is the on-miss / LLM-off value, so a
@@ -173,10 +177,15 @@ FEATURES: tuple[FeatureDef, ...] = (
     FeatureDef("status_codes_match_top1", 0.0),  # 1.0 exact set match w/ top-1 evidence
     FeatureDef("identifier_jaccard_top1", 0.0),  # identifier-token Jaccard vs top-1
     FeatureDef("hash_gate_blocked", 0.0),  # 1.0 = exact hash existed, gate rejected it
+    # v4 (2026-07-18b): companion "present" indicator for identifier_jaccard_top1, so
+    # the model separates "no identifiers to compare" (0.0) from "identifiers disagree"
+    # (also 0.0) — the same disambiguation status_codes_present gives the status column.
+    FeatureDef("identifiers_present", 0.0),  # query message carries any identifier token
 )
 
-assert len(FEATURES) == 45, (
-    "spec 03 §6.4 (39) + spec 04 §4.2 (2 LLM) + 2026-07-18 errata (4 discriminant)"
+assert len(FEATURES) == 46, (
+    "spec 03 §6.4 (39) + spec 04 §4.2 (2 LLM) + 2026-07-18 errata (4 discriminant) "
+    "+ 2026-07-18b (1 identifiers_present)"
 )
 
 # name → registered default, for the forward/backward-compat vector assembly rule.
@@ -402,26 +411,35 @@ def extract_features(ctx: FeatureContext) -> dict[str, float]:
     values["llm_failing_layer"] = float(FAILING_LAYER_ORDINAL.get(ctx.llm_failing_layer, 0))
     values["llm_error_class"] = float(ERROR_CLASS_ORDINAL.get(ctx.llm_error_class, 0))
 
-    # 2026-07-18 errata: discriminant-agreement signals. Encoding (documented):
-    #   status_codes_present  — 1.0 iff the query carries any un-masked status code,
-    #       so the model separates "match" from "nothing to compare" (present=0).
-    #   status_codes_match_top1 — 1.0 iff a top-1 exact-hash neighbour exists AND its
-    #       status-code set equals the query's; 0.0 otherwise. With present=1 a 0 here
-    #       is a genuine mismatch (the near-miss trap); has_hash_top1 / n_candidates /
-    #       hash_gate_blocked disambiguate a mismatch from an absent neighbour.
-    #   identifier_jaccard_top1 — the SAME identifier-token Jaccard the Stage-A gate
-    #       uses, between query and top-1 neighbour (0.0 when no neighbour exists).
-    #   hash_gate_blocked — 1.0 iff ≥1 exact error_hash match existed but the Stage-A
-    #       discriminant gate rejected all of them (a strong distrust-this-hash cue).
+    # discriminant-agreement signals (2026-07-18 errata; v4 re-encode 2026-07-18b).
+    # Encoding principle: "nothing to compare" must NEVER read as "match" — a bare
+    # Jaccard/set-equality returns 1.0 for two empty sets, which a tree happily treats
+    # as strong agreement. The FEATURE therefore differs from the Stage-A GATE (which
+    # keeps its both-empty fallbacks, §6.1) — gate and feature semantics are distinct.
+    #   status_codes_present   — 1.0 iff the query carries any un-masked status code.
+    #   status_codes_match_top1 — 1.0 iff the query HAS codes AND a top-1 exact-hash
+    #       neighbour exists whose status-code set equals the query's; else 0.0. A
+    #       both-empty pair is "nothing to compare" (0.0), never a match. present=1 +
+    #       0 here is a genuine near-miss mismatch; has_hash_top1 says a neighbour exists.
+    #   identifiers_present    — 1.0 iff the query message carries any identifier token.
+    #   identifier_jaccard_top1 — identifier-token Jaccard vs the top-1 neighbour when
+    #       either side has identifier tokens; 0.0 when NEITHER does ("nothing to
+    #       compare", not the gate's all-token fallback) or when no neighbour exists.
+    #   hash_gate_blocked      — 1.0 iff ≥1 exact error_hash match existed but the
+    #       Stage-A discriminant gate rejected all of them (distrust-this-hash cue).
+    query_ids = identifier_tokens(frozenset(ctx.query_msg_tokens))
     values["status_codes_present"] = 1.0 if ctx.query_status_codes else 0.0
+    values["identifiers_present"] = 1.0 if query_ids else 0.0
     if ctx.has_hash_top1:
         values["status_codes_match_top1"] = (
-            1.0 if set(ctx.query_status_codes) == set(ctx.top1_status_codes) else 0.0
+            1.0
+            if ctx.query_status_codes
+            and set(ctx.query_status_codes) == set(ctx.top1_status_codes)
+            else 0.0
         )
-        values["identifier_jaccard_top1"] = _clamp01(
-            identifier_jaccard(
-                frozenset(ctx.query_msg_tokens), frozenset(ctx.top1_msg_tokens)
-            )
+        top1_ids = identifier_tokens(frozenset(ctx.top1_msg_tokens))
+        values["identifier_jaccard_top1"] = (
+            _clamp01(jaccard(query_ids, top1_ids)) if (query_ids or top1_ids) else 0.0
         )
     values["hash_gate_blocked"] = 1.0 if ctx.hash_gate_blocked else 0.0
 

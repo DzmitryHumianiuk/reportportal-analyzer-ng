@@ -271,7 +271,7 @@ def test_decide_stage_a_auto():
     assert res.confidence == 0.95
     assert res.relevant_item_id == 7
     assert res.issue_type == "pb001"
-    assert len(res.features) == 45
+    assert len(res.features) == 46
 
 
 def test_decide_kb_short_circuit():
@@ -318,7 +318,7 @@ def test_decide_pure_abstain_features_present():
     res = decide(DecisionInputs(exception_fp=0), now=NOW)
     assert res.label == "ti"
     assert res.action == ACTION_ABSTAIN
-    assert len(res.features) == 45
+    assert len(res.features) == 46
 
 
 # --------------------------------------------------------------------------- #

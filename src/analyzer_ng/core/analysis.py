@@ -49,6 +49,7 @@ from analyzer_ng.core.decision import (
     ACTION_AUTO,
     KB_CANDIDATE_SCORE,
     METHOD_GBM,
+    METHOD_HASH,
     METHOD_KB,
     TAU_AUTO,
     TAU_SUGGEST,
@@ -196,18 +197,17 @@ class AnalysisEngine:
         by_id = {a.item.testItemId: a for a in analyses}
         groups = self._group(project, launch.launchId, analyses)
         total_failures = len(analyses)
+        scope_q = self._scope_query(launch)
+        analyzer_mode = launch.analyzerConfig.analyzerMode
+        # §6.1 identity invariant on the fan-out: canonical (stored/recompute) error_hash
+        # per item, so a Stage-A inherit only reaches items with the rep's exact hash.
+        canon_hash = self._canonical_error_hashes(project, analyses)
 
         out: list[AnalysisResult] = []
         for group in groups:
             rep = by_id[group.representative.item_id]
             decision, mode_match = self._decide(
-                project,
-                self._scope_query(launch),
-                launch.analyzerConfig.analyzerMode,
-                rep,
-                group,
-                total_failures,
-                route="analyze",
+                project, scope_q, analyzer_mode, rep, group, total_failures, route="analyze"
             )
             group_id = self.retrieval.upsert_launch_group(
                 project,
@@ -217,25 +217,50 @@ class AnalysisEngine:
                 group.si_prior,
                 dominant=group.si_prior > 0.0,
             )
-            # §6.7/§9: record every grouped member as a member of the matched mode so
-            # the KB-mode loop can bootstrap — purity/support/centroid then move as
-            # those items are labeled (defect_update → update_purity).
-            self._record_membership(project, [m.item_id for m in group.members], mode_match, rep)
+            # A Stage-A inherit (§6.1) is an EXACT error_hash claim; a launch group is
+            # bucketed by exception_fp (§5), so distinct failures (different error_hash)
+            # of one exception class share a group. Fanning the representative's hash
+            # inherit — a high-confidence auto-label + its feature snapshot — to members
+            # that never shared its error_hash is the near-miss trap that lands them
+            # confidently-wrong. So a hash inherit is fanned only to members carrying the
+            # representative's canonical error_hash; every other member is decided on ITS
+            # OWN identity (its Stage A / KB / GBM, its own discriminant features).
+            rep_hash = canon_hash.get(rep.item.testItemId)
+            split_by_identity = decision.method == METHOD_HASH
+            inherit_ids: list[int] = []
             for member in group.members:
-                self._write_suggestion(project, member.item_id, launch.launchId, group_id, decision)
+                m_decision = decision
+                m_mode = mode_match
+                if split_by_identity and canon_hash.get(member.item_id) != rep_hash:
+                    m_ana = by_id[member.item_id]
+                    m_decision, m_mode = self._decide(
+                        project, scope_q, analyzer_mode, m_ana, group, total_failures,
+                        route="analyze",
+                    )
+                    # §6.7/§9: this member joins the mode ITS own decision matched.
+                    self._record_membership(project, [member.item_id], m_mode, m_ana)
+                else:
+                    inherit_ids.append(member.item_id)
+                self._write_suggestion(
+                    project, member.item_id, launch.launchId, group_id, m_decision
+                )
                 # §1.5: enqueue async LLM enrichment after the row is committed.
-                self._enqueue_llm(project, member.item_id, launch.launchId, decision)
-                if decision.action == ACTION_AUTO and decision.label != "ti":
+                self._enqueue_llm(project, member.item_id, launch.launchId, m_decision)
+                if m_decision.action == ACTION_AUTO and m_decision.label != "ti":
                     self.retrieval.update_issue_type(
-                        project, member.item_id, decision.issue_type, is_auto=True
+                        project, member.item_id, m_decision.issue_type, is_auto=True
                     )
                     out.append(
                         AnalysisResult(
                             testItem=member.item_id,
-                            issueType=decision.issue_type,
-                            relevantItem=decision.relevant_item_id or 0,
+                            issueType=m_decision.issue_type,
+                            relevantItem=m_decision.relevant_item_id or 0,
                         )
                     )
+            # §6.7/§9: record the members that kept the group decision as members of the
+            # matched mode so the KB-mode loop can bootstrap — purity/support/centroid
+            # then move as those items are labeled (defect_update → update_purity).
+            self._record_membership(project, inherit_ids, mode_match, rep)
         return out
 
     # ------------------------------------------------------------------ #
@@ -400,6 +425,28 @@ class AnalysisEngine:
             burst_x=self.burst_si_share,
             is_error_hash_new=lambda h: not self.retrieval.error_hash_seen(project, h, launch_id),
         )
+
+    def _canonical_error_hashes(
+        self, project: int, analyses: Sequence[ItemAnalysis]
+    ) -> dict[int, int]:
+        """Canonical (index-time) ``error_hash`` per item for the fan-out identity split.
+
+        Prefers each item's persisted ``failure_signature`` value (the stored-vs-stored
+        invariant, §6.1); a never-indexed item uses its read-time recompute — the same
+        value :meth:`_resolve_identity` would make canonical when that member is decided.
+        Batched in one query so the split adds no per-member DB round-trips.
+        """
+        stored = self.retrieval.get_signatures(
+            project, [a.item.testItemId for a in analyses]
+        )
+        return {
+            a.item.testItemId: (
+                s.error_hash
+                if (s := stored.get(a.item.testItemId)) is not None
+                else a.signature.error_hash
+            )
+            for a in analyses
+        }
 
     def _decide(
         self,
