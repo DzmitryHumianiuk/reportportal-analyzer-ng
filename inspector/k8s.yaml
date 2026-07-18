@@ -29,7 +29,7 @@ spec:
         runAsUser: 10001
       containers:
         - name: inspector
-          image: analyzer-inspector:ins1
+          image: analyzer-inspector:ins2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5005
@@ -58,6 +58,17 @@ spec:
             # Dependent-variable interpolation: PGUSER/PGPASSWORD/PGDB above.
             - name: INSPECTOR_PG_DSN
               value: postgresql://$(PGUSER):$(PGPASSWORD)@analyzer-pg:5432/$(PGDB)
+            # OPTIONAL: ReportPortal's OWN PostgreSQL, for resolving real project
+            # names and defect-type long names/colors (Bitnami chart: user
+            # `postgres`, db `reportportal`, password in the RP-managed Secret
+            # `reportportal-postgresql` under key `postgres-password`).
+            - name: RP_PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: reportportal-postgresql
+                  key: postgres-password
+            - name: INSPECTOR_RP_PG_DSN
+              value: postgresql://postgres:$(RP_PGPASSWORD)@reportportal-postgresql:5432/reportportal
           readinessProbe:
             httpGet:
               path: /healthz

@@ -8,12 +8,31 @@ browser's JSON parser never loses precision.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import features_meta
 from .db import Database
 from .pca import parse_halfvec, pca_project
 from .reconstruct import reconstruct_stage_b
+
+if TYPE_CHECKING:
+    from .rp_names import RPNameResolver
+
+
+def _rp_block(rp: RPNameResolver | None, project_id: int) -> dict[str, Any]:
+    """Per-project ReportPortal name block (real names/colors + honest status).
+
+    When no resolver is configured the block still carries an honest status note
+    and empty maps, so the UI degrades to raw locators without special-casing.
+    """
+    if rp is not None:
+        return rp.block(project_id)
+    return {
+        "project_id": project_id,
+        "project_name": None,
+        "status": {"configured": False, "reachable": False, "note": "RP names: not configured"},
+        "defects": {},
+    }
 
 # Label class palette keys (frontend maps to colors). pb/ab/si/nd + ti/other.
 LABEL_GROUPS = ("pb", "ab", "si", "nd", "ti")
@@ -39,7 +58,9 @@ def _slist(v: Any) -> list[str]:
 # --------------------------------------------------------------------------- #
 # Pickers
 # --------------------------------------------------------------------------- #
-def list_projects(db: Database, limit: int) -> list[dict[str, Any]]:
+def list_projects(
+    db: Database, limit: int, rp: RPNameResolver | None = None
+) -> list[dict[str, Any]]:
     rows = db.rows(
         """
         SELECT p.project_id,
@@ -58,6 +79,9 @@ def list_projects(db: Database, limit: int) -> list[dict[str, Any]]:
     return [
         {
             "project_id": r["project_id"],
+            # Real RP name when available; None (never a fabricated "Project N")
+            # otherwise — the frontend renders an honest numeric fallback.
+            "project_name": rp.project_name(r["project_id"]) if rp is not None else None,
             "item_count": r["item_count"],
             "launch_count": r["launch_count"],
         }
@@ -129,7 +153,9 @@ def list_items(db: Database, project_id: int, launch_id: int, limit: int) -> lis
 # --------------------------------------------------------------------------- #
 # Item Journey (aggregated)
 # --------------------------------------------------------------------------- #
-def item_journey(db: Database, project_id: int, item_id: int) -> dict[str, Any] | None:
+def item_journey(
+    db: Database, project_id: int, item_id: int, rp: RPNameResolver | None = None
+) -> dict[str, Any] | None:
     item = db.one(
         """
         SELECT item_id, launch_id, launch_name, launch_number, test_case_hash,
@@ -301,6 +327,7 @@ def item_journey(db: Database, project_id: int, item_id: int) -> dict[str, Any] 
         "reconstruction": reconstruction,
         "decision": decision_block,
         "feedback": feedback_block,
+        "rp": _rp_block(rp, project_id),
     }
 
 
@@ -407,6 +434,9 @@ def _matching_decision(
         "created_at": _iso(sug["created_at"]),
         "features": feat_rows,
         "feature_count": len(feat_rows),
+        # Full schema width, derived from the real feature table (not a magic
+        # number in the UI) so "N of M" stays honest if the schema grows.
+        "feature_total": len(features_meta.FEATURE_DEFS),
     }
     return matching, decision
 
@@ -458,7 +488,9 @@ def templates(db: Database, project_id: int, q: str | None, limit: int) -> dict[
 # --------------------------------------------------------------------------- #
 # Modes Map 3D (PCA of embeddings)
 # --------------------------------------------------------------------------- #
-def modes3d(db: Database, project_id: int, limit: int) -> dict[str, Any]:
+def modes3d(
+    db: Database, project_id: int, limit: int, rp: RPNameResolver | None = None
+) -> dict[str, Any]:
     sig_rows = db.rows(
         """
         SELECT fs.item_id, ti.issue_type, ti.item_name, ti.is_auto_analyzed,
@@ -538,6 +570,7 @@ def modes3d(db: Database, project_id: int, limit: int) -> dict[str, Any]:
                 "embedded_signatures": total_sig["n_emb"] if total_sig else 0,
                 "modes_with_centroid": len(mode_rows),
             },
+            "rp": _rp_block(rp, project_id),
         }
 
     import numpy as np
@@ -557,13 +590,20 @@ def modes3d(db: Database, project_id: int, limit: int) -> dict[str, Any]:
         "n_items": n_items,
         "n_modes": len(points) - n_items,
         "points": points,
+        "rp": _rp_block(rp, project_id),
     }
 
 
 # --------------------------------------------------------------------------- #
 # Launch Groups (force graph)
 # --------------------------------------------------------------------------- #
-def groups(db: Database, project_id: int, launch_id: int | None, limit: int) -> dict[str, Any]:
+def groups(
+    db: Database,
+    project_id: int,
+    launch_id: int | None,
+    limit: int,
+    rp: RPNameResolver | None = None,
+) -> dict[str, Any]:
     group_rows = db.rows(
         """
         SELECT group_id, launch_id, fingerprint, member_count, dominant, si_prior
@@ -617,13 +657,15 @@ def groups(db: Database, project_id: int, launch_id: int | None, limit: int) -> 
                 "error_hash": eh,
             }
         )
-    return {"groups": groups_out, "nodes": nodes}
+    return {"groups": groups_out, "nodes": nodes, "rp": _rp_block(rp, project_id)}
 
 
 # --------------------------------------------------------------------------- #
 # Learning Loop timeline
 # --------------------------------------------------------------------------- #
-def timeline(db: Database, project_id: int, limit: int) -> dict[str, Any]:
+def timeline(
+    db: Database, project_id: int, limit: int, rp: RPNameResolver | None = None
+) -> dict[str, Any]:
     events = db.rows(
         """
         SELECT event_id, item_id, old_label, new_label, source, ts
@@ -705,13 +747,14 @@ def timeline(db: Database, project_id: int, limit: int) -> dict[str, Any]:
         "label_events": label_events,
         "model_artifacts": model_artifacts,
         "metrics_daily": metrics_daily,
+        "rp": _rp_block(rp, project_id),
     }
 
 
 # --------------------------------------------------------------------------- #
 # Summary counters
 # --------------------------------------------------------------------------- #
-def summary(db: Database, project_id: int) -> dict[str, Any]:
+def summary(db: Database, project_id: int, rp: RPNameResolver | None = None) -> dict[str, Any]:
     row = db.one(
         """
         SELECT
@@ -742,6 +785,7 @@ def summary(db: Database, project_id: int) -> dict[str, Any]:
     ) or {}
     return {
         "project_id": project_id,
+        "rp": _rp_block(rp, project_id),
         "suggestions": row.get("suggestions", 0),
         "accepted": row.get("accepted", 0),
         "corrected": row.get("corrected", 0),

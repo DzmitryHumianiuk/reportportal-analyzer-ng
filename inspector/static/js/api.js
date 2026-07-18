@@ -16,6 +16,7 @@ const qs = (o) => Object.entries(o)
 
 export const api = {
   projects: () => get('api/projects'),
+  rp: (project) => get(`api/rp?${qs({ project })}`),
   launches: (project) => get(`api/launches?${qs({ project })}`),
   items: (project, launch) => get(`api/items?${qs({ project, launch })}`),
   journey: (project, itemId) => get(`api/item/${project}/${itemId}/journey`),

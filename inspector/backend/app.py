@@ -22,6 +22,7 @@ from starlette.routing import Mount, Route
 from . import payloads
 from .config import Config
 from .db import Database
+from .rp_names import RPNameResolver
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -47,6 +48,8 @@ def create_app(config: Config | None = None) -> Starlette | FastAPI:
 def _build_inner(cfg: Config) -> FastAPI:
     db = Database(cfg.pg_dsn)
     limit = cfg.query_limit
+    # OPTIONAL ReportPortal name resolver — real project/defect names + colors.
+    rp = RPNameResolver(cfg.rp_pg_dsn)
 
     app = FastAPI(
         title="analyzer-ng inspector",
@@ -56,6 +59,7 @@ def _build_inner(cfg: Config) -> FastAPI:
     )
     app.state.config = cfg
     app.state.db = db
+    app.state.rp = rp
 
     # ---- Health ----
     @app.get("/healthz")
@@ -67,10 +71,18 @@ def _build_inner(cfg: Config) -> FastAPI:
         ok = db.ping()
         return {"db_reachable": ok, "hybrid_note": "read-only companion"}
 
+    # ---- ReportPortal name resolution (real project/defect names) ----
+    @app.get("/api/rp")
+    def api_rp(project: int = Query(...)) -> dict[str, Any]:
+        return rp.block(project)
+
     # ---- Pickers ----
     @app.get("/api/projects")
     def api_projects() -> dict[str, Any]:
-        return {"projects": payloads.list_projects(db, limit)}
+        return {
+            "projects": payloads.list_projects(db, limit, rp),
+            "rp_status": rp.status().as_dict(),
+        }
 
     @app.get("/api/launches")
     def api_launches(project: int = Query(...)) -> dict[str, Any]:
@@ -83,7 +95,7 @@ def _build_inner(cfg: Config) -> FastAPI:
     # ---- Item Journey ----
     @app.get("/api/item/{project}/{item_id}/journey")
     def api_journey(project: int, item_id: int) -> Any:
-        data = payloads.item_journey(db, project, item_id)
+        data = payloads.item_journey(db, project, item_id, rp)
         if data is None:
             raise HTTPException(status_code=404, detail="item not found")
         return data
@@ -97,21 +109,21 @@ def _build_inner(cfg: Config) -> FastAPI:
 
     @app.get("/api/modes3d")
     def api_modes3d(project: int = Query(...)) -> dict[str, Any]:
-        return payloads.modes3d(db, project, limit)
+        return payloads.modes3d(db, project, limit, rp)
 
     @app.get("/api/groups")
     def api_groups(
         project: int = Query(...), launch: int | None = Query(default=None)
     ) -> dict[str, Any]:
-        return payloads.groups(db, project, launch, limit)
+        return payloads.groups(db, project, launch, limit, rp)
 
     @app.get("/api/timeline")
     def api_timeline(project: int = Query(...)) -> dict[str, Any]:
-        return payloads.timeline(db, project, limit)
+        return payloads.timeline(db, project, limit, rp)
 
     @app.get("/api/summary")
     def api_summary(project: int = Query(...)) -> dict[str, Any]:
-        return payloads.summary(db, project)
+        return payloads.summary(db, project, rp)
 
     # ---- Optional live analyzer health proxy ----
     @app.get("/api/analyzer-health")

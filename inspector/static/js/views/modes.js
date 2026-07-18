@@ -3,7 +3,7 @@
 // graceful 2D fallback when the projection has < 3 usable dimensions.
 import { api } from '../api.js';
 import {
-  h, clear, card, emptyState, loading, labelColor, labelName, labelBadge, fmt, pct,
+  h, clear, card, emptyState, loading, setDefects, defectColor, defectName, defectInfo, fmt, pct,
   MUTED, INK, INK2, HAIRLINE,
 } from '../util.js';
 
@@ -15,6 +15,7 @@ export async function renderModes(root, app) {
   clear(body).appendChild(loading('Projecting embeddings…'));
 
   const d = await api.modes3d(app.project);
+  if (d.rp) setDefects(d.rp.defects);
   clear(body);
   if (!d.available) {
     const diag = d.diagnostics || {};
@@ -47,8 +48,8 @@ function legend() {
   const wrap = h('div', { class: 'flex gap-8 wrap mb-8' });
   for (const g of ['pb', 'ab', 'si', 'nd', 'ti']) {
     wrap.appendChild(h('span', { class: 'flex center gap-8', style: { fontSize: '12px' } },
-      h('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: labelColor(g) } }),
-      labelName(g)));
+      h('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: defectColor(null, g) } }),
+      defectName(null, g)));
   }
   wrap.appendChild(h('span', { class: 'muted', style: { fontSize: '12px', marginLeft: '8px' } }, '★ = mode centroid'));
   return wrap;
@@ -67,13 +68,13 @@ function draw3d(el, d) {
   const chart = echarts.init(el, null, { renderer: 'canvas' });
   const { modes, coord, byGroup } = seriesFor(d.points, 3);
   const series = Object.entries(byGroup).map(([g, pts]) => ({
-    type: 'scatter3D', name: labelName(g),
+    type: 'scatter3D', name: defectName(null, g),
     data: pts.map((p) => ({ value: coord(p), meta: p })),
-    symbolSize: 9, itemStyle: { color: labelColor(g), opacity: 0.9 },
+    symbolSize: 9, itemStyle: { color: defectColor(null, g), opacity: 0.9 },
   }));
   if (modes.length) series.push({
     type: 'scatter3D', name: 'centroid',
-    data: modes.map((p) => ({ value: coord(p), meta: p, itemStyle: { color: labelColor(p.label_group) } })),
+    data: modes.map((p) => ({ value: coord(p), meta: p, itemStyle: { color: defectColor(p.label, p.label_group) } })),
     symbol: 'diamond', symbolSize: 20,
     itemStyle: { opacity: 1, borderColor: '#fff', borderWidth: 1 },
   });
@@ -93,13 +94,13 @@ function draw2d(el, d) {
   const chart = echarts.init(el, null, { renderer: 'canvas' });
   const { modes, coord, byGroup } = seriesFor(d.points, 2);
   const series = Object.entries(byGroup).map(([g, pts]) => ({
-    type: 'scatter', name: labelName(g),
+    type: 'scatter', name: defectName(null, g),
     data: pts.map((p) => ({ value: coord(p), meta: p })),
-    symbolSize: 14, itemStyle: { color: labelColor(g), opacity: 0.9, borderColor: '#0d0d0d', borderWidth: 1 },
+    symbolSize: 14, itemStyle: { color: defectColor(null, g), opacity: 0.9, borderColor: '#0d0d0d', borderWidth: 1 },
   }));
   if (modes.length) series.push({
     type: 'scatter', name: 'centroid',
-    data: modes.map((p) => ({ value: coord(p), meta: p, itemStyle: { color: labelColor(p.label_group) } })),
+    data: modes.map((p) => ({ value: coord(p), meta: p, itemStyle: { color: defectColor(p.label, p.label_group) } })),
     symbol: 'diamond', symbolSize: 24,
     itemStyle: { borderColor: '#fff', borderWidth: 1.5 },
   });
@@ -115,10 +116,15 @@ function draw2d(el, d) {
 function axis(name) {
   return { name, nameTextStyle: { color: MUTED }, axisLabel: { color: MUTED }, axisLine: { lineStyle: { color: HAIRLINE } } };
 }
+function labelText(locator, group) {
+  if (!locator) return defectName(null, group);
+  const info = defectInfo(locator);
+  return info && info.name ? `${info.name} (${locator})` : locator;
+}
 function tip(p) {
   const m = p.data.meta;
   if (m.kind === 'mode') {
-    return `<b>★ ${m.name}</b><br>label ${m.label || '—'} · status ${m.status}<br>purity ${fmt(m.purity, 2)} · support ${m.support}`;
+    return `<b>★ ${m.name}</b><br>label ${labelText(m.label, m.label_group)} · status ${m.status}<br>purity ${fmt(m.purity, 2)} · support ${m.support}`;
   }
-  return `<b>item ${m.item_id}</b><br>${m.name || ''}<br>label ${m.label || 'ti'}${m.is_auto_analyzed ? ' · ⭑ auto' : ''}`;
+  return `<b>item ${m.item_id}</b><br>${m.name || ''}<br>label ${labelText(m.label, m.label_group)}${m.is_auto_analyzed ? ' · ⭑ auto' : ''}`;
 }

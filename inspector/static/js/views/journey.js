@@ -2,7 +2,7 @@
 // expandable stage cards, connected visually, plus the live Stage-B reconstruction.
 import { api } from '../api.js';
 import {
-  h, clear, card, labelBadge, labelColor, labelName, fmt, pct, shortTime,
+  h, clear, card, defectBadge, setDefects, fmt, pct, shortTime,
   highlightPattern, emptyState, loading, echartsBase, INK, INK2, MUTED, HAIRLINE,
   FEATURE_GROUP_COLORS,
 } from '../util.js';
@@ -62,7 +62,7 @@ export async function renderJourney(root, app) {
         h('div', { class: 'li-main' },
           h('div', { class: 'li-title' }, it.item_name || `item ${it.item_id}`),
           h('div', { class: 'li-sub' }, `id ${it.item_id} · ${it.exc_text || 'no exc'}`)),
-        labelBadge(it.label_group, it.issue_type || 'ti'));
+        defectBadge(it.issue_type, it.label_group));
       itemList.appendChild(iel);
     }
     // auto-select first (or previously chosen) item
@@ -87,12 +87,13 @@ export async function renderJourney(root, app) {
 }
 
 function renderJourneyDetail(root, d) {
+  if (d.rp) setDefects(d.rp.defects);
   const it = d.item;
   // Header line
   root.appendChild(h('div', { class: 'flex between center wrap', style: { marginBottom: '14px' } },
     h('div', { class: 'flex center gap-12 wrap' },
       h('h2', { style: { margin: 0, fontSize: '18px' } }, it.item_name || `item ${it.item_id}`),
-      labelBadge(it.label_group, it.issue_type || 'unlabeled'),
+      defectBadge(it.issue_type, it.label_group),
       it.is_auto_analyzed ? h('span', { class: 'badge', style: { background: 'var(--accent-soft)', color: 'var(--accent)' } }, '⭑ auto‑analyzed') : null),
     h('div', { class: 'flex gap-8 wrap' },
       h('span', { class: 'chip' }, `item ${it.item_id}`),
@@ -262,7 +263,7 @@ function matchingCard(d) {
   if (m.matched_mode) {
     const mm = m.matched_mode;
     body.appendChild(h('div', { class: 'flex gap-8 center wrap mt-8' },
-      labelBadge(mm.label_group, mm.label || 'mode'),
+      defectBadge(mm.label, mm.label_group),
       h('span', { class: 'chip' }, mm.title || `mode ${mm.mode_id}`),
       h('span', { class: 'chip' }, `purity ${fmt(mm.purity, 2)}`),
       h('span', { class: 'chip' }, `support ${mm.support}`),
@@ -285,7 +286,7 @@ function matchingCard(d) {
       ...['item', 'label', 'lex rank', 'dense rank', 'cosine', 'jaccard', 'RRF fused'].map((t) => h('th', {}, t)))),
     h('tbody', {}, ...r.candidates.map((cd) => h('tr', { class: cd.is_self ? 'is-self' : '' },
       h('td', {}, h('span', { class: 'mono' }, cd.item_id), cd.is_self ? h('span', { class: 'chip', style: { marginLeft: '6px' } }, 'this item') : ''),
-      h('td', {}, labelBadge(grp(cd.issue_type), cd.issue_type || 'ti')),
+      h('td', {}, defectBadge(cd.issue_type, grp(cd.issue_type))),
       h('td', { class: 'rank' }, cd.sparse_rank ?? '—'),
       h('td', { class: 'rank' }, cd.dense_rank ?? '—'),
       h('td', { class: 'num' }, cd.cosine == null ? '—' : fmt(cd.cosine, 3)),
@@ -320,7 +321,7 @@ function decisionCard(d) {
   top.appendChild(gaugeWrap);
   const info = h('div', { class: 'flex gap-8 wrap' },
     h('dl', { class: 'kv' },
-      h('dt', {}, 'predicted'), h('dd', {}, labelBadge(dec.predicted_group, dec.predicted_label)),
+      h('dt', {}, 'predicted'), h('dd', {}, defectBadge(dec.predicted_label, dec.predicted_group)),
       h('dt', {}, 'band'), h('dd', {}, h('span', { class: 'badge', style: bandStyle(dec.band) }, bandName(dec.band))),
       h('dt', {}, 'outcome'), h('dd', {}, outcomeBadge(dec.outcome)),
       h('dt', {}, 'model_ver'), h('dd', { class: 'mono', style: { fontSize: '12px' } }, dec.model_ver),
@@ -330,7 +331,7 @@ function decisionCard(d) {
   if (dec.explanation) body.appendChild(h('p', { class: 'note', style: { marginBottom: '12px' } }, '“' + dec.explanation + '”'));
 
   // feature waterfall
-  body.appendChild(h('div', { class: 'section-title' }, `Feature vector (${dec.feature_count} of 39, sorted by magnitude)`));
+  body.appendChild(h('div', { class: 'section-title' }, `Feature vector (${dec.feature_count} of ${dec.feature_total}, sorted by magnitude)`));
   const chart = h('div', { class: 'chart', style: { height: Math.max(220, dec.features.length * 15) + 'px' } });
   body.appendChild(chart);
 
@@ -416,9 +417,9 @@ function feedbackCard(d) {
   for (const e of d.feedback) {
     list.appendChild(h('div', { class: 'flex between center', style: { padding: '9px 12px', background: 'var(--surface-2)', border: '1px solid var(--hairline)', borderRadius: '8px' } },
       h('div', { class: 'flex center gap-8 wrap' },
-        e.old_label ? labelBadge(e.old_group, e.old_label) : h('span', { class: 'muted' }, '(new)'),
+        e.old_label ? defectBadge(e.old_label, e.old_group) : h('span', { class: 'muted' }, '(new)'),
         h('span', { class: 'muted' }, '→'),
-        labelBadge(e.new_group, e.new_label),
+        defectBadge(e.new_label, e.new_group),
         h('span', { class: 'chip', style: { fontSize: '11px' } }, e.source)),
       h('span', { class: 'muted mono', style: { fontSize: '11px' } }, shortTime(e.ts))));
   }
