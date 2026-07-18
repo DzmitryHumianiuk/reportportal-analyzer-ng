@@ -560,3 +560,45 @@ def test_guard_both_empty_identifier_sets_follow_stage_a_fallback():
     )
     assert res.action == ACTION_SUGGEST
     assert res.label == "pb"
+
+
+# ---------------------------------------------------------------------------
+# Label provenance threading (suggest modelInfo "human-confirmed" vs "auto")
+# ---------------------------------------------------------------------------
+class TestRelevantProvenance:
+    def test_stage_a_inherit_carries_source_and_auto_flag(self):
+        m = _hm(7, "pb001", "rp", confidence=1.0)
+        inputs = DecisionInputs(
+            exception_fp=1,
+            hash_matches=[m, _hm(8, "pb001", "rp")],
+            kb_candidates=[],
+            seed=None,
+            stage_c=[],
+            stage_c_ages_days=[],
+            feature_ctx=None,
+        )
+        d = decide(inputs)
+        assert d.method == "hash"
+        assert d.relevant_label_source == "rp"
+        assert d.relevant_is_auto_analyzed is False
+
+    def test_gbm_result_carries_candidate_source(self):
+        cand = Candidate(
+            item_id=11, mode_id=None, issue_type="ab001",
+            label_source="ai_suggested", cosine=0.9, rrf_score=0.03,
+            same_exception_fp=True,
+        )
+        inputs = DecisionInputs(
+            exception_fp=1,
+            hash_matches=[],
+            kb_candidates=[],
+            seed=None,
+            stage_c=[cand],
+            stage_c_ages_days=[1.0],
+            feature_ctx=None,
+            gbm_predict=_gbm("ab", 0.6),
+        )
+        d = decide(inputs)
+        assert d.method == "gbm"
+        assert d.relevant_item_id == 11
+        assert d.relevant_label_source == "ai_suggested"

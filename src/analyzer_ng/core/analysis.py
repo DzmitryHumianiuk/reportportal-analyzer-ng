@@ -49,6 +49,7 @@ from analyzer_ng.core.decision import (
     ACTION_AUTO,
     KB_CANDIDATE_SCORE,
     METHOD_GBM,
+    METHOD_KB,
     TAU_AUTO,
     TAU_SUGGEST,
     DecisionInputs,
@@ -89,6 +90,22 @@ TOP_K = 20
 # Retrieve wider than TOP_K so the analyzerMode hard-scope filter (§6.0) is not
 # starved by out-of-scope rows dominating the top-20 before filtering.
 STAGE_C_RETRIEVE_K = 60
+
+
+def _provenance(label_source: str | None, is_auto_analyzed: bool) -> str:
+    """Human-readable label provenance for a suggest candidate's modelInfo.
+
+    Real data only: derived from the matched item's label_event source and its
+    is_auto_analyzed flag — 'human-confirmed' (rp/human triage), 'auto-analyzed'
+    (the analyzer's own label, incl. ai_suggested), 'seed' (shipped catalog),
+    'unlabeled' when no source is recorded."""
+    if is_auto_analyzed or label_source == "ai_suggested":
+        return "auto-analyzed"
+    if label_source in ("rp", "human"):
+        return "human-confirmed"
+    if label_source == "seed":
+        return "seed"
+    return "unlabeled"
 
 
 @dataclass(frozen=True)
@@ -775,7 +792,7 @@ class AnalysisEngine:
         log_id = info.logs[0].logId if info.logs else 0
         method = "auto_analysis" if decision.action == ACTION_AUTO else "suggestion"
         out: list[SuggestAnalysisResult] = []
-        for rank, (issue_type, rel_item, score, es_score) in enumerate(
+        for rank, (issue_type, rel_item, score, es_score, provenance) in enumerate(
             candidates[: self.suggest_max]
         ):
             out.append(
@@ -796,7 +813,7 @@ class AnalysisEngine:
                     esPosition=rank,
                     modelFeatureNames=names,
                     modelFeatureValues=values,
-                    modelInfo=self._model_info(decision),
+                    modelInfo=f"{self._model_info(decision)};src={provenance}",
                     usedLogLines=info.analyzerConfig.numberOfLogLines,
                     minShouldMatch=info.analyzerConfig.minShouldMatch,
                     processedTime=round(elapsed, 4),
@@ -810,11 +827,11 @@ class AnalysisEngine:
 
     @staticmethod
     def _reorder_for_judge(
-        candidates: list[tuple[str, int, float, float]],
+        candidates: list[tuple[str, int, float, float, str]],
         judge_verdict: dict | None,
         *,
         is_auto: bool,
-    ) -> list[tuple[str, int, float, float]]:
+    ) -> list[tuple[str, int, float, float, str]]:
         """Promote the judge's chosen candidate to resultPosition 0 (§4.3).
 
         No-op for an auto-band decision (untouchable by the judge), for a ``none``/
@@ -833,20 +850,44 @@ class AnalysisEngine:
 
     def _suggestion_candidates(
         self, decision: DecisionResult, stage_c: Sequence[Candidate]
-    ) -> list[tuple[str, int, float, float]]:
-        """(issueType, relevantItem, matchScore∈[0,1], esScore) tuples, best-first."""
+    ) -> list[tuple[str, int, float, float, str]]:
+        """(issueType, relevantItem, matchScore∈[0,1], esScore, provenance) tuples,
+        best-first. ``provenance`` names where the candidate's label came from
+        (human-confirmed / auto-analyzed / seed / kb-mode / unlabeled) so the UI can
+        tell a human-vouched answer from a machine-inherited one."""
         # A short-circuit (hash/kb) or auto decision surfaces its single answer first.
-        result: list[tuple[str, int, float, float]] = []
+        result: list[tuple[str, int, float, float, str]] = []
         if decision.label != "ti" and decision.relevant_item_id is not None:
+            prov = (
+                "kb-mode"
+                if decision.method == METHOD_KB
+                else _provenance(
+                    decision.relevant_label_source, decision.relevant_is_auto_analyzed
+                )
+            )
             result.append(
-                (decision.issue_type, decision.relevant_item_id, decision.confidence, 0.0)
+                (
+                    decision.issue_type,
+                    decision.relevant_item_id,
+                    decision.confidence,
+                    0.0,
+                    prov,
+                )
             )
         for c in stage_c:
             if c.item_id is None or c.issue_type is None:
                 continue
-            if any(c.item_id == rel for _l, rel, _s, _e in result):
+            if any(c.item_id == rel for _l, rel, _s, _e, _p in result):
                 continue
-            result.append((c.issue_type, c.item_id, min(1.0, c.cosine or 0.0), c.rrf_score))
+            result.append(
+                (
+                    c.issue_type,
+                    c.item_id,
+                    min(1.0, c.cosine or 0.0),
+                    c.rrf_score,
+                    _provenance(c.label_source, False),
+                )
+            )
         return result
 
     # ------------------------------------------------------------------ #

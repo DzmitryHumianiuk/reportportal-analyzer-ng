@@ -122,6 +122,11 @@ class DecisionResult:
     model_version: str | None = None
     # Scoped/boosted Stage-C candidates carried for the suggest route (§6.6).
     stage_c: list[Candidate] = field(default_factory=list)
+    # Label provenance of the chosen relevant item (None when the answer comes from
+    # a KB mode or no item was matched) — surfaces "human-confirmed" vs
+    # "auto-analyzed" in the suggest response's modelInfo.
+    relevant_label_source: str | None = None
+    relevant_is_auto_analyzed: bool = False
 
 
 def _base(issue_type: str | None) -> str:
@@ -379,6 +384,8 @@ def decide(
         abstain_reason: str | None = None,
         probs: dict[str, float] | None = None,
         model_version: str | None = None,
+        relevant_label_source: str | None = None,
+        relevant_is_auto_analyzed: bool = False,
     ) -> DecisionResult:
         action = (
             ACTION_ABSTAIN
@@ -399,6 +406,8 @@ def decide(
             probs=probs if probs is not None else default_probs,
             model_version=model_version,
             stage_c=list(inputs.stage_c),
+            relevant_label_source=relevant_label_source,
+            relevant_is_auto_analyzed=relevant_is_auto_analyzed,
         )
 
     # Stage A — exact error_hash inherit (discriminant-gated, 2026-07-18 errata).
@@ -417,6 +426,8 @@ def decide(
             METHOD_HASH,
             short_circuit=True,
             relevant_item_id=inherit.item_id,
+            relevant_label_source=inherit.label_source,
+            relevant_is_auto_analyzed=inherit.is_auto_analyzed,
         )
 
     # Stage B — KB short-circuit (confirmed + pure + supported).
@@ -527,6 +538,7 @@ def _gbm_result(
     return result_fn(
         label, locator, p, METHOD_GBM,
         relevant_item_id=rel, probs=probs, model_version=version,
+        relevant_label_source=cand.label_source if cand is not None else None,
     )
 
 
