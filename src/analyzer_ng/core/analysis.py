@@ -49,7 +49,6 @@ from analyzer_ng.core.decision import (
     ACTION_AUTO,
     KB_CANDIDATE_SCORE,
     METHOD_GBM,
-    METHOD_HASH,
     METHOD_KB,
     TAU_AUTO,
     TAU_SUGGEST,
@@ -199,9 +198,11 @@ class AnalysisEngine:
         total_failures = len(analyses)
         scope_q = self._scope_query(launch)
         analyzer_mode = launch.analyzerConfig.analyzerMode
-        # §6.1 identity invariant on the fan-out: canonical (stored/recompute) error_hash
-        # per item, so a Stage-A inherit only reaches items with the rep's exact hash.
-        canon_hash = self._canonical_error_hashes(project, analyses)
+        # §6.1 identity invariant on the fan-out: the canonical (stored/recompute) FULL
+        # discriminant per item — error_hash AND status_codes AND masked message tokens —
+        # so the representative's decision only fans to members whose discriminant is
+        # truly identical to it.
+        canon_disc = self._canonical_discriminants(project, analyses)
 
         out: list[AnalysisResult] = []
         for group in groups:
@@ -217,21 +218,25 @@ class AnalysisEngine:
                 group.si_prior,
                 dominant=group.si_prior > 0.0,
             )
-            # A Stage-A inherit (§6.1) is an EXACT error_hash claim; a launch group is
-            # bucketed by exception_fp (§5), so distinct failures (different error_hash)
-            # of one exception class share a group. Fanning the representative's hash
-            # inherit — a high-confidence auto-label + its feature snapshot — to members
-            # that never shared its error_hash is the near-miss trap that lands them
-            # confidently-wrong. So a hash inherit is fanned only to members carrying the
-            # representative's canonical error_hash; every other member is decided on ITS
-            # OWN identity (its Stage A / KB / GBM, its own discriminant features).
-            rep_hash = canon_hash.get(rep.item.testItemId)
-            split_by_identity = decision.method == METHOD_HASH
+            # A launch group is bucketed by exception_fp (§5), so distinct failures of one
+            # exception class share a group; §3.3 further collapses failures that raise the
+            # identical exception through the identical stack into one error_hash even when
+            # their near-error CONTEXT differs (ADV-1: SLOW QUERY→pb vs pool-exhausted→si vs
+            # bare→abstain). Fanning the representative's high-confidence decision — a Stage-A
+            # inherit OR a GBM/KB auto-label + its feature snapshot — to members whose
+            # discriminant differs is the near-miss trap that lands them confidently-wrong.
+            # So the group decision is fanned ONLY to members whose FULL canonical
+            # discriminant (error_hash AND status_codes set AND masked message tokens) is
+            # identical to the representative's; every other member is decided on ITS OWN
+            # identity (its own Stage A / KB / GBM, its own discriminant features). Deciding a
+            # truly-identical member individually would yield the same result, so this only
+            # ever corrects — never regresses — the fan-out (§6.1).
+            rep_disc = canon_disc.get(rep.item.testItemId)
             inherit_ids: list[int] = []
             for member in group.members:
                 m_decision = decision
                 m_mode = mode_match
-                if split_by_identity and canon_hash.get(member.item_id) != rep_hash:
+                if canon_disc.get(member.item_id) != rep_disc:
                     m_ana = by_id[member.item_id]
                     m_decision, m_mode = self._decide(
                         project, scope_q, analyzer_mode, m_ana, group, total_failures,
@@ -426,10 +431,18 @@ class AnalysisEngine:
             is_error_hash_new=lambda h: not self.retrieval.error_hash_seen(project, h, launch_id),
         )
 
-    def _canonical_error_hashes(
+    def _canonical_discriminants(
         self, project: int, analyses: Sequence[ItemAnalysis]
-    ) -> dict[int, int]:
-        """Canonical (index-time) ``error_hash`` per item for the fan-out identity split.
+    ) -> dict[int, tuple[int, frozenset[str], frozenset[str]]]:
+        """Canonical FULL discriminant per item for the fan-out identity split (§6.1).
+
+        Returns ``(error_hash, status_codes set, masked-message-token set)`` — the same
+        un-masked discriminants the Stage-A inherit gate compares (decision.py), so the
+        fan-out only inherits a member that is truly indistinguishable from the
+        representative. ``error_hash`` alone is insufficient: §3.3 collapses the
+        near-error CONTEXT into a shared hash, so the message tokens (which now carry that
+        folded context, ADV-1) are what separate a SLOW-QUERY-pb member from a
+        pool-exhausted-si member that share the identical exception+stack.
 
         Prefers each item's persisted ``failure_signature`` value (the stored-vs-stored
         invariant, §6.1); a never-indexed item uses its read-time recompute — the same
@@ -439,14 +452,23 @@ class AnalysisEngine:
         stored = self.retrieval.get_signatures(
             project, [a.item.testItemId for a in analyses]
         )
-        return {
-            a.item.testItemId: (
-                s.error_hash
-                if (s := stored.get(a.item.testItemId)) is not None
-                else a.signature.error_hash
-            )
-            for a in analyses
-        }
+        out: dict[int, tuple[int, frozenset[str], frozenset[str]]] = {}
+        for a in analyses:
+            s = stored.get(a.item.testItemId)
+            if s is not None:
+                out[a.item.testItemId] = (
+                    s.error_hash,
+                    frozenset(s.status_codes),
+                    frozenset(s.msg_text.split()),
+                )
+            else:
+                sig = a.signature
+                out[a.item.testItemId] = (
+                    sig.error_hash,
+                    frozenset(sig.status_codes),
+                    frozenset(sig.msg_text.split()),
+                )
+        return out
 
     def _decide(
         self,

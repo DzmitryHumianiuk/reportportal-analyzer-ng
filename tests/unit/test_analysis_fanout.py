@@ -97,9 +97,12 @@ class FakeStats:
 class SpyRetrieval:
     """Serves stored signatures + a single labeled pb history for the rep's hash."""
 
-    def __init__(self, stored: dict[int, StoredSignature], pb_hash: int) -> None:
+    def __init__(
+        self, stored: dict[int, StoredSignature], pb_hash: int, rep_item: int = REP_ITEM
+    ) -> None:
         self._stored = stored
         self._pb_hash = pb_hash
+        self._rep_item = rep_item
         self.suggestions: dict[int, SuggestionIn] = {}
         self.auto_labeled: dict[int, str] = {}
 
@@ -117,9 +120,9 @@ class SpyRetrieval:
                 "is_auto_analyzed": False,
                 "launch_id": 999,
                 "launch_name": "hist",
-                "exception_fp": self._stored[REP_ITEM].exception_fp,
+                "exception_fp": self._stored[self._rep_item].exception_fp,
                 "status_codes": [],
-                "msg_text": self._stored[REP_ITEM].msg_text,
+                "msg_text": self._stored[self._rep_item].msg_text,
                 "label_source": "rp",
                 "label_ts": datetime.now(UTC),
             }
@@ -265,3 +268,114 @@ def test_homogeneous_group_still_fans_out_group_decision() -> None:
 
     assert retr.auto_labeled.get(REP_ITEM) == "pb001"
     assert retr.auto_labeled.get(SHARE_ITEM) == "pb001"  # fanned to the same-identity twin
+
+
+# --------------------------------------------------------------------------- #
+# S16 / ADV-1 shape: same error_hash, divergent NEAR-ERROR CONTEXT (spec §3.3).
+# The identical exception raised through the identical stack collapses to ONE
+# error_hash; only the folded WARN context (SLOW QUERY→pb vs pool-exhausted→si vs
+# bare→abstain) separates the members. The fan-out must split on that context.
+# --------------------------------------------------------------------------- #
+WARN = 30000
+# Identical ERROR log (identity) across A/B/C -> one error_hash + one exception_fp. The
+# multi-line stack separates cleanly, so msg_text is the description only and the folded
+# WARN context is the entire discriminant (as in the real S16 corpus).
+_ERR_TIMEOUT = (
+    "org.openqa.selenium.TimeoutException: condition failed waiting for element\n"
+    "\tat com.acme.svc.Worker.run(Worker.java:42)\n"
+    "\tat com.acme.svc.Runner.exec(Runner.java:17)\n"
+    "\tat java.base/java.lang.Thread.run(Thread.java:833)"
+)
+_CTX_SLOW = ["SLOW QUERY com.acme.dao.OrderDao.find com.acme.dao.OrderDao.scan took 900 ms"]
+_CTX_POOL = ["POOL com.acme.pool.Hikari.acquire com.acme.pool.Hikari.wait exhausted 50 of 50"]
+
+CTX_REP = 200  # representative — SLOW QUERY context (pb)
+CTX_TWIN = 201  # identical SLOW QUERY context (must still inherit pb)
+CTX_POOL_ITEM = 202  # pool-exhausted context (own decision -> si)
+CTX_BARE = 203  # no context at all (own decision -> abstain: neighbourhood is mixed)
+HIST_PB = 8  # labeled-pb history with SLOW-QUERY context
+HIST_SI = 9  # labeled-si history with pool-exhausted context
+
+
+def _item_ctx(item_id: int, err_msg: str, ctx_msgs: list[str]) -> TestItem:
+    logs = [
+        Log(logId=item_id * 10 + 1 + i, logLevel=WARN, message=c)
+        for i, c in enumerate(ctx_msgs)
+    ]
+    logs.append(Log(logId=item_id * 10, logLevel=ERROR, message=err_msg))
+    return TestItem(testItemId=item_id, isAutoAnalyzed=False, testItemName="t",
+                    testCaseHash=0, logs=logs)
+
+
+def _ctx_items() -> list[TestItem]:
+    return [
+        _item_ctx(CTX_REP, _ERR_TIMEOUT, _CTX_SLOW),
+        _item_ctx(CTX_TWIN, _ERR_TIMEOUT, _CTX_SLOW),
+        _item_ctx(CTX_POOL_ITEM, _ERR_TIMEOUT, _CTX_POOL),
+        _item_ctx(CTX_BARE, _ERR_TIMEOUT, []),
+    ]
+
+
+def _index_ctx() -> tuple[IndexPipeline, dict[int, StoredSignature]]:
+    idx = IndexRetrieval()
+    pipe = IndexPipeline(idx, FakeStats(), FakeDrainStore())
+    pipe.index_launches([_launch(_ctx_items(), launch_id=1)])
+    ids = (CTX_REP, CTX_TWIN, CTX_POOL_ITEM, CTX_BARE)
+    stored = {i: _stored(idx.sigs[(PROJECT, i)]) for i in ids}
+    # Identity is stable across context: ALL four share one error_hash + exception_fp...
+    assert len({s.error_hash for s in stored.values()}) == 1
+    assert stored[CTX_REP].exception_fp != 0
+    # ...but the folded context makes the message token sets diverge (the discriminant).
+    assert stored[CTX_REP].msg_text == stored[CTX_TWIN].msg_text  # identical context
+    assert stored[CTX_REP].msg_text != stored[CTX_POOL_ITEM].msg_text  # SLOW vs pool
+    assert stored[CTX_REP].msg_text != stored[CTX_BARE].msg_text  # SLOW vs bare
+    return pipe, stored
+
+
+class CtxRetrieval(SpyRetrieval):
+    """Serves TWO labeled histories on the shared error_hash: a pb with SLOW-QUERY
+    context and an si with pool-exhausted context (the ADV-1 population). Which one an
+    item inherits is decided purely by the Stage-A message gate on the folded context."""
+
+    def find_hash_matches(self, project: int, error_hash: int, limit: int = 10) -> list[dict]:
+        if error_hash != self._pb_hash:
+            return []
+        base = {
+            "issue_type_group": "", "is_auto_analyzed": False, "launch_id": 999,
+            "launch_name": "hist", "exception_fp": self._stored[CTX_REP].exception_fp,
+            "status_codes": [], "label_source": "human", "label_ts": datetime.now(UTC),
+        }
+        return [
+            {**base, "item_id": HIST_PB, "issue_type": "pb001", "issue_type_group": "pb",
+             "msg_text": self._stored[CTX_REP].msg_text},  # SLOW-QUERY context
+            {**base, "item_id": HIST_SI, "issue_type": "si001", "issue_type_group": "si",
+             "msg_text": self._stored[CTX_POOL_ITEM].msg_text},  # pool-exhausted context
+        ]
+
+
+def test_same_hash_divergent_context_splits_pb_si_abstain() -> None:
+    """THE ADV-1/S16 case. Four members raise the identical TimeoutException through the
+    identical stack -> one error_hash, one launch group. Only the folded WARN context
+    separates them. The fix must:
+      * fan the pb representative's decision ONLY to its identical-context (SLOW QUERY) twin,
+      * decide the pool-exhausted member on its own identity -> si (NOT the rep's pb),
+      * decide the bare member on its own identity -> abstain (its gate matches neither the
+        pb nor the si history unanimously).
+    Getting si/ti here is only possible via an independent per-member decision, so this
+    directly proves the representative's pb was NOT fanned to them."""
+    pipe, stored = _index_ctx()
+    retr = CtxRetrieval(stored, pb_hash=stored[CTX_REP].error_hash, rep_item=CTX_REP)
+    engine = _engine(retr, pipe)
+
+    engine.analyze([_launch(_ctx_items(), launch_id=1)])
+
+    # Rep + identical-context twin inherit pb (truly-identical discriminant).
+    assert retr.auto_labeled.get(CTX_REP) == "pb001"
+    assert retr.auto_labeled.get(CTX_TWIN) == "pb001"
+    # Pool-exhausted member: own decision -> si (proves it was NOT fanned the rep's pb).
+    assert retr.suggestions[CTX_POOL_ITEM].predicted_label == "si001"
+    assert retr.suggestions[CTX_POOL_ITEM].matched_item_id == HIST_SI
+    assert CTX_POOL_ITEM not in retr.auto_labeled or retr.auto_labeled[CTX_POOL_ITEM] == "si001"
+    # Bare member: own decision -> abstain (no unanimous gate match); never a confident pb.
+    assert retr.suggestions[CTX_BARE].predicted_label == "ti"
+    assert CTX_BARE not in retr.auto_labeled
