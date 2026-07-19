@@ -105,3 +105,35 @@ def test_probe_unreachable() -> None:
     mock = MockOllama(reachable=False)
     result = mock.client().probe()
     assert not result.reachable
+
+
+# ---------------------------------------------------------------------------
+# OpenAI-dialect probe/warmup (llama.cpp llama-server, vLLM, ...): those servers
+# implement /v1/models but none of the Ollama management endpoints.
+# ---------------------------------------------------------------------------
+def test_openai_probe_uses_v1_models() -> None:
+    mock = MockOllama(model_present=True)
+    result = mock.client(api="openai").probe()
+    assert result.reachable and result.model_present
+    assert result.version is None
+    assert all("/api/" not in r.url.path for r in mock.requests)
+
+
+def test_openai_probe_model_missing() -> None:
+    mock = MockOllama(model_present=False)
+    result = mock.client(api="openai").probe()
+    assert result.reachable and not result.model_present
+
+
+def test_openai_warmup_uses_chat_completions() -> None:
+    mock = MockOllama(['{"x":"1"}'])
+    mock.client(api="openai").warmup()
+    assert mock.requests[-1].url.path == "/v1/chat/completions"
+
+
+def test_no_think_applied_in_openai_dialect_for_qwen3() -> None:
+    mock = MockOllama(['{"x":"1"}'])
+    mock.client(api="openai", model="qwen3:4b-q4_K_M").chat(
+        system="base", user="u", schema=_SCHEMA, num_predict=10
+    )
+    assert mock.chat_bodies[0]["messages"][0]["content"].endswith("/no_think")

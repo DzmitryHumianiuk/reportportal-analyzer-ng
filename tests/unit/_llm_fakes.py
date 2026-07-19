@@ -123,6 +123,11 @@ class MockOllama:
             if names is None:
                 names = ["qwen3:4b-q4_K_M"] if self.model_present else ["other:1b"]
             return httpx.Response(200, json={"models": [{"name": n} for n in names]})
+        if path == "/v1/models":
+            names = self.tags
+            if names is None:
+                names = ["qwen3:4b-q4_K_M"] if self.model_present else ["other:1b"]
+            return httpx.Response(200, json={"data": [{"id": n} for n in names]})
         if path in ("/api/chat", "/v1/chat/completions"):
             self.chat_bodies.append(json.loads(request.content))
             return self._chat_response(request)
