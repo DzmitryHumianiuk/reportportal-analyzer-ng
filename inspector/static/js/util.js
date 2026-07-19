@@ -209,6 +209,32 @@ export function relTime(iso) {
   return shortTime(iso);
 }
 
+// ---- Permalink hash state (shareable deep links) ----
+// Parse `#k=v&k2=v2` from the address bar into a plain object (values decoded).
+export function readHashParams() {
+  const raw = (location.hash || '').replace(/^#/, '');
+  const out = {};
+  for (const part of raw.split('&')) {
+    if (!part) continue;
+    const i = part.indexOf('=');
+    const k = decodeURIComponent(i < 0 ? part : part.slice(0, i));
+    const v = i < 0 ? '' : decodeURIComponent(part.slice(i + 1));
+    if (k) out[k] = v;
+  }
+  return out;
+}
+// Write params back to the hash via replaceState (no history entry, no reload).
+// Null / undefined / '' values are dropped so the URL stays clean.
+export function writeHashParams(params) {
+  const parts = [];
+  for (const [k, v] of Object.entries(params)) {
+    if (v == null || v === '') continue;
+    parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(v));
+  }
+  const hash = parts.length ? '#' + parts.join('&') : '';
+  history.replaceState(null, '', location.pathname + location.search + hash);
+}
+
 export function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');

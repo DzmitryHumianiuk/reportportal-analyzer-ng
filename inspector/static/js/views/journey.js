@@ -1,6 +1,7 @@
 // Item Journey — the main view. Picker (launch → item) + pipeline stepper with
 // expandable stage cards, connected visually, plus the live Stage-B reconstruction.
 import { api } from '../api.js';
+import { updateHash } from '../app.js';
 import {
   h, clear, card, defectBadge, defectBadgeAbbr, defectName, idChip, setDefects, fmt,
   shortTime, relTime, highlightPattern, emptyState, loading, engDetails, engDrawer, srcInfo,
@@ -8,6 +9,9 @@ import {
 } from '../util.js';
 
 const jstate = { launch: null, item: null, selectItem: null, itemEls: null };
+
+// Seed launch/item from a permalink before renderJourney runs (see app.applyHashState).
+export function setJourneyState({ launch, item }) { jstate.launch = launch; jstate.item = item; }
 
 // Navigate the journey to another item in the current launch (member-dot click).
 function navToItem(itemId) {
@@ -42,6 +46,9 @@ export async function renderJourney(root, app) {
   }
   const launchList = h('div', { class: 'list' });
   launchBody.appendChild(launchList);
+  // Restore the permalinked launch when it exists in this project; otherwise fall
+  // back to the first launch (honest degradation, never a blank view).
+  let matched = false;
   for (const l of launches) {
     const el = h('div', { class: 'list-item', onclick: () => selectLaunch(l, el) },
       h('div', { class: 'li-main' },
@@ -49,12 +56,13 @@ export async function renderJourney(root, app) {
         h('div', { class: 'li-sub' }, `#${l.launch_number ?? '—'} · id ${l.launch_id} · ${l.item_count} items`)),
       h('span', { class: 'chip' }, `${l.labeled_count} labeled`));
     launchList.appendChild(el);
-    if (jstate.launch === l.launch_id) selectLaunch(l, el);
+    if (jstate.launch === l.launch_id) { selectLaunch(l, el); matched = true; }
   }
-  if (jstate.launch == null) selectLaunch(launches[0], launchList.firstChild);
+  if (!matched) selectLaunch(launches[0], launchList.firstChild);
 
   async function selectLaunch(l, el) {
     jstate.launch = l.launch_id;
+    updateHash({ launch: l.launch_id });
     [...launchList.children].forEach((c) => c.classList.remove('active'));
     el.classList.add('active');
     clear(itemBody).appendChild(loading());
@@ -84,6 +92,7 @@ export async function renderJourney(root, app) {
 
   async function selectItem(it, el) {
     jstate.item = it.item_id;
+    updateHash({ item: it.item_id });
     [...el.parentElement.children].forEach((c) => c.classList.remove('active'));
     el.classList.add('active');
     clear(main).appendChild(loading('Building journey…'));

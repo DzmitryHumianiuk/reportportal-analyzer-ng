@@ -1,6 +1,7 @@
 // Launch Groups — d3 force graph. Nodes = items, clustered by launch_group;
 // node color = final label; halo = auto-analyzed; burst groups flagged si_prior.
 import { api } from '../api.js';
+import { updateHash } from '../app.js';
 import {
   h, clear, card, emptyState, loading, setDefects, defectColor, defectName, defectInfo, idChip,
   fmt, MUTED, INK, INK2, HAIRLINE,
@@ -8,9 +9,12 @@ import {
 
 let _launch = null;
 
+// Seed the selected launch from a permalink (string id, or null = all launches).
+export function setGroupsState({ launch }) { _launch = launch || null; }
+
 export async function renderGroups(root, app) {
   clear(root);
-  const launchSel = h('select', { class: 'select', onchange: (e) => { _launch = e.target.value || null; load(); } });
+  const launchSel = h('select', { class: 'select', onchange: (e) => { _launch = e.target.value || null; updateHash({ glaunch: _launch }); load(); } });
   root.appendChild(h('div', { class: 'picker-row' },
     h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Launch'), launchSel)));
 

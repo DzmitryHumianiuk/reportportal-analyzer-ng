@@ -4,12 +4,21 @@
 // click fetches the signature detail (representative exc/msg/frames/templates +
 // member items) on demand — no N+1, the list stays a single aggregate query.
 import { api } from '../api.js';
+import { updateHash } from '../app.js';
 import {
   h, clear, card, defectBadge, defectBadgeAbbr, idChip, setDefects, shortTime, fmt,
   highlightPattern, emptyState, loading,
 } from '../util.js';
 
 const sstate = { q: '', conflicts: false, offset: 0, expanded: null };
+
+// Seed search / conflicts-toggle / expanded error_hash from a permalink.
+export function setSignaturesState({ q, conflicts, expanded }) {
+  sstate.q = q || '';
+  sstate.conflicts = !!conflicts;
+  sstate.expanded = expanded || null;
+  sstate.offset = 0;
+}
 
 export async function renderSignatures(root, app) {
   clear(root);
@@ -18,11 +27,11 @@ export async function renderSignatures(root, app) {
   const search = h('input', {
     class: 'select', type: 'search', placeholder: 'Search exc / msg / frames (ILIKE)…',
     value: sstate.q, style: { minWidth: '300px' },
-    oninput: debounce((e) => { sstate.q = e.target.value; sstate.offset = 0; load(); }, 250),
+    oninput: debounce((e) => { sstate.q = e.target.value; sstate.offset = 0; sstate.expanded = null; updateHash({ q: sstate.q, hash: null }); load(); }, 250),
   });
   const conflictToggle = h('label', { class: 'toggle', title: 'Only error_hashes whose members carry >1 distinct non-ti label' },
     h('input', { type: 'checkbox', checked: sstate.conflicts,
-      onchange: (e) => { sstate.conflicts = e.target.checked; sstate.offset = 0; load(); } }),
+      onchange: (e) => { sstate.conflicts = e.target.checked; sstate.offset = 0; updateHash({ conflicts: sstate.conflicts }); load(); } }),
     h('span', { class: 'toggle-track' }, h('span', { class: 'toggle-thumb' })),
     h('span', { class: 'toggle-label' }, '⚠ only conflicts'));
   root.appendChild(h('div', { class: 'picker-row' },
@@ -108,6 +117,10 @@ function renderTable(el, d, app) {
       h('td', { class: 'muted mono', style: { fontSize: '11px' } },
         `${shortTime(r.first_seen)} → ${shortTime(r.last_seen)}`));
     tbody.appendChild(row);
+    // Restore a permalinked expansion once its row is in the DOM.
+    if (sstate.expanded != null && String(r.error_hash) === String(sstate.expanded)) {
+      Promise.resolve().then(() => toggle(r, row));
+    }
   }
   el.appendChild(h('div', { class: 'table-wrap' }, tbl));
 
@@ -133,6 +146,7 @@ function renderTable(el, d, app) {
       existing.remove();
       row.classList.remove('open');
       sstate.expanded = null;
+      updateHash({ hash: null });
       return;
     }
     // collapse any other open detail
@@ -140,6 +154,7 @@ function renderTable(el, d, app) {
     [...tbody.querySelectorAll('tr.sig-row.open')].forEach((n) => n.classList.remove('open'));
     row.classList.add('open');
     sstate.expanded = r.error_hash;
+    updateHash({ hash: String(r.error_hash) });
     const detailRow = h('tr', { class: 'sig-detail' }, h('td', { colspan: 6 }, loading('Loading signature…')));
     row.after(detailRow);
     try {
