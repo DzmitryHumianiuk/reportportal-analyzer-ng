@@ -1,0 +1,104 @@
+# LLM sidecar for analyzer-ng's optional roles (spec 04) — llama.cpp llama-server
+# speaking the OpenAI-compatible dialect (ANALYZER_LLM_API=openai).
+#
+# Why not the official ollama/ollama image: it unpacks to ~5 GB (CUDA/Jetpack/ROCm
+# layers useless on this CPU-only minikube VM) and does not fit the 17 GB VM disk
+# next to the ReportPortal images. llama-server is a ~0.1 GB image serving the same
+# pinned model (Qwen3-4B q4_K_M GGUF, ~2.5 GB, downloaded once into the PVC by the
+# init container from the official Qwen HF repo).
+#
+# The Service keeps the name "ollama" so the analyzer's default OLLAMA_URL
+# (http://ollama:11434) works unchanged; --alias makes /v1/models report the exact
+# pinned tag the analyzer's probe checks for.
+#
+# Enable on the analyzer:
+#   kubectl set env sts/reportportal-analyzer ANALYZER_LLM_ENABLED=true ANALYZER_LLM_API=openai
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 8Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  labels: { app: ollama }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }  # single PVC (RWO)
+  selector:
+    matchLabels: { app: ollama }
+  template:
+    metadata:
+      labels: { app: ollama }
+    spec:
+      initContainers:
+        - name: fetch-model
+          image: curlimages/curl:latest
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - >
+              test -s /models/qwen3-4b-q4_k_m.gguf ||
+              curl -fL --retry 5 --retry-delay 5
+              -o /models/qwen3-4b-q4_k_m.gguf.part
+              "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf"
+              && { test -s /models/qwen3-4b-q4_k_m.gguf ||
+                   mv /models/qwen3-4b-q4_k_m.gguf.part /models/qwen3-4b-q4_k_m.gguf; }
+          volumeMounts:
+            - name: models
+              mountPath: /models
+      containers:
+        - name: llama-server
+          image: ghcr.io/ggml-org/llama.cpp:server
+          imagePullPolicy: IfNotPresent
+          args:
+            - -m
+            - /models/qwen3-4b-q4_k_m.gguf
+            - --alias
+            - qwen3:4b-q4_K_M
+            - --host
+            - 0.0.0.0
+            - --port
+            - "11434"
+            - --ctx-size
+            - "4096"
+            - --jinja
+            - --reasoning-budget
+            - "0"
+          ports:
+            - containerPort: 11434
+          volumeMounts:
+            - name: models
+              mountPath: /models
+          resources:
+            requests: { cpu: "500m", memory: 1Gi }
+            limits: { cpu: "4", memory: 5Gi }
+          readinessProbe:
+            httpGet: { path: /health, port: 11434 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /health, port: 11434 }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+spec:
+  selector: { app: ollama }
+  ports:
+    - port: 11434
+      targetPort: 11434
