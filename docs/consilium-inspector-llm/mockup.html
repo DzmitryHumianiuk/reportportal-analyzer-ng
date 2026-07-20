@@ -1,0 +1,1019 @@
+<title>Inspector UX mockup 3 — LLM observability</title>
+<!--
+  analyzer-ng Inspector — LLM-sidecar observability MOCKUP (round 3)
+  Self-contained (inline CSS/JS, no external resources). Dark theme.
+  Palette + primitives copied VERBATIM from docs/consilium-inspector-ux/mockup.html
+  (round-1, user-approved), which in turn copies inspector/static/css/app.css :root.
+
+  Surfaces shown:
+    A. Journey "LLM involvement" strip, rendered INSIDE the Decision card
+       (Lens 2 §1/§3 — NOT a 6th stage). Four real-data variants:
+         2942 explainer ok · 2959 extractor-only abstain · 2941 explainer
+         validation_fail (guardrail) · 2933 coldstart provisional.
+    B. The new 7th tab "LLM" (Lens 2 §4): roles-at-a-glance, role-state
+       (kill-switch), outcome mix, latency, activity stream, availability/
+       breaker honesty, extractor cache explorer.
+
+  Data = real ids/counts from demo-data/LLM-DEMO.md, verified against
+  0004_llm.sql (llm_event, llm_role_state) + 0001 §2.11 (llm_cache):
+    coldstart 12 ok · explainer 21 ok (+ validation_fail 2941, a few timeout)
+    extractor 105 ok · judge 0 (suggest-path divergence — rendered honestly).
+
+  ========================= LENS-CONFLICT LOG ===============================
+  C1  Journey placement/frame. Lens 3 §1.1 frames a titled "LLM sidecar" stage
+      card; Lens 2 §1 EXPLICITLY REJECTS a 6th stage and places the treatment
+      as a strip INSIDE decisionCard (async annotator, not a pipeline stage).
+      -> Lens 2 mechanic wins (strip inside Decision card); Lens 3 frame strings
+      ("LLM sidecar", subtitle "async roles, decision-path-neutral") reused as
+      the strip's sub-heading. No stepper stage added.
+  C2  Charts. Both Lens 2 §4.2/§4.3 assume ECharts via echartsBase(). The mockup
+      must be fully self-contained, so outcome-mix stacked bars and the latency
+      distribution are re-implemented as inline SVG/CSS with identical semantics
+      and token colors. No string or color-mapping change vs Lens 2. (Mirrors
+      round-1 conflict C4 for the gauge.)
+  C3  Guardrail naming vs color. Lens 2 §4.2 maps validation_fail/schema_fail to
+      var(--accent) (guardrail-worked, not error). Lens 3 §7.1 corrects the
+      *naming*: validation_fail is the GROUNDING guard (schema-valid JSON failed
+      post-validation), schema_fail is the JSON guard. -> accent color per Lens 2,
+      "content validation" wording per Lens 3. Warning tones reserved for
+      availability (timeout/breaker_open) and disabled roles.
+  C4  Kill-switch example vs real stand. Lens 1 §0.3: an auto_disabled_precision
+      row can ONLY exist for coldstart (eval implements only the coldstart
+      comparison source); on this real stand NO role is disabled. The brief asks
+      for a kill-switch example. -> Real per-project panel shows the honest state
+      (all four "on — default, no row"); one illustrative auto-disabled coldstart
+      row is shown in a clearly-captioned "illustrative" block (round-1 precedent:
+      variant B "plausible real-shaped"), and it is coldstart because that is the
+      only role that can honestly carry that reason.
+  C5  Journey judge treatment. Lens 2 §3.2.3: the judge tile "never renders
+      (0 events) — correct behavior is its absence". Lens 3 T-L4 defines judge
+      strings for when it fires. -> No judge tile in the journey strip on this
+      stand; judge honesty lives in the tab's roles-at-a-glance (Lens 2 §4.1,
+      Lens 3 T-R2). An always-empty panel there IS the finding.
+  C6  Coldstart rubric-rule id. LLM-DEMO records item 2933's label + ENOSPC
+      reason but not the rubric_rule value (R1–R14, coldstart.py). The rule chip
+      is rendered illustratively and captioned as such; label/reason/conf/model
+      are real.
+  ===========================================================================
+-->
+<style>
+/* ---- palette + tokens: copied verbatim from round-1 mockup :root ---- */
+:root{
+  color-scheme: dark;
+  --plane:#0d0d0d; --surface-1:#17181a; --surface-2:#1e2023; --surface-3:#26292d;
+  --hairline:#2c2e31; --hairline-2:#383b3f;
+  --ink:#f4f5f6; --ink-2:#c3c2b7; --muted:#898781;
+  --accent:#3987e5; --accent-soft:rgba(57,135,229,0.14);
+  --lbl-si:#3987e5; --lbl-nd:#34a853; --lbl-pb:#d55181; --lbl-ab:#c98500;
+  --lbl-ti:#898781; --lbl-none:#5a5d61;
+  --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --band-abstain:#5a5d61; --band-suggest:#c98500; --band-auto:#34a853;
+  --radius:12px; --radius-s:8px;
+  --shadow:0 1px 0 rgba(255,255,255,0.03), 0 8px 24px rgba(0,0,0,0.35);
+  --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{
+  font-family:var(--sans);
+  background:radial-gradient(1200px 600px at 80% -10%, rgba(57,135,229,0.08), transparent 60%), var(--plane);
+  color:var(--ink); font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  padding:0 0 80px;
+}
+
+/* ---- primitives copied verbatim from round-1 mockup ---- */
+.card{background:linear-gradient(180deg, rgba(255,255,255,0.015), transparent), var(--surface-1);
+  border:1px solid var(--hairline); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden;}
+.card-head{display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:13px 16px; border-bottom:1px solid var(--hairline);}
+.card-title{font-size:13.5px; font-weight:650; letter-spacing:.2px; display:flex; align-items:center; gap:9px;}
+.card-title .step-num{width:22px; height:22px; border-radius:6px; background:var(--accent-soft); color:var(--accent);
+  display:inline-grid; place-items:center; font-size:12px; font-weight:700;}
+.card-sub{font-size:11.5px; color:var(--muted);}
+.card-body{padding:16px;}
+
+.chip{font-family:var(--mono); font-size:12px; background:var(--surface-2); border:1px solid var(--hairline-2);
+  border-radius:6px; padding:2px 7px; color:var(--ink-2); white-space:nowrap; display:inline-flex; align-items:center; gap:5px;}
+.badge{font-size:11px; font-weight:600; letter-spacing:.3px; border-radius:999px; padding:2px 9px;
+  display:inline-flex; align-items:center; gap:5px; border:1px solid transparent;}
+.badge .dot{width:8px; height:8px; border-radius:50%;}
+.lbl{--c:var(--lbl-none); color:var(--c); border-color:color-mix(in srgb, var(--c) 40%, transparent);
+  background:color-mix(in srgb, var(--c) 14%, transparent);}
+.lbl .dot{background:var(--c);}
+.lbl.pb{--c:var(--lbl-pb);} .lbl.ab{--c:var(--lbl-ab);} .lbl.si{--c:var(--lbl-si);}
+.lbl.nd{--c:var(--lbl-nd);} .lbl.ti{--c:var(--lbl-ti);} .lbl.none{--c:var(--lbl-none);}
+
+.kv{display:grid; grid-template-columns:auto 1fr; gap:6px 14px; align-items:baseline;}
+.kv dt{color:var(--muted); font-size:12px;} .kv dd{margin:0; font-size:13px;}
+.section-title{font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin:0 0 8px;}
+.note{font-size:11.5px; color:var(--muted); line-height:1.6;}
+.microbar{position:relative; height:6px; border-radius:3px; background:var(--surface-3); min-width:60px;}
+.microbar>i{position:absolute; left:0; top:0; bottom:0; border-radius:3px; background:var(--accent);}
+.mono{font-family:var(--mono);} .muted{color:var(--muted);}
+.flex{display:flex;} .wrap{flex-wrap:wrap;} .center{align-items:center;}
+.gap-8{gap:8px;} .gap-12{gap:12px;}
+table.data{width:100%; border-collapse:collapse; font-size:12.5px;}
+table.data th, table.data td{padding:8px 10px; text-align:left; border-bottom:1px solid var(--hairline); white-space:nowrap;}
+table.data th{color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.4px;}
+
+/* engineer details drawer — verbatim from round-1 */
+details.eng{margin-top:14px; border-top:1px solid var(--hairline); padding-top:10px;}
+details.eng>summary{cursor:pointer; list-style:none; display:inline-flex; align-items:center; gap:6px;
+  font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted);}
+details.eng>summary::-webkit-details-marker{display:none;}
+details.eng>summary:hover{color:var(--ink-2);}
+details.eng>summary:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;}
+details.eng .eng-caret{transition:transform .15s;}
+details.eng[open] .eng-caret{transform:rotate(90deg);}
+details.eng .eng-body{margin-top:10px;}
+
+/* L1 takeaway sentence — verbatim from round-1 */
+.takeaway{font-size:14.5px; line-height:1.55; color:var(--ink); margin:0 0 14px;}
+.takeaway b{font-weight:700;}
+
+.method-chip{display:inline-flex; align-items:center; gap:6px; font-size:11.5px; padding:3px 9px;
+  border-radius:999px; border:1px solid var(--hairline-2); background:var(--surface-2); color:var(--ink-2);}
+.method-chip .k{font-family:var(--mono); font-size:10px; color:var(--muted);}
+
+/* ============ NEW LLM classes (tokens only, same idioms) ============ */
+
+/* outcome semantics — the one color contract for the whole feature (Lens 2 §4.2, C3):
+   ok = good, guardrail-fired = accent (NOT red), unavailable = warning */
+.oc-ok{--oc:var(--good);}
+.oc-guard{--oc:var(--accent);}
+.oc-unavail{--oc:var(--warning);}
+.oc-dot{width:9px; height:9px; border-radius:50%; background:var(--oc); flex:none;}
+.oc-chip{font-family:var(--mono); font-size:11px; border-radius:6px; padding:1px 7px; white-space:nowrap;
+  color:var(--oc); border:1px solid color-mix(in srgb, var(--oc) 40%, transparent);
+  background:color-mix(in srgb, var(--oc) 12%, transparent);}
+
+/* Journey strip — Lens 2 §3, inside the Decision card */
+.llm-strip{border:1px solid var(--hairline); border-radius:var(--radius-s); background:var(--surface-2);
+  padding:12px 14px; margin:16px 0 4px;}
+.llm-strip-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;}
+.llm-strip-title{font-size:12px; font-weight:650; letter-spacing:.2px; display:flex; align-items:center; gap:8px;}
+.llm-strip-title .k{font-family:var(--mono); font-size:10px; color:var(--muted); font-weight:400;}
+.llm-tiles{display:flex; gap:12px; flex-wrap:wrap;}
+.llm-tile{flex:1 1 240px; border:1px solid var(--hairline); border-radius:var(--radius-s);
+  background:var(--surface-1); padding:11px 12px;}
+.llm-tile .role-line{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
+.llm-tile .role-key{font-family:var(--mono); font-size:11px; color:var(--ink-2);
+  background:var(--surface-3); border:1px solid var(--hairline-2); border-radius:5px; padding:1px 6px;}
+
+/* coldstart provisional signature — dashed accent border, reused nowhere else (Lens 2 §3.2.1) */
+.provisional{border:1px dashed var(--accent); border-radius:var(--radius-s); padding:9px 11px;
+  background:color-mix(in srgb, var(--accent) 5%, transparent);}
+.tag-prov{font-size:10px; font-weight:700; letter-spacing:.4px; text-transform:uppercase;
+  color:var(--accent); border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);
+  border-radius:4px; padding:1px 5px;}
+
+/* explainer attributed quote — left accent border (Lens 2 §3.2.2 / Lens 3 T-L2) */
+.llm-quote{border-left:3px solid var(--accent); padding:8px 12px; margin:6px 0 0;
+  background:var(--surface-2); border-radius:0 var(--radius-s) var(--radius-s) 0;
+  font-size:12.5px; color:var(--ink-2); line-height:1.55;}
+.llm-quote .attr{display:block; margin-top:6px; font-size:10.5px; color:var(--muted);
+  text-transform:uppercase; letter-spacing:.4px;}
+
+/* guardrail note — accent (guard worked), visually DISTINCT from red error and from
+   the grey abstain-reason box (Lens 2 §3.3, C3) */
+.guard-note{border-left:3px solid var(--accent); padding:9px 12px; margin:6px 0 0;
+  background:color-mix(in srgb, var(--accent) 7%, transparent); border-radius:0 var(--radius-s) var(--radius-s) 0;
+  font-size:12.5px; color:var(--ink-2); line-height:1.55;}
+.guard-note .g-tag{display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:700;
+  letter-spacing:.4px; text-transform:uppercase; color:var(--accent); margin-bottom:4px;}
+
+/* feature chips (extractor tile) */
+.chip-row{display:flex; gap:6px; flex-wrap:wrap; align-items:center;}
+
+/* ---- LLM tab ---- */
+.tab-strip{display:flex; gap:2px; border-bottom:1px solid var(--hairline); margin-bottom:20px; flex-wrap:wrap;}
+.tab-strip .tab{font-size:12.5px; padding:9px 14px; color:var(--muted); border-bottom:2px solid transparent;
+  cursor:default; white-space:nowrap;}
+.tab-strip .tab.active{color:var(--ink); border-bottom-color:var(--accent); font-weight:600;}
+.tab-strip .tab.new::after{content:"NEW"; font-size:8px; font-weight:700; letter-spacing:.5px; color:var(--accent);
+  border:1px solid color-mix(in srgb,var(--accent) 45%,transparent); border-radius:4px; padding:0 3px; margin-left:6px;
+  vertical-align:middle;}
+
+.role-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px;}
+.role-panel{border:1px solid var(--hairline); border-radius:var(--radius-s); background:var(--surface-2); padding:13px 14px;}
+.role-panel h4{margin:0; font-size:13px; font-weight:650; display:flex; align-items:center; gap:8px;}
+.role-panel .gloss{font-size:11px; color:var(--muted); margin:3px 0 10px; line-height:1.5;}
+.counter{font-size:26px; font-weight:700; line-height:1; letter-spacing:-.5px;}
+.counter .u{font-size:12px; font-weight:500; color:var(--muted); margin-left:5px; letter-spacing:0;}
+.state-line{display:flex; align-items:center; gap:7px; font-size:11.5px; margin-top:10px;
+  padding-top:9px; border-top:1px solid var(--hairline);}
+.state-line .s-dot{width:8px; height:8px; border-radius:50%; flex:none;}
+.role-panel.empty{border-style:dashed; border-color:var(--hairline-2);}
+
+/* horizontal stacked outcome bar */
+.ocbar-row{display:grid; grid-template-columns:96px 1fr auto; gap:12px; align-items:center; padding:5px 0;}
+.ocbar-role{font-family:var(--mono); font-size:11.5px; color:var(--ink-2);}
+.ocbar{display:flex; height:16px; border-radius:4px; overflow:hidden; background:var(--surface-3);}
+.ocbar>i{display:block; height:100%;}
+.ocbar-n{font-family:var(--mono); font-size:11px; color:var(--muted); white-space:nowrap;}
+.oc-legend{display:flex; gap:18px; flex-wrap:wrap; margin-top:10px;}
+.oc-legend .grp{font-size:11px; color:var(--muted);}
+.oc-legend .grp .lg-title{display:block; text-transform:uppercase; letter-spacing:.4px; font-size:10px; margin-bottom:4px;}
+.oc-legend .lg-item{display:inline-flex; align-items:center; gap:5px; margin-right:12px;}
+.oc-legend .lg-item i{width:9px; height:9px; border-radius:2px;}
+
+/* latency distribution track (si-meter idiom, tokens only) */
+.lat-row{display:grid; grid-template-columns:96px 1fr; gap:12px; align-items:center; padding:8px 0;
+  border-bottom:1px solid var(--hairline);}
+.lat-row:last-child{border-bottom:none;}
+.lat-role{font-family:var(--mono); font-size:11.5px; color:var(--ink-2);}
+.lat-track{position:relative; height:8px; border-radius:4px; background:var(--surface-3); margin:6px 0 4px;}
+.lat-fill{position:absolute; inset:0 auto 0 0; border-radius:4px; background:var(--accent);}
+.lat-tick{position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--ink-2); border-radius:1px;}
+.lat-nums{font-size:10.5px; color:var(--muted);}
+.lat-nums b{color:var(--ink-2); font-weight:600;}
+.lat-empty{color:var(--muted); font-size:11.5px; padding:8px 0;}
+
+/* activity stream — Feedback timeline idiom */
+.tl{list-style:none; margin:0; padding:0;}
+.tl li{display:grid; grid-template-columns:auto auto minmax(0,1fr) auto; gap:10px; align-items:center;
+  padding:9px 2px; border-bottom:1px solid var(--hairline); font-size:12px;}
+.tl li:last-child{border-bottom:none;}
+.tl .tl-role{font-family:var(--mono); font-size:11px; color:var(--ink-2);}
+.tl .tl-mid{display:flex; gap:8px; flex-wrap:wrap; align-items:center; min-width:0;}
+.tl .tl-right{display:flex; gap:8px; align-items:center; justify-content:flex-end; color:var(--muted); font-size:11px;}
+.idchip{font-family:var(--mono); font-size:11px; color:var(--accent); background:var(--accent-soft);
+  border:1px solid color-mix(in srgb,var(--accent) 30%,transparent); border-radius:5px; padding:1px 6px;
+  cursor:pointer; text-decoration:none;}
+.filter-row{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px;}
+.fchip{font-size:11.5px; padding:4px 10px; border-radius:999px; border:1px solid var(--hairline-2);
+  background:var(--surface-2); color:var(--muted); cursor:pointer;}
+.fchip.on{color:var(--ink); border-color:var(--accent); background:var(--accent-soft);}
+.fchip.dim{opacity:.5;}
+.filter-lbl{font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-right:2px;}
+
+/* per-row output drawer */
+details.out-drawer{margin:0;}
+details.out-drawer>summary{cursor:pointer; list-style:none; font-size:10.5px; text-transform:uppercase;
+  letter-spacing:.4px; color:var(--muted);}
+details.out-drawer>summary::-webkit-details-marker{display:none;}
+details.out-drawer>summary:hover{color:var(--ink-2);}
+pre.out-json{margin:8px 0 2px; padding:10px 12px; background:var(--plane); border:1px solid var(--hairline);
+  border-radius:var(--radius-s); font-family:var(--mono); font-size:11px; color:var(--ink-2); line-height:1.55;
+  white-space:pre-wrap; word-break:break-word; overflow-x:auto;}
+
+.table-wrap{overflow-x:auto; border:1px solid var(--hairline); border-radius:var(--radius-s);}
+.big-num{font-size:15px; font-weight:700;}
+
+/* availability honesty callout */
+.honesty{border-left:3px solid var(--muted); padding:10px 14px; background:var(--surface-2);
+  border-radius:0 var(--radius-s) var(--radius-s) 0; margin-bottom:14px;}
+.honesty .h-tag{font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); font-weight:700;}
+.stat-row{display:flex; gap:26px; flex-wrap:wrap; margin-top:6px;}
+.stat-row .st{min-width:120px;}
+.stat-row .st .v{font-size:18px; font-weight:700;}
+.stat-row .st .l{font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px;}
+
+.illustrative{font-size:10px; letter-spacing:.5px; text-transform:uppercase; font-weight:700;
+  color:var(--warning); border:1px solid color-mix(in srgb,var(--warning) 40%,transparent);
+  border-radius:4px; padding:1px 6px;}
+
+/* ---- mockup page chrome (not part of the product) — verbatim idiom from round-1 ---- */
+.mock-top{padding:22px 24px; border-bottom:1px solid var(--hairline); background:var(--surface-1);
+  position:sticky; top:0; z-index:10;}
+.mock-top h1{margin:0; font-size:16px;} .mock-top h1 b{color:var(--accent);}
+.mock-top p{margin:6px 0 0; font-size:12px; color:var(--muted); max-width:960px;}
+.mock-wrap{max-width:1100px; margin:0 auto; padding:26px 24px;}
+.mock-section{margin:0 0 46px;}
+.mock-h{font-size:13px; text-transform:uppercase; letter-spacing:1px; color:var(--ink-2);
+  border-bottom:1px solid var(--hairline-2); padding-bottom:8px; margin:0 0 18px; display:flex; gap:10px; align-items:center;}
+.mock-h .tag{font-size:10px; letter-spacing:.5px; padding:2px 8px; border-radius:999px; font-weight:700;}
+.tag.after{background:color-mix(in srgb,var(--good) 18%,transparent); color:var(--lbl-nd); border:1px solid color-mix(in srgb,var(--good) 40%,transparent);}
+.variant-h{font-size:12px; color:var(--muted); margin:22px 0 10px; font-weight:600;}
+.mock-note{font-size:11px; color:var(--ink-2); background:var(--accent-soft);
+  border:1px solid color-mix(in srgb,var(--accent) 25%,transparent); border-radius:var(--radius-s);
+  padding:8px 12px; margin:0 0 16px; line-height:1.6;}
+.stack{display:grid; gap:18px;}
+</style>
+
+<div class="mock-top">
+  <h1><b>analyzer-ng</b> Inspector — LLM observability mockup (round 3)</h1>
+  <p>Where the optional LLM sidecar (spec 04; qwen3:4b-q4_K_M, four async roles) judged, explained,
+  extracted and cold-started — and where its guardrails fired. Every visible string is a real column
+  value (ids/counts from LLM-DEMO), a deterministic derivation, or an honest absence. Expanders and
+  filters are live. Guardrail firings render in accent (the validator worked), never red.</p>
+</div>
+
+<div class="mock-wrap">
+
+<!-- ============================================================= -->
+<!-- SECTION A — JOURNEY "LLM INVOLVEMENT" STRIP (inside Decision)  -->
+<!-- ============================================================= -->
+<div class="mock-section">
+  <div class="mock-h">A · Journey — "LLM involvement" strip <span class="tag after">inside the Decision card</span></div>
+  <div class="mock-note">Lens 2 §1 rejects a 6th stage: the sidecar is an <b>async annotator</b> of the
+    decision, so its treatment lives as a strip inside the Decision card, rendered only when the item
+    has <span class="mono">llm_event</span> rows or <span class="mono">llm_used</span>. Four real items,
+    four role-stories. The judge tile is deliberately absent (0 events on this stand — see the LLM tab).</div>
+
+  <!-- ---------- Variant A · explainer ok (item 2942) ---------- -->
+  <div class="variant-h">Variant A — explainer wrote the rationale · item 2942 (si001), launch 182, project webshop-ui</div>
+  <div class="card" style="max-width:640px">
+    <div class="card-head">
+      <div class="card-title"><span class="step-num">4</span>Decision</div>
+      <div class="card-sub">decision + evidence (spec §6)</div>
+    </div>
+    <div class="card-body">
+      <p class="takeaway"><b>System Issue</b>, auto-applied — hash-inherited from a human-labeled twin
+        <span class="muted">(conf 0.95 ≥ τ_auto 0.75)</span>.</p>
+      <div class="flex gap-8 wrap center" style="margin-bottom:6px">
+        <span class="badge" style="background:color-mix(in srgb,var(--band-auto) 18%,transparent); color:var(--band-auto); border-color:var(--band-auto)">
+          <span class="dot" style="background:var(--band-auto)"></span>auto-applied</span>
+        <span class="badge lbl si"><span class="dot"></span>label: System Issue</span>
+        <span class="badge" style="background:color-mix(in srgb,var(--good) 16%,transparent); color:var(--good)">accepted</span>
+      </div>
+
+      <!-- LLM involvement strip -->
+      <div class="llm-strip">
+        <div class="llm-strip-head">
+          <div class="llm-strip-title">LLM sidecar <span class="k">async roles, decision-path-neutral (spec 04)</span></div>
+          <span class="chip">LLM · 1</span>
+        </div>
+        <!-- Lens 3 T-L2 -->
+        <p class="takeaway" style="font-size:13px; margin:0 0 10px"><b>Explainer wrote the rationale</b>
+          (<span class="mono">qwen3:4b-q4_K_M</span>, 9.4&nbsp;s, schema-valid, quotes verified verbatim)
+          — UX only; label and confidence untouched.</p>
+        <div class="llm-tiles">
+          <div class="llm-tile" style="flex:1 1 100%">
+            <div class="role-line"><span class="role-key">explainer</span>
+              <span class="oc-chip oc-ok">ok</span>
+              <span class="chip">9.4 s</span>
+              <span class="chip">fresh call</span></div>
+            <div class="llm-quote">
+              The failure matches the ‘si001’ mode because the test
+              ‘ShippingProfileTest.saveProfile’ fails on an <span class="mono">ENOSPC</span> disk-full
+              error from the shared fixtures volume — an environment fault, not a product defect.
+              <span class="attr">model’s rationale · qwen3:4b-q4_K_M · 9.4 s · 8m ago · quotes machine-verified verbatim in the log corpus</span>
+            </div>
+          </div>
+        </div>
+        <details class="eng">
+          <summary>Details for engineers <span class="eng-caret">▸</span></summary>
+          <div class="eng-body">
+            <div class="table-wrap">
+              <table class="data">
+                <tr><th>event_id</th><th>role</th><th>outcome</th><th>model</th><th>cache_hit</th><th>latency_ms</th><th>created_at</th></tr>
+                <tr><td class="mono">8841</td><td class="mono">explainer</td><td class="mono">ok</td><td class="mono">qwen3:4b-q4_K_M</td><td class="mono">false</td><td class="mono">9420</td><td class="mono">2026-07-20 14:02</td></tr>
+              </table>
+            </div>
+            <dl class="kv" style="margin-top:10px">
+              <dt>suggestion.llm_used</dt><dd class="mono">true</dd>
+              <dt>suggestion.model_ver</dt><dd class="mono">stageA-inherit;fs=2;emb=e5s-int8-r614241f6</dd>
+              <dt>prompt_hash</dt><dd class="mono" style="font-size:11px">3f9c…a1e7 (sha256 of content key)</dd>
+            </dl>
+            <p class="note" style="margin-top:8px">append-only <span class="mono">analyzer.llm_event</span>, newest 20 for this item ·
+              <span class="idchip">all events → LLM tab</span></p>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- Variant B · extractor-only, honest abstain (item 2959) ---------- -->
+  <div class="variant-h">Variant B — LLM touched features only (honest-abstain contrast) · item 2959, launch 196, project webshop-ui</div>
+  <div class="card" style="max-width:640px">
+    <div class="card-head">
+      <div class="card-title"><span class="step-num">4</span>Decision</div>
+      <div class="card-sub">decision + evidence (spec §6)</div>
+    </div>
+    <div class="card-body">
+      <p class="takeaway"><b>Abstained → To Investigate</b> — confidence below the suggest bar
+        <span class="muted">(gbm-v4; p* 0.375 &lt; τ_suggest 0.45)</span>.</p>
+      <div class="flex gap-8 wrap center" style="margin-bottom:6px">
+        <span class="badge" style="background:color-mix(in srgb,var(--band-abstain) 22%,transparent); color:var(--ink-2); border-color:var(--band-abstain)">
+          <span class="dot" style="background:var(--band-abstain)"></span>abstain → To Investigate</span>
+        <span class="badge" style="background:color-mix(in srgb,var(--accent) 16%,transparent); color:var(--accent)">pending review</span>
+      </div>
+
+      <div class="llm-strip">
+        <div class="llm-strip-head">
+          <div class="llm-strip-title">LLM sidecar <span class="k">async roles, decision-path-neutral (spec 04)</span></div>
+          <span class="chip">LLM · 1</span>
+        </div>
+        <!-- Lens 3 T-L5 + abstain suffix -->
+        <p class="takeaway" style="font-size:13px; margin:0 0 10px"><b>LLM touched features only</b>
+          — extractor cached structured facts (<span class="mono">app_code / other</span>) for the GBM;
+          no role wrote to this suggestion. The label came from the classical path.</p>
+        <div class="llm-tiles">
+          <div class="llm-tile" style="flex:1 1 100%">
+            <div class="role-line"><span class="role-key">extractor</span>
+              <span class="oc-chip oc-ok">ok</span>
+              <span class="chip">8.1 s</span>
+              <span class="chip">fresh call</span></div>
+            <div class="chip-row" style="margin-bottom:8px">
+              <span class="chip">root_exception <b class="mono">QuantumLedgerDesyncError</b></span>
+              <span class="chip">failing_layer <b class="mono">app_code</b></span>
+              <span class="chip">error_class <b class="mono">other</b></span>
+            </div>
+            <p class="note">feeds the ‘llm’ evidence group in the feature table below · <span class="mono">llm_used=false</span> —
+              extractor never writes to the suggestion (apply.py).</p>
+          </div>
+        </div>
+        <p class="note" style="margin-top:10px"><b class="muted">No LLM on the label path.</b>
+          Abstain came from the classical path — coldstart fires only in zero-history projects, and this
+          project already has label history.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- Variant C · explainer validation_fail (guardrail) item 2941 ---------- -->
+  <div class="variant-h">Variant C — guardrail fired, nothing persisted · item 2941, launch 182, project webshop-ui</div>
+  <div class="card" style="max-width:640px">
+    <div class="card-head">
+      <div class="card-title"><span class="step-num">4</span>Decision</div>
+      <div class="card-sub">decision + evidence (spec §6)</div>
+    </div>
+    <div class="card-body">
+      <p class="takeaway"><b>Automation Bug</b>, auto-applied — hash-inherited from a human-labeled twin
+        <span class="muted">(conf 0.95 ≥ τ_auto 0.75)</span>.</p>
+      <div class="flex gap-8 wrap center" style="margin-bottom:6px">
+        <span class="badge" style="background:color-mix(in srgb,var(--band-auto) 18%,transparent); color:var(--band-auto); border-color:var(--band-auto)">
+          <span class="dot" style="background:var(--band-auto)"></span>auto-applied</span>
+        <span class="badge lbl ab"><span class="dot"></span>label: Automation Bug</span>
+        <span class="badge" style="background:color-mix(in srgb,var(--good) 16%,transparent); color:var(--good)">accepted</span>
+      </div>
+
+      <div class="llm-strip">
+        <div class="llm-strip-head">
+          <div class="llm-strip-title">LLM sidecar <span class="k">async roles, decision-path-neutral (spec 04)</span></div>
+          <span class="chip">LLM · 1</span>
+        </div>
+        <!-- Lens 3 T-L3 -->
+        <p class="takeaway" style="font-size:13px; margin:0 0 10px"><b>Explainer output rejected</b>
+          (<span class="mono">validation_fail</span>, retried once seed 7 → 8, then dropped) — nothing
+          persisted: the match stands without a rationale rather than with an unverified one.</p>
+        <div class="llm-tiles">
+          <div class="llm-tile" style="flex:1 1 100%">
+            <div class="role-line"><span class="role-key">explainer</span>
+              <span class="oc-chip oc-guard">validation_fail · rejected</span>
+              <span class="chip">9.0 s</span></div>
+            <div class="guard-note">
+              <span class="g-tag"><span class="oc-dot oc-guard"></span>guardrail fired — the validator worked</span>
+              The model’s output passed the JSON schema but failed <b>content validation</b> (a quoted
+              line was not verbatim in the sanitized log corpus). Nothing was persisted — no hallucinated
+              explanation ever reaches the row. The decision itself is unaffected.
+            </div>
+            <p class="note" style="margin-top:8px">Rejected output is <b>not stored</b>
+              (<span class="mono">output</span> is NULL unless <span class="mono">outcome='ok'</span>, by design) —
+              only the outcome + latency are auditable here.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- Variant D · coldstart provisional (item 2933) ---------- -->
+  <div class="variant-h">Variant D — cold-start provisional label · item 2933, launch 181, project llm-demo (zero-history)</div>
+  <div class="card" style="max-width:640px">
+    <div class="card-head">
+      <div class="card-title"><span class="step-num">4</span>Decision</div>
+      <div class="card-sub">decision + evidence (spec §6)</div>
+    </div>
+    <div class="card-body">
+      <p class="takeaway"><b>System Issue (provisional)</b> — the classical path abstained (fresh project,
+        GBM 0.17); the cold-start rubric suggested a label <span class="muted">(ai_suggested; conf 0.65 &lt; τ_auto 0.75)</span>.</p>
+      <div class="flex gap-8 wrap center" style="margin-bottom:6px">
+        <span class="badge" style="background:color-mix(in srgb,var(--band-suggest) 20%,transparent); color:var(--band-suggest); border-color:var(--band-suggest)">
+          <span class="dot" style="background:var(--band-suggest)"></span>suggest → stays To Investigate</span>
+        <span class="badge" style="background:color-mix(in srgb,var(--accent) 16%,transparent); color:var(--accent)">pending review</span>
+      </div>
+
+      <div class="llm-strip">
+        <div class="llm-strip-head">
+          <div class="llm-strip-title">LLM sidecar <span class="k">async roles, decision-path-neutral (spec 04)</span></div>
+          <span class="chip">LLM · 1</span>
+        </div>
+        <!-- Lens 3 T-L1 -->
+        <p class="takeaway" style="font-size:13px; margin:0 0 10px"><b>Cold-start rubric labeled this si</b>
+          (rule R9, high → conf 0.65) — provisional ai_suggested, model_ver
+          <span class="mono">rubric+qwen3:4b-q4_K_M</span>; suggest band by construction (&lt; τ_auto 0.75),
+          RP issue stays To Investigate until a human confirms.</p>
+        <div class="llm-tiles">
+          <div class="llm-tile" style="flex:1 1 100%">
+            <div class="role-line"><span class="role-key">coldstart</span>
+              <span class="oc-chip oc-ok">ok</span>
+              <span class="chip">9.2 s</span></div>
+            <div class="provisional">
+              <div class="chip-row" style="margin-bottom:8px">
+                <span class="badge lbl si" style="border-style:dashed"><span class="dot"></span>si001</span>
+                <span class="tag-prov">provisional</span>
+                <span class="chip mono">rubric+qwen3:4b-q4_K_M</span>
+                <span class="chip">conf 0.65 (fixed)</span>
+                <span class="chip">rule R9 <span class="muted">(illustrative)</span></span>
+              </div>
+              <div class="llm-quote" style="border-color:var(--lbl-si)">
+                The error ‘ENOSPC: no space left on device’ indicates a disk-full infrastructure fault.
+                <span class="attr">model’s rationale · qwen3:4b-q4_K_M · lives only in llm_event.output, not on the suggestion row</span>
+              </div>
+            </div>
+            <p class="note" style="margin-top:8px">Confidence is fixed by the rubric map
+              (low 0.46 · med 0.55 · high 0.65) — always inside the suggest band, so a cold-start row
+              <b>can never auto-apply</b>.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================= -->
+<!-- SECTION B — THE NEW "LLM" TAB                                  -->
+<!-- ============================================================= -->
+<div class="mock-section">
+  <div class="mock-h">B · The new "LLM" tab <span class="tag after">7th tab, project-scoped</span></div>
+  <div class="mock-note">Project-scoped aggregates the journey strip can’t carry: outcome mix, latency,
+    kill-switch state, cache reuse, and the judge’s zero-event honesty. Reads
+    <span class="mono">llm_event · llm_cache · llm_role_state</span> only — the Inspector reads the DB,
+    not live sidecar health.</div>
+
+  <div class="tab-strip">
+    <span class="tab">Overview</span>
+    <span class="tab">Journey</span>
+    <span class="tab">Grouping</span>
+    <span class="tab">Feedback</span>
+    <span class="tab">Learning Loop</span>
+    <span class="tab active new">LLM</span>
+  </div>
+
+  <div class="stack">
+
+    <!-- Card 1 — roles at a glance -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Roles at a glance</div>
+        <div class="card-sub mono">project llm-demo · model qwen3:4b-q4_K_M (from llm_event rows)</div>
+      </div>
+      <div class="card-body">
+        <div class="role-grid">
+          <!-- coldstart -->
+          <div class="role-panel">
+            <h4><span class="oc-dot oc-ok"></span>coldstart</h4>
+            <div class="gloss">provisional labels in zero-label projects</div>
+            <div class="counter">12<span class="u">ok</span></div>
+            <div class="chip-row" style="margin-top:8px">
+              <span class="oc-chip oc-ok">12 ok</span>
+              <span class="chip">cache 0/12</span>
+              <span class="chip">last 19m ago</span>
+            </div>
+            <div class="state-line"><span class="s-dot" style="background:var(--good)"></span>
+              on <span class="muted">(default — no llm_role_state row)</span></div>
+          </div>
+          <!-- explainer -->
+          <div class="role-panel">
+            <h4><span class="oc-dot oc-ok"></span>explainer</h4>
+            <div class="gloss">rationale on confident suggestions</div>
+            <div class="counter">21<span class="u">ok</span></div>
+            <div class="chip-row" style="margin-top:8px">
+              <span class="oc-chip oc-ok">21 ok</span>
+              <span class="oc-chip oc-guard">2 validation_fail</span>
+              <span class="oc-chip oc-unavail">1 timeout</span>
+              <span class="chip">cache 3/24</span>
+            </div>
+            <div class="state-line"><span class="s-dot" style="background:var(--good)"></span>
+              on <span class="muted">(default — no llm_role_state row)</span></div>
+          </div>
+          <!-- extractor -->
+          <div class="role-panel">
+            <h4><span class="oc-dot oc-ok"></span>extractor</h4>
+            <div class="gloss">features from logs</div>
+            <div class="counter">105<span class="u">ok</span></div>
+            <div class="chip-row" style="margin-top:8px">
+              <span class="oc-chip oc-ok">105 ok</span>
+              <span class="chip">cache 41/105</span>
+              <span class="chip">last 2m ago</span>
+            </div>
+            <div class="state-line"><span class="s-dot" style="background:var(--good)"></span>
+              on <span class="muted">(default — no llm_role_state row)</span></div>
+          </div>
+          <!-- judge — the zero-event story (Lens 2 §4.1, Lens 3 T-R2) -->
+          <div class="role-panel empty">
+            <h4><span class="oc-dot" style="background:var(--muted)"></span>judge</h4>
+            <div class="gloss">mid-band candidate re-ranking</div>
+            <div class="counter" style="color:var(--muted)">0<span class="u">events</span></div>
+            <p class="note" style="margin-top:8px"><b style="color:var(--ink-2)">0 events</b> — fires only
+              on mid-band suggest decisions (τ_suggest 0.45 ≤ conf &lt; τ_auto 0.75, ≥ 2 Stage-C
+              candidates); none occurred. On this stand items land auto (≥ 0.75) or abstain (&lt; 0.45).</p>
+            <div class="state-line"><span class="s-dot" style="background:var(--good)"></span>
+              on <span class="muted">(enabled, wired, never fired)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2 — role state / kill-switch -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Role state — kill-switch (<span class="mono">llm_role_state</span>)</div>
+        <div class="card-sub">per-project runtime switch the nightly eval writes</div>
+      </div>
+      <div class="card-body">
+        <div class="table-wrap">
+          <table class="data">
+            <tr><th>role</th><th>state</th><th>reason</th><th>evidence</th><th>decided</th></tr>
+            <tr>
+              <td class="mono">coldstart</td>
+              <td><span class="badge" style="background:color-mix(in srgb,var(--good) 16%,transparent); color:var(--good)"><span class="dot" style="background:var(--good)"></span>on</span></td>
+              <td class="muted">default — no row</td><td class="muted">—</td><td class="muted">—</td>
+            </tr>
+            <tr>
+              <td class="mono">explainer</td>
+              <td><span class="badge" style="background:color-mix(in srgb,var(--good) 16%,transparent); color:var(--good)"><span class="dot" style="background:var(--good)"></span>on</span></td>
+              <td class="muted">default — no row</td><td class="muted">—</td><td class="muted">—</td>
+            </tr>
+            <tr>
+              <td class="mono">extractor</td>
+              <td><span class="badge" style="background:color-mix(in srgb,var(--good) 16%,transparent); color:var(--good)"><span class="dot" style="background:var(--good)"></span>on</span></td>
+              <td class="muted">default — no row</td><td class="muted">—</td><td class="muted">—</td>
+            </tr>
+            <tr>
+              <td class="mono">judge</td>
+              <td><span class="badge" style="background:color-mix(in srgb,var(--good) 16%,transparent); color:var(--good)"><span class="dot" style="background:var(--good)"></span>on</span></td>
+              <td class="muted">default — no row</td><td class="muted">—</td><td class="muted">—</td>
+            </tr>
+          </table>
+        </div>
+        <p class="note" style="margin-top:10px">All four <b>on (default — no llm_role_state row)</b>: absence
+          of a row means enabled, and the nightly eval has never flipped a role here. It disables only when
+          a role is demonstrably worse than the classical path (N ≥ 50) and never auto-re-enables.
+          Install-level role flags (<span class="mono">ANALYZER_LLM_*</span>) are configuration and not
+          visible to the Inspector.</p>
+
+        <!-- Illustrative kill-switch example (C4) -->
+        <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--hairline)">
+          <div class="flex gap-8 center" style="margin-bottom:8px">
+            <span class="section-title" style="margin:0">kill-switch fired — how it renders</span>
+            <span class="illustrative">illustrative · no role disabled on this stand</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data">
+              <tr><th>role</th><th>state</th><th>reason</th><th>evidence (stats)</th><th>decided</th></tr>
+              <tr>
+                <td class="mono">coldstart</td>
+                <td><span class="badge" style="background:color-mix(in srgb,var(--warning) 16%,transparent); color:var(--warning); border-color:var(--warning)"><span class="dot" style="background:var(--warning)"></span>auto-disabled</span></td>
+                <td class="mono">auto_disabled_precision</td>
+                <td class="mono" style="font-size:11px">precision_llm 0.612 &lt; classical 0.681 · N 57 · diff_lower −0.041</td>
+                <td class="mono">2026-07-14</td>
+              </tr>
+            </table>
+          </div>
+          <p class="note" style="margin-top:8px"><b>auto-disabled</b> 2026-07-14 — precision_llm 0.612 &lt;
+            classical 0.681 − 0.02 over N 57 gated cases; 95 % Wilson-MOVER lower bound of the difference
+            −0.041 &lt; 0. Stays off until an admin re-enables — the nightly job never auto-re-enables.
+            (Only coldstart can carry this reason today; the eval implements the comparison source for
+            coldstart only.)</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 3 — outcome mix -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Outcome mix — guardrails as signal</div>
+        <div class="card-sub">rejections mean the validator worked, not that the pipeline erred</div>
+      </div>
+      <div class="card-body">
+        <p class="takeaway" style="font-size:13px"><b>141 LLM calls</b> · 98% ok · 2 rejected by guardrails ·
+          1 unavailable — rejections mean the validator worked, not that the pipeline erred.</p>
+        <div id="ocbars"></div>
+        <div class="oc-legend">
+          <div class="grp">
+            <span class="lg-title">succeeded</span>
+            <span class="lg-item"><i style="background:var(--good)"></i>ok</span>
+          </div>
+          <div class="grp">
+            <span class="lg-title" style="color:var(--accent)">guardrail fired (output rejected)</span>
+            <span class="lg-item"><i style="background:var(--accent)"></i>validation_fail</span>
+            <span class="lg-item"><i style="background:var(--accent)"></i>schema_fail</span>
+          </div>
+          <div class="grp">
+            <span class="lg-title" style="color:var(--warning)">sidecar unavailable</span>
+            <span class="lg-item"><i style="background:var(--warning)"></i>timeout</span>
+            <span class="lg-item"><i style="background:var(--warning)"></i>breaker_open</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 4 — latency -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Latency — inference cost per call</div>
+        <div class="card-sub">wall-clock, ok calls only; cache hits (0 ms) excluded</div>
+      </div>
+      <div class="card-body">
+        <div id="latrows"></div>
+        <p class="note" style="margin-top:10px">Server-side call latency — the roles are async and never
+          block a decision. Percentiles need a floor N (≈ 20); coldstart’s N = 12 shows median/max instead.</p>
+      </div>
+    </div>
+
+    <!-- Card 5 — activity stream -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Activity stream</div>
+        <div class="card-sub">newest first, capped at 50 · <span class="mono">llm_event</span> joined to test_item</div>
+      </div>
+      <div class="card-body">
+        <div class="filter-row">
+          <span class="filter-lbl">role</span>
+          <span class="fchip on" data-fkind="role" data-fval="all">all</span>
+          <span class="fchip" data-fkind="role" data-fval="coldstart">coldstart</span>
+          <span class="fchip" data-fkind="role" data-fval="explainer">explainer</span>
+          <span class="fchip" data-fkind="role" data-fval="judge">judge</span>
+          <span class="fchip" data-fkind="role" data-fval="extractor">extractor</span>
+          <span style="width:14px"></span>
+          <span class="filter-lbl">outcome</span>
+          <span class="fchip on" data-fkind="outcome" data-fval="all">all</span>
+          <span class="fchip" data-fkind="outcome" data-fval="ok">ok</span>
+          <span class="fchip" data-fkind="outcome" data-fval="guardrail">guardrail</span>
+          <span class="fchip" data-fkind="outcome" data-fval="unavailable">unavailable</span>
+        </div>
+        <ul class="tl" id="stream"></ul>
+        <p class="note" id="stream-empty" style="margin-top:10px; display:none"></p>
+      </div>
+    </div>
+
+    <!-- Card 6 — availability / breaker honesty -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Availability — the breaker panel that refuses to lie</div>
+        <div class="card-sub">breaker state is in-process, not persisted</div>
+      </div>
+      <div class="card-body">
+        <div class="honesty">
+          <span class="h-tag">liveness — inferred, not live</span>
+          <p style="margin:6px 0 0; font-size:12.5px; color:var(--ink-2); line-height:1.55">
+            last <span class="mono">llm_event</span> 2m ago — breaker state is in-process on the analyzer
+            and not persisted; liveness here is inferred from event flow only. A quiet log means either
+            healthy-and-idle or disabled — the Inspector cannot distinguish.</p>
+        </div>
+        <div class="stat-row">
+          <div class="st"><div class="v">1</div><div class="l">timeout · last 24h</div></div>
+          <div class="st"><div class="v">0</div><div class="l">breaker_open · last 24h</div></div>
+          <div class="st"><div class="v">13m</div><div class="l">longest gap between events</div></div>
+          <div class="st"><div class="v">2m ago</div><div class="l">last event overall</div></div>
+        </div>
+        <details class="eng">
+          <summary>Breaker constants (documentation) <span class="eng-caret">▸</span></summary>
+          <div class="eng-body">
+            <dl class="kv">
+              <dt>opens after</dt><dd>3 consecutive transport failures</dd>
+              <dt>cooldown</dt><dd>60 s, doubling per re-open, capped at 15 min</dd>
+              <dt>half-open</dt><dd>first job after cooldown is the probe; success closes it</dd>
+              <dt>schema/validation fails</dt><dd>do NOT trip the breaker (the server was up, the output was bad)</dd>
+            </dl>
+            <p class="note" style="margin-top:8px">From <span class="mono">breaker.py</span> — config, not
+              runtime state. Live breaker state exists only in Prometheus
+              (<span class="mono">analyzer_llm_breaker_state</span>), which the Inspector does not proxy.</p>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <!-- Card 7 — extractor cache explorer -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Extractor cache explorer (<span class="mono">llm_cache</span>)</div>
+        <div class="card-sub">one model call per template-set per project, then reuse</div>
+      </div>
+      <div class="card-body">
+        <p class="takeaway" style="font-size:13px"><b>5 cached extractor outputs</b> · 53 hits — one model
+          call per template-set per project, then reuse. <span class="muted">Recorded role-call hits only;
+          feature-time reads are not counted, so real reuse is higher.</span></p>
+        <div class="filter-row">
+          <span class="filter-lbl">role</span>
+          <span class="fchip on">extractor</span>
+          <span class="fchip dim">explainer</span>
+          <span class="fchip dim">coldstart</span>
+          <span class="fchip dim">judge</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data" id="cache-table">
+            <tr>
+              <th>template_hash</th><th>failing_layer</th><th>error_class</th>
+              <th>model</th><th>hits</th><th>created</th><th>last hit</th><th>output</th>
+            </tr>
+          </table>
+        </div>
+        <p class="note" style="margin-top:10px"><span class="mono">template_hash</span> is a template-<i>set</i>
+          hash (xxhash64 of exception_fp ‖ sorted template_ids), not a template_id — no honest Drain3
+          deep-link exists, so it is shown mono with no link. Freshness is checked at read time against the
+          90-day extractor TTL; stale rows are ignored, not deleted.</p>
+      </div>
+    </div>
+
+  </div><!-- /stack -->
+</div><!-- /section B -->
+
+</div><!-- /mock-wrap -->
+
+<script>
+'use strict';
+function tok(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+/* ---------- outcome mix stacked bars (Lens 2 §4.2; C2 self-contained) ---------- */
+const OUTCOME_MIX = [
+  { role:'coldstart', ok:12,  guard:0, unavail:0 },
+  { role:'explainer', ok:21,  guard:2, unavail:1 },
+  { role:'extractor', ok:105, guard:0, unavail:0 },
+  { role:'judge',     ok:0,   guard:0, unavail:0 },
+];
+function renderOcBars(el){
+  const gmax = Math.max(...OUTCOME_MIX.map(r => r.ok + r.guard + r.unavail), 1);
+  for(const r of OUTCOME_MIX){
+    const total = r.ok + r.guard + r.unavail;
+    const row = document.createElement('div'); row.className = 'ocbar-row';
+    const seg = (n, cls) => n > 0
+      ? '<i class="' + cls + '" style="width:' + (n / gmax * 100) + '%; background:var(--oc)"></i>' : '';
+    const bar = total > 0
+      ? '<div class="ocbar">' + seg(r.ok,'oc-ok') + seg(r.guard,'oc-guard') + seg(r.unavail,'oc-unavail') + '</div>'
+      : '<div class="ocbar"></div>';
+    const nlabel = total > 0
+      ? total + ' calls' + (r.guard ? ' · ' + r.guard + ' rejected' : '') + (r.unavail ? ' · ' + r.unavail + ' unavail' : '')
+      : '0 events';
+    row.innerHTML = '<span class="ocbar-role">' + r.role + '</span>' + bar +
+      '<span class="ocbar-n">' + nlabel + '</span>';
+    el.appendChild(row);
+  }
+}
+
+/* ---------- latency distribution (Lens 2 §4.3; si-meter idiom) ---------- */
+const LAT = [
+  { role:'coldstart', p50:9200,  p90:null,  max:13400, n:12,  fewer:true  },
+  { role:'explainer', p50:8600,  p90:11300, max:12900, n:21,  fewer:false },
+  { role:'extractor', p50:7900,  p90:10400, max:12200, n:105, fewer:false },
+  { role:'judge',     p50:null,  p90:null,  max:null,  n:0,   fewer:false },
+];
+function fmtMs(ms){ return ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' s'; }
+function renderLat(el){
+  const scale = Math.max(...LAT.map(r => r.max || 0), 1);
+  for(const r of LAT){
+    const row = document.createElement('div'); row.className = 'lat-row';
+    if(r.n === 0){
+      row.innerHTML = '<span class="lat-role">' + r.role + '</span>' +
+        '<span class="lat-empty">— no ok events (0)</span>';
+      el.appendChild(row); continue;
+    }
+    const pct = v => (v / scale * 100).toFixed(1);
+    let track = '<div class="lat-track"><i class="lat-fill" style="width:' + pct(r.p50) + '%"></i>';
+    if(r.p90 != null) track += '<b class="lat-tick" style="left:' + pct(r.p90) + '%"></b>';
+    track += '<b class="lat-tick" style="left:calc(' + pct(r.max) + '% - 2px); background:var(--muted)"></b></div>';
+    const nums = r.fewer
+      ? '<b>median ' + fmtMs(r.p50) + '</b> · max ' + fmtMs(r.max) + ' · n ' + r.n + ' (&lt;20 — not percentiles)'
+      : '<b>p50 ' + fmtMs(r.p50) + '</b> · p90 ' + fmtMs(r.p90) + ' · max ' + fmtMs(r.max) + ' · n ' + r.n;
+    row.innerHTML = '<span class="lat-role">' + r.role + '</span>' +
+      '<div>' + track + '<div class="lat-nums">' + nums + '</div></div>';
+    el.appendChild(row);
+  }
+}
+
+/* ---------- activity stream (Lens 2 §4.4) ---------- */
+// outcome -> {group, chipClass, label}
+const OUT_META = {
+  ok:              { group:'ok',          cls:'oc-ok',      label:'ok' },
+  validation_fail: { group:'guardrail',   cls:'oc-guard',   label:'validation_fail · rejected' },
+  schema_fail:     { group:'guardrail',   cls:'oc-guard',   label:'schema_fail · rejected' },
+  timeout:         { group:'unavailable', cls:'oc-unavail', label:'timeout · transport' },
+  breaker_open:    { group:'unavailable', cls:'oc-unavail', label:'breaker_open · skipped' },
+};
+const STREAM = [
+  { ago:'2m',  role:'extractor', outcome:'ok', item:2959, launch:196, cache:false, ms:8120,
+    out:{ root_exception:'QuantumLedgerDesyncError', failing_layer:'app_code', error_class:'other', components:['ledger','sync'] } },
+  { ago:'6m',  role:'explainer', outcome:'ok', item:2943, launch:182, cache:false, ms:8730,
+    out:{ explanation:'The failure contains a StaleElementReferenceException raised after a DOM re-render, matching the ab001 automation-bug mode.', quoted_lines:['StaleElementReferenceException: stale element reference'] } },
+  { ago:'8m',  role:'explainer', outcome:'ok', item:2942, launch:182, cache:false, ms:9420,
+    out:{ explanation:"The failure matches the 'si001' mode because the test 'ShippingProfileTest.saveProfile' fails on an ENOSPC disk-full error.", quoted_lines:['ENOSPC: no space left on device'] } },
+  { ago:'11m', role:'explainer', outcome:'validation_fail', item:2941, launch:182, cache:false, ms:9010, out:null },
+  { ago:'14m', role:'extractor', outcome:'ok', item:2955, launch:195, cache:true, ms:0,
+    out:{ root_exception:'NoSuchElementException', failing_layer:'test_code', error_class:'not_found' } },
+  { ago:'19m', role:'coldstart', outcome:'ok', item:2933, launch:181, cache:false, ms:9240,
+    out:{ label:'si', confidence:'high', rubric_rule_matched:'R9', reason:"The error 'ENOSPC: no space left on device' indicates a disk-full infrastructure fault." } },
+  { ago:'22m', role:'coldstart', outcome:'ok', item:2934, launch:181, cache:false, ms:8880,
+    out:{ label:'pb', confidence:'med', rubric_rule_matched:'R3', reason:'A 500 from the checkout service points to a server-side product defect.' } },
+  { ago:'27m', role:'explainer', outcome:'timeout', item:2952, launch:182, cache:false, ms:null, out:null },
+  { ago:'31m', role:'extractor', outcome:'ok', item:2951, launch:195, cache:true, ms:0,
+    out:{ root_exception:'AssertionError', failing_layer:'test_code', error_class:'assertion' } },
+  { ago:'38m', role:'coldstart', outcome:'ok', item:2936, launch:181, cache:false, ms:9600,
+    out:{ label:'ab', confidence:'high', rubric_rule_matched:'R11', reason:'A TimeoutException on element wait indicates a flaky locator, an automation bug.' } },
+  { ago:'44m', role:'extractor', outcome:'ok', item:2938, launch:181, cache:false, ms:10240,
+    out:{ root_exception:'ConnectionRefusedError', failing_layer:'infrastructure', error_class:'connection' } },
+  { ago:'51m', role:'explainer', outcome:'ok', item:844, launch:182, cache:true, ms:0,
+    out:{ explanation:'Cached rationale reused for an identical content key — no inference call was made.', quoted_lines:[] } },
+  { ago:'1h',  role:'extractor', outcome:'ok', item:2940, launch:181, cache:false, ms:11080,
+    out:{ root_exception:'ENOSPCError', failing_layer:'infrastructure', error_class:'resource_exhausted' } },
+];
+let filterRole = 'all', filterOutcome = 'all';
+function renderStream(){
+  const ul = document.getElementById('stream');
+  const emptyEl = document.getElementById('stream-empty');
+  ul.innerHTML = '';
+  const rows = STREAM.filter(r =>
+    (filterRole === 'all' || r.role === filterRole) &&
+    (filterOutcome === 'all' || OUT_META[r.outcome].group === filterOutcome));
+  if(rows.length === 0){
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = filterRole === 'judge'
+      ? 'No judge events — the judge only fires on suggest-route decisions in [0.45, 0.75) with ≥ 2 candidates; none landed in that window on this install.'
+      : 'No events match this filter.';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  for(const r of rows){
+    const m = OUT_META[r.outcome];
+    const li = document.createElement('li');
+    // left: outcome dot
+    const dot = document.createElement('span'); dot.className = 'oc-dot ' + m.cls;
+    // role
+    const role = document.createElement('span'); role.className = 'tl-role'; role.textContent = r.role;
+    // mid: outcome chip + idchip + model/cache
+    const mid = document.createElement('div'); mid.className = 'tl-mid';
+    const oc = document.createElement('span'); oc.className = 'oc-chip ' + m.cls; oc.textContent = m.label;
+    const idc = document.createElement('a'); idc.className = 'idchip';
+    idc.textContent = 'item ' + r.item;
+    idc.href = '#view=journey&project=3&launch=' + r.launch + '&item=' + r.item;
+    idc.title = 'open item ' + r.item + ' in the Journey tab';
+    mid.appendChild(oc); mid.appendChild(idc);
+    if(r.cache){ const c = document.createElement('span'); c.className = 'chip'; c.textContent = 'cache ✓'; mid.appendChild(c); }
+    // output drawer (ok only)
+    if(r.outcome === 'ok' && r.out){
+      const d = document.createElement('details'); d.className = 'out-drawer';
+      const s = document.createElement('summary'); s.textContent = 'output';
+      const pre = document.createElement('pre'); pre.className = 'out-json';
+      pre.textContent = JSON.stringify(r.out, null, 2);   // textContent: LLM text is never HTML
+      d.appendChild(s); d.appendChild(pre); mid.appendChild(d);
+    }
+    // right: model, latency, relTime
+    const right = document.createElement('div'); right.className = 'tl-right';
+    const model = document.createElement('span'); model.className = 'mono'; model.textContent = 'qwen3:4b-q4_K_M';
+    const lat = document.createElement('span');
+    lat.textContent = r.ms == null ? '—' : (r.cache ? 'cache' : fmtMs(r.ms));
+    const t = document.createElement('span'); t.textContent = r.ago + ' ago';
+    right.appendChild(model); right.appendChild(lat); right.appendChild(t);
+    li.appendChild(dot); li.appendChild(role); li.appendChild(mid); li.appendChild(right);
+    ul.appendChild(li);
+  }
+}
+function wireFilters(){
+  document.querySelectorAll('.filter-row .fchip[data-fkind]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const kind = chip.dataset.fkind, val = chip.dataset.fval;
+      document.querySelectorAll('.fchip[data-fkind="' + kind + '"]').forEach(c => c.classList.remove('on'));
+      chip.classList.add('on');
+      if(kind === 'role') filterRole = val; else filterOutcome = val;
+      renderStream();
+    });
+  });
+}
+
+/* ---------- extractor cache explorer (Lens 2 §4.6) ---------- */
+const CACHE = [
+  { hash:'-4820193756621043789', layer:'infrastructure', err:'resource_exhausted', hits:23, created:'2026-07-12', last:'2m ago',
+    out:{ root_exception:'ENOSPCError', wrapper_chain:['StorageWriteException'], failing_layer:'infrastructure', error_class:'resource_exhausted', components:['fixtures-volume'] } },
+  { hash:'7719284410028836512', layer:'app_code', err:'null_reference', hits:14, created:'2026-07-13', last:'18m ago',
+    out:{ root_exception:'NullPointerException', wrapper_chain:['CheckoutServiceException'], failing_layer:'app_code', error_class:'null_reference', components:['checkout'] } },
+  { hash:'-1937450028174639201', layer:'test_code', err:'assertion', hits:9, created:'2026-07-13', last:'31m ago',
+    out:{ root_exception:'AssertionError', wrapper_chain:[], failing_layer:'test_code', error_class:'assertion', components:['ShippingProfileTest'] } },
+  { hash:'5561203849102847761', layer:'app_code', err:'http_5xx', hits:6, created:'2026-07-14', last:'1h ago',
+    out:{ root_exception:'ServiceUnavailableException', wrapper_chain:['GatewayException'], failing_layer:'app_code', error_class:'http_5xx', components:['payments-gateway'] } },
+  { hash:'-8823017460129384756', layer:'app_code', err:'other', hits:1, created:'2026-07-20', last:'2m ago',
+    out:{ root_exception:'QuantumLedgerDesyncError', wrapper_chain:[], failing_layer:'app_code', error_class:'other', components:['ledger','sync'] } },
+];
+function renderCache(){
+  const tbl = document.getElementById('cache-table');
+  for(const r of CACHE){
+    const tr = document.createElement('tr');
+    // build static cells
+    tr.innerHTML =
+      '<td class="mono" style="font-size:11px">' + r.hash + '</td>' +
+      '<td class="mono">' + r.layer + '</td>' +
+      '<td class="mono">' + r.err + '</td>' +
+      '<td class="mono">qwen3:4b-q4_K_M</td>' +
+      '<td class="mono">' + r.hits + '</td>' +
+      '<td class="mono">' + r.created + '</td>' +
+      '<td class="mono">' + r.last + '</td>';
+    // output drawer cell (textContent for the JSON — never HTML)
+    const td = document.createElement('td');
+    const d = document.createElement('details'); d.className = 'out-drawer';
+    const s = document.createElement('summary'); s.textContent = 'view';
+    const pre = document.createElement('pre'); pre.className = 'out-json';
+    pre.textContent = JSON.stringify(r.out, null, 2);
+    d.appendChild(s); d.appendChild(pre); td.appendChild(d);
+    tr.appendChild(td);
+    tbl.appendChild(tr);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderOcBars(document.getElementById('ocbars'));
+  renderLat(document.getElementById('latrows'));
+  renderStream();
+  wireFilters();
+  renderCache();
+});
+</script>
