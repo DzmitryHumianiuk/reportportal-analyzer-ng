@@ -161,7 +161,7 @@ class PgRetrievalStore(StoreBase):
                 emb_model_ver = EXCLUDED.emb_model_ver,
                 -- keep a real log id if a re-index arrives without one; bare column =
                 -- the existing target row (ON CONFLICT), EXCLUDED = the proposed row.
-                error_log_id = COALESCE(EXCLUDED.error_log_id, error_log_id)
+                error_log_id = COALESCE(EXCLUDED.error_log_id, failure_signature.error_log_id)
             """,
             [
                 (
