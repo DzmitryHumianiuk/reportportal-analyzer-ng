@@ -43,6 +43,30 @@ LABEL_GROUPS = ("pb", "ab", "si", "nd", "ti")
 TAU_SUGGEST = 0.45
 TAU_AUTO = 0.75
 
+# Learning-loop maturity thresholds. Spec constants, RE-DECLARED here (never
+# imported from src/analyzer_ng) so the read-only inspector keeps zero dependency
+# on the analyzer package. Provenance — keep in sync by hand if the spec moves:
+#   GBM_MIN_EVENTS   = 50  → src/analyzer_ng/ml/trainer.py     (cold-model floor)
+#   CALIB_MIN_EVENTS = 300 → src/analyzer_ng/ml/calibration.py (per-project isotonic)
+# Band metric is the project's count of DISTINCT LABELED ITEMS (one training
+# example per item — the training-frame proxy after the ti/unlabeled drop, §6.4/
+# §6.5), NOT the raw label_event churn (an item re-triaged N times is one example,
+# so raw events run several× higher). The payload carries the thresholds so the
+# view's stepper can never desync from the boundary a retrain actually enforces.
+GBM_MIN_EVENTS = 50
+CALIB_MIN_EVENTS = 300
+
+# label_event.source values that count as HUMAN triage (mirrors util.js
+# SOURCE_LABELS): RP defect edits, Inspector UI edits, and accepted suggestions.
+# 'ai_suggested'/'seed' are machine provenance and excluded from "human-sourced".
+_HUMAN_SOURCES = (
+    "rp",
+    "human",
+    "rp_defect_update",
+    "human_ui",
+    "analyzer_suggestion_accepted",
+)
+
 # ``method`` and ``abstain_reason`` are produced by DecisionResult
 # (src/analyzer_ng/core/decision.py) but are not part of the original suggestion
 # DDL; they are persisted once the analyzer migration adds the columns. Detect
@@ -1150,7 +1174,96 @@ def timeline(
         "label_events": label_events,
         "model_artifacts": model_artifacts,
         "metrics_daily": metrics_daily,
+        "maturity": _maturity(db, project_id),
         "rp": _rp_block(rp, project_id),
+    }
+
+
+def _maturity(db: Database, project_id: int) -> dict[str, Any]:
+    """Learning-loop maturity for the selected project (informational).
+
+    Places the project on the Cold → Warm → Hot band by its DISTINCT LABELED
+    ITEMS (training-frame contribution), and reports the live counters plus the
+    real model machinery (install-wide GBM + the per-project isotonic calibrator
+    whose presence is the Hot marker). All read-only; every number is real or a
+    derived ratio — no placeholders.
+    """
+    ev = (
+        db.one(
+            """
+            SELECT count(*)                                    AS label_events,
+                   count(*) FILTER (WHERE source = ANY(%s))    AS human_events,
+                   count(DISTINCT item_id) FILTER (
+                       WHERE new_label IS NOT NULL AND new_label <> 'ti'
+                   )                                           AS labeled_items
+            FROM analyzer.label_event WHERE project_id = %s
+            """,
+            (list(_HUMAN_SOURCES), project_id),
+        )
+        or {}
+    )
+    modes = (
+        db.one(
+            """
+            SELECT count(*) FILTER (WHERE status = 'confirmed') AS confirmed,
+                   count(*) FILTER (WHERE status = 'candidate') AS candidate,
+                   count(*) FILTER (WHERE status = 'seed')      AS seed,
+                   count(*)                                     AS total
+            FROM analyzer.failure_mode WHERE project_id = %s
+            """,
+            (project_id,),
+        )
+        or {}
+    )
+    sig = (
+        db.one(
+            "SELECT count(*) AS signatures, "
+            "count(*) FILTER (WHERE emb IS NOT NULL) AS embedded "
+            "FROM analyzer.failure_signature WHERE project_id = %s",
+            (project_id,),
+        )
+        or {}
+    )
+    # Active model machinery: the install-wide GBM (project_id IS NULL) and — the
+    # Hot marker — a per-project isotonic calibrator row for THIS project.
+    gbm = db.one(
+        "SELECT version, n_events FROM analyzer.model_artifact "
+        "WHERE project_id IS NULL AND kind = 'gbm' AND is_active LIMIT 1"
+    )
+    calib = db.one(
+        "SELECT version, n_events FROM analyzer.model_artifact "
+        "WHERE project_id = %s AND kind = 'calib' AND is_active LIMIT 1",
+        (project_id,),
+    )
+
+    labeled = ev.get("labeled_items", 0) or 0
+    if labeled >= CALIB_MIN_EVENTS:
+        stage = "hot"
+    elif labeled >= GBM_MIN_EVENTS:
+        stage = "warm"
+    else:
+        stage = "cold"
+
+    signatures = sig.get("signatures", 0) or 0
+    embedded = sig.get("embedded", 0) or 0
+    return {
+        "stage": stage,
+        "labeled_items": labeled,
+        "gbm_min_events": GBM_MIN_EVENTS,
+        "calib_min_events": CALIB_MIN_EVENTS,
+        "label_events": ev.get("label_events", 0) or 0,
+        "human_events": ev.get("human_events", 0) or 0,
+        "modes_confirmed": modes.get("confirmed", 0) or 0,
+        "modes_candidate": modes.get("candidate", 0) or 0,
+        "modes_seed": modes.get("seed", 0) or 0,
+        "modes_total": modes.get("total", 0) or 0,
+        "signatures": signatures,
+        "embedded": embedded,
+        "embedded_pct": (embedded / signatures) if signatures else None,
+        "install_gbm": gbm["version"] if gbm else None,
+        "install_gbm_events": gbm["n_events"] if gbm else None,
+        "project_calibrator": calib["version"] if calib else None,
+        "project_calibrator_events": calib["n_events"] if calib else None,
     }
 
 
