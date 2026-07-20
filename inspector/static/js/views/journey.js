@@ -3,7 +3,7 @@
 import { api } from '../api.js';
 import { updateHash } from '../app.js';
 import {
-  h, clear, card, defectBadge, defectBadgeAbbr, defectName, idChip, setDefects, fmt,
+  h, icon, clear, card, defectBadge, defectBadgeAbbr, defectName, idChip, setDefects, fmt,
   shortTime, relTime, highlightPattern, emptyState, loading, engDetails, engDrawer, srcInfo,
   FEATURE_GROUP_COLORS, INK, MUTED,
 } from '../util.js';
@@ -21,9 +21,9 @@ function navToItem(itemId) {
 
 export async function renderJourney(root, app) {
   clear(root);
-  const layout = h('div', { class: 'grid', style: { gridTemplateColumns: '300px 1fr', alignItems: 'start' } });
+  const layout = h('div', { class: 'grid', style: { gridTemplateColumns: '300px minmax(0, 1fr)', alignItems: 'start' } });
   const sidebar = h('div', { class: 'grid', style: { gap: '16px' } });
-  const main = h('div', { id: 'journey-main' });
+  const main = h('div', { id: 'journey-main', style: { minWidth: 0 } });
   layout.append(sidebar, main);
   root.appendChild(layout);
 
@@ -112,9 +112,9 @@ function renderJourneyDetail(root, d) {
   // Header line
   root.appendChild(h('div', { class: 'flex between center wrap', style: { marginBottom: '14px' } },
     h('div', { class: 'flex center gap-12 wrap' },
-      h('h2', { style: { margin: 0, fontSize: '18px' } }, it.item_name || `item ${it.item_id}`),
+      h('h2', { style: { margin: 0, fontSize: '18px', overflowWrap: 'anywhere', minWidth: 0 } }, it.item_name || `item ${it.item_id}`),
       defectBadge(it.issue_type, it.label_group),
-      it.is_auto_analyzed ? h('span', { class: 'badge', style: { background: 'var(--accent-soft)', color: 'var(--accent)' } }, '⭑ auto‑analyzed') : null),
+      it.is_auto_analyzed ? h('span', { class: 'badge', style: { background: 'var(--accent-soft)', color: 'var(--accent)' } }, icon('bolt', { size: 12 }), ' auto‑analyzed') : null),
     h('div', { class: 'flex gap-8 wrap' },
       idChip(`item ${it.item_id}`, it.ui_url),
       idChip(`launch ${it.launch_id}`, it.launch_url),
@@ -239,7 +239,7 @@ function groupingCard(d) {
   if (isBurst) {
     c.querySelector('.card-title').appendChild(
       h('span', { class: 'badge', style: { marginLeft: '4px', background: 'color-mix(in srgb,var(--warning) 16%,transparent)', color: 'var(--warning)', borderColor: 'var(--warning)' } },
-        h('span', { class: 'dot', style: { background: 'var(--warning)' } }), '🔥 burst'));
+        h('span', { class: 'dot', style: { background: 'var(--warning)' } }), icon('warning', { size: 12 }), ' burst'));
   }
 
   // L1 takeaway

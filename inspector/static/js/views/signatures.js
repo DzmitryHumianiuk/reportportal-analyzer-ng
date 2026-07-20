@@ -6,7 +6,7 @@
 import { api } from '../api.js';
 import { updateHash } from '../app.js';
 import {
-  h, clear, card, defectBadge, defectBadgeAbbr, idChip, setDefects, shortTime, fmt,
+  h, icon, clear, card, defectBadge, defectBadgeAbbr, idChip, setDefects, shortTime, fmt,
   highlightPattern, emptyState, loading,
 } from '../util.js';
 
@@ -239,7 +239,7 @@ function renderDetail(el, d) {
         idChip(`item ${m.item_id}`, m.ui_url, 'chip mono'),
         defectBadgeAbbr(m.issue_type, m.label_group),
         h('span', { style: { fontSize: '12.5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '360px' } }, m.item_name || '—'),
-        m.is_auto_analyzed ? h('span', { class: 'badge', style: { background: 'var(--accent-soft)', color: 'var(--accent)' } }, '⭑ auto') : null),
+        m.is_auto_analyzed ? h('span', { class: 'badge', style: { background: 'var(--accent-soft)', color: 'var(--accent)' } }, icon('bolt', { size: 12 }), ' auto') : null),
       h('div', { class: 'flex center gap-8' },
         idChip(m.launch_name || `launch ${m.launch_id}`, m.launch_url, 'chip'),
         h('span', { class: 'muted mono', style: { fontSize: '11px' } }, shortTime(m.indexed_at)))));

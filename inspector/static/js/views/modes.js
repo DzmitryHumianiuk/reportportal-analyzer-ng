@@ -3,7 +3,7 @@
 // graceful 2D fallback when the projection has < 3 usable dimensions.
 import { api } from '../api.js';
 import {
-  h, clear, card, emptyState, loading, setDefects, defectColor, defectName, defectInfo, fmt, pct,
+  h, icon, clear, card, emptyState, loading, setDefects, defectColor, defectName, defectInfo, fmt, pct,
   MUTED, INK, INK2, HAIRLINE,
 } from '../util.js';
 
@@ -52,7 +52,7 @@ export async function renderModes(root, app) {
       if (document.fullscreenElement) document.exitFullscreen();
       else fsWrap.requestFullscreen().catch(() => {});
     },
-  }, '⛶ fullscreen');
+  }, icon('maximize', { size: 12 }), ' fullscreen');
   lg.appendChild(fsBtn);
   document.addEventListener('fullscreenchange', () => {
     chart.style.height = document.fullscreenElement === fsWrap ? 'calc(100vh - 24px)' : 'max(560px, 72vh)';

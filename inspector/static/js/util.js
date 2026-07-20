@@ -1,4 +1,5 @@
 // Shared helpers: DOM builder, label palette, formatters, token highlighting.
+import { RP_ICONS } from './rp-icons.js';
 
 export const LABEL_COLORS = {
   pb: getVar('--lbl-pb'), ab: getVar('--lbl-ab'), si: getVar('--lbl-si'),
@@ -240,9 +241,27 @@ export function toast(msg) {
   clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-export function emptyState(icon, title, body, stageTag) {
+// RP ui-kit icon (vendored, currentColor). Returns an inline <svg> element.
+export function icon(name, { size = 16, title = null, cls = '' } = {}) {
+  const def = RP_ICONS[name] || RP_ICONS.info;
+  const span = h('span', { class: `rp-icon ${cls}`.trim(), title });
+  span.innerHTML = `<svg width="${size}" height="${size}" viewBox="${def.vb}" fill="none" aria-hidden="true">${def.body}</svg>`;
+  return span;
+}
+
+// Legacy emoji → RP icon names, so callers that still pass an emoji to
+// emptyState render a library icon (no-emoji rule) without touching each view.
+const EMOJI_ICON = {
+  '🚫': 'error', '🩺': 'warning', '🔌': 'warning', '🧭': 'search', '🔍': 'search',
+  '📭': 'launchType', '🪐': 'diamond', '🕸️': 'tree', '🌳': 'tree', '🌵': 'details',
+  '🔤': 'details', '📈': 'latestExecutions', '📊': 'latestExecutions', '🧱': 'jar',
+  '🗄️': 'moveToFolder', '🎯': 'checkmark', '🧠': 'info', '📄': 'fileOther',
+};
+
+export function emptyState(iconOrEmoji, title, body, stageTag) {
+  const name = EMOJI_ICON[iconOrEmoji] || (RP_ICONS[iconOrEmoji] ? iconOrEmoji : null);
   return h('div', { class: 'empty' },
-    h('div', { class: 'icon' }, icon),
+    h('div', { class: 'icon' }, name ? icon(name, { size: 28 }) : iconOrEmoji),
     h('h4', {}, title),
     h('p', {}, body),
     stageTag ? h('span', { class: 'stage-tag' }, stageTag) : null,

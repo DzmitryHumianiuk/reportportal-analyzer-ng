@@ -3,7 +3,7 @@
 import { api } from '../api.js';
 import { updateHash } from '../app.js';
 import {
-  h, clear, card, emptyState, loading, setDefects, defectColor, defectName, defectInfo, idChip,
+  h, icon, clear, card, emptyState, loading, setDefects, defectColor, defectName, defectInfo, idChip,
   fmt, MUTED, INK, INK2, HAIRLINE,
 } from '../util.js';
 
@@ -156,7 +156,7 @@ function renderForce(el, d) {
     h('span', { class: 'muted', style: { fontSize: '12px' } }, '◯ accent ring = auto‑analyzed'),
     h('span', { class: 'muted', style: { fontSize: '12px', marginLeft: 'auto' } }, 'wheel: zoom · drag bg: pan'),
     h('button', { class: 'chip', style: { padding: '2px 10px', cursor: 'pointer' }, title: 'Fit graph to view',
-      onclick: () => { userTouched = false; fit(); } }, '⤢ fit')));
+      onclick: () => { userTouched = false; fit(); } }, icon('cycleArrows', { size: 12 }), ' fit')));
   const wrap = h('div', { style: { overflow: 'hidden', borderRadius: '8px' } });
   wrap.appendChild(svg.node());
   el.appendChild(wrap);

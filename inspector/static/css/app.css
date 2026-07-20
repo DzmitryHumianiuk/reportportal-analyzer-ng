@@ -227,6 +227,23 @@ svg a.idlink:hover text { fill: var(--accent); text-decoration: underline; }
 }
 .stage-pill:last-child .s-flow { display: none; }
 
+/* ---------------- project maturity (Learning Loop) ---------------- */
+.stage-pill .mat-here { font-size: 10px; color: var(--accent); font-weight: 600; margin-top: 4px; letter-spacing: .3px; }
+.mat-stage {
+  padding: 12px 14px; border-radius: var(--radius-s); background: var(--surface-2);
+  border: 1px solid var(--hairline); display: flex; flex-direction: column; gap: 8px;
+}
+.mat-stage.active { border-color: var(--accent); background: var(--accent-soft); }
+.mat-stage-head { display: flex; align-items: center; gap: 8px; }
+.mat-badge { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.mat-stage-name { font-size: 13px; font-weight: 700; color: var(--ink); }
+.mat-now { font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; font-weight: 700;
+  color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 4px; padding: 1px 5px; margin-left: auto; }
+.mat-decides { font-size: 12px; line-height: 1.55; color: var(--ink-2); }
+.mat-key { font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.mat-key-lbl { text-transform: uppercase; letter-spacing: .5px; font-size: 10px; font-weight: 700; color: var(--ink-2); }
+
 /* ---------------- tables: RP floating white row-cards on a grey inset (G4) ---------------- */
 .table-wrap { overflow-x: auto; background: var(--rp-bg-100); border: 1px solid var(--rp-e-100);
   border-radius: var(--radius-s); padding: 6px 8px; }
@@ -249,7 +266,7 @@ table.data .rank { color: var(--rp-e-400); font-family: var(--mono); }
 /* ---------------- key/value ---------------- */
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: baseline; }
 .kv dt { color: var(--muted); font-size: 12px; }
-.kv dd { margin: 0; font-size: 13px; }
+.kv dd { margin: 0; font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
 
 /* templates / token highlight */
 .pattern { font-family: var(--mono); font-size: 12.5px; line-height: 1.7; word-break: break-word; white-space: pre-wrap; }
@@ -268,7 +285,7 @@ table.data .rank { color: var(--rp-e-400); font-family: var(--mono); }
   display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
   padding: 40px 24px; color: var(--ink-2);
 }
-.empty .icon { font-size: 34px; opacity: .8; }
+.empty .icon { font-size: 34px; opacity: .8; color: var(--rp-e-300); }
 .empty h4 { margin: 2px 0 0; font-size: 14px; color: var(--ink); }
 .empty p { margin: 0; max-width: 560px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
 .empty .stage-tag { font-family: var(--mono); font-size: 11.5px; color: var(--accent); background: var(--accent-soft);
@@ -605,3 +622,8 @@ details.out-drawer > summary:hover { color: var(--rp-topaz); }
 pre.out-json { margin: 8px 0 2px; padding: 10px 12px; background: var(--rp-bg-100); border: 1px solid var(--rp-e-100);
   border-radius: var(--radius-s); font-family: var(--rp-mono); font-size: 11px; color: var(--rp-charcoal); line-height: 16px;
   white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
+
+/* Vendored RP ui-kit icons: inherit currentColor, baseline-align with text. */
+.rp-icon { display: inline-flex; align-items: center; vertical-align: -2px; }
+.rp-icon svg { display: block; }
+.badge .rp-icon, .chip .rp-icon { margin-right: 2px; }
