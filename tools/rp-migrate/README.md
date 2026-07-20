@@ -43,6 +43,10 @@ python3 migrate.py --from 2026-06-01 --skip-all-defects
 
 # skip attachments (faster)
 python3 migrate.py --launch-ids 1201 --no-attachments
+
+# do not transfer PASSED tests/steps (whole passed subtrees are dropped;
+# suites survive while they still hold failed/skipped/… descendants)
+python3 migrate.py --launch-ids 1201 --skip-passed
 ```
 
 Re-runs are idempotent at launch level: a target launch with the same

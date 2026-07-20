@@ -236,6 +236,33 @@ def parse_date(text: str) -> int:
     return int(dt.timestamp() * 1000)
 
 
+def drop_passed(items: list[dict]) -> list[dict]:
+    """Filter out PASSED subtrees (``--skip-passed``).
+
+    An item survives when its own status is not PASSED or when any descendant
+    survives — so containers stay as long as they hold anything worth
+    transferring, and a kept child always keeps its ancestor chain (defensive:
+    RP derives container status from children, but retries/interruptions can
+    disagree). Only PASSED is dropped; FAILED/SKIPPED/INTERRUPTED/… transfer."""
+    children: dict[Any, list[dict]] = {}
+    for it in items:
+        children.setdefault(it.get("parent"), []).append(it)
+    keep: set[int] = set()
+
+    def visit(it: dict) -> bool:
+        kept_child = False
+        for child in children.get(it["id"], []):
+            kept_child = visit(child) or kept_child
+        if kept_child or (it.get("status") or "").upper() != "PASSED":
+            keep.add(it["id"])
+            return True
+        return False
+
+    for root in children.get(None, []):
+        visit(root)
+    return [it for it in items if it["id"] in keep]
+
+
 # --------------------------------------------------------------------------- #
 # defect-type sync
 # --------------------------------------------------------------------------- #
@@ -469,6 +496,10 @@ def main() -> None:
                     help="source launch ids whose analysis results must NOT be transferred")
     ap.add_argument("--skip-all-defects", action="store_true",
                     help="transfer no analysis results at all")
+    ap.add_argument("--skip-passed", action="store_true",
+                    help="do not transfer PASSED tests/steps (whole passed subtrees "
+                         "are dropped; containers survive while they hold non-passed "
+                         "descendants)")
     ap.add_argument("--no-attachments", action="store_true")
     ap.add_argument("--dry-run", action="store_true", help="list what would be migrated")
     args = ap.parse_args()
@@ -505,6 +536,12 @@ def main() -> None:
     per_launch_items: dict[int, list[dict]] = {}
     for la in launches:
         items = src.items_of_launch(la["id"])
+        if args.skip_passed:
+            kept = drop_passed(items)
+            if len(kept) != len(items):
+                print(f"  [{la['id']}] --skip-passed: {len(items) - len(kept)} of "
+                      f"{len(items)} item(s) dropped (passed subtrees)")
+            items = kept
         per_launch_items[la["id"]] = items
         if args.skip_all_defects or la["id"] in skip_defects:
             continue
