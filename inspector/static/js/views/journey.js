@@ -702,10 +702,14 @@ function decisionCard(d) {
   chips.appendChild(methodChip(method));
   if (dec.band !== 'abstain') chips.appendChild(labelChip(dec, label));
   chips.appendChild(outcomeBadge(dec.outcome));
-  if (dec.llm_used) {
-    chips.appendChild(h('span', { class: 'badge', title: 'A large language model was asked to double-check this decision before it was stored.', style: { background: 'var(--accent-soft)', color: 'var(--accent)' } }, '🧠 LLM judge consulted'));
-  }
+  // (the old '🧠 LLM judge consulted' badge is removed — llm_used is set by the
+  // explainer/coldstart too and judge has 0 events, so it asserted a consult that
+  // never happened. The role-accurate LLM strip below replaces it.)
   body.appendChild(chips);
+
+  // LLM involvement strip (role-accurate, item-scoped) — before the gauge
+  const llmEl = llmStrip(d, dec, method);
+  if (llmEl) body.appendChild(llmEl);
 
   // L2 — banded confidence gauge + active-band legend
   const gaugeRow = h('div', { class: 'flex gap-12 wrap center', style: { marginBottom: '6px' } });
@@ -963,6 +967,162 @@ function eviRow(m, maxSum, open) {
   });
   row.append(head, bodyEl);
   return row;
+}
+
+// ---- LLM involvement strip (inside the Decision card) ----
+function latFmt(ms) {
+  if (ms == null) return '—';
+  if (ms === 0) return 'cache';
+  return ms >= 1000 ? (ms / 1000).toFixed(1) + ' s' : ms + ' ms';
+}
+function ocClass(outcome) {
+  if (outcome === 'ok') return 'oc-ok';
+  if (outcome === 'schema_fail' || outcome === 'validation_fail') return 'oc-guard';
+  return 'oc-unavail';
+}
+
+function llmStrip(d, dec, method) {
+  const llm = d.llm || { events: [], role_state: [] };
+  const E = llm.events || []; // newest-first
+  const modelVer = dec.model_ver || '';
+  const isColdstart = method === 'llm_coldstart' || modelVer.startsWith('rubric+');
+  if (!E.length && !dec.llm_used && !isColdstart) return null;
+
+  const roles = [...new Set(E.map((e) => e.role))];
+  const latestByRole = (role) => E.find((e) => e.role === role);
+  const strip = h('div', { class: 'llm-strip' });
+  strip.appendChild(h('div', { class: 'llm-strip-head' },
+    h('div', { class: 'llm-strip-title' }, 'LLM sidecar ',
+      h('span', { class: 'k' }, E.length ? `LLM · ${E.length}` : 'LLM · —')),
+    h('span', { class: 'note' }, 'async roles, decision-path-neutral')));
+  strip.appendChild(llmTakeaway(dec, method, E, isColdstart, roles));
+
+  const tiles = h('div', { class: 'llm-tiles' });
+  if (isColdstart) tiles.appendChild(coldstartTile(dec, E));
+  const exp = latestByRole('explainer');
+  if (exp && exp.outcome === 'ok' && dec.explanation) tiles.appendChild(explainerTile(dec, exp));
+  if (dec.judge) tiles.appendChild(judgeTile(dec));
+  const ext = E.find((e) => e.role === 'extractor' && e.outcome === 'ok' && e.output);
+  if (ext) tiles.appendChild(extractorTile(ext));
+  if (tiles.childNodes.length) strip.appendChild(tiles);
+
+  if (exp && exp.outcome !== 'ok') strip.appendChild(guardNote(exp));
+  strip.appendChild(llmEng(llm, dec));
+  return strip;
+}
+
+function llmTakeaway(dec, method, E, isColdstart, roles) {
+  const p = h('p', { class: 'takeaway' });
+  const mono = (t) => h('span', { class: 'mono' }, t);
+  const mut = (t) => h('span', { class: 'muted' }, t);
+  const exp = E.find((e) => e.role === 'explainer');
+  if (isColdstart) {
+    p.append(h('b', {}, 'LLM cold-start labeled this provisionally'), ' — rubric over ',
+      mono(dec.model_ver || ''), ', conf fixed ', mono(fmt(dec.confidence, 2)), ' ',
+      mut('(suggests, never auto-confirms)'), '.');
+  } else if (exp && exp.outcome === 'ok' && dec.explanation) {
+    p.append(h('b', {}, 'LLM explained this decision'), ' — the rationale below is model output ',
+      mut(`(${exp.model}${exp.cache_hit ? ', cache hit' : ', ' + latFmt(exp.latency_ms)})`),
+      '; label and confidence are the analyzer’s, not the LLM’s.');
+  } else if (exp && exp.outcome !== 'ok') {
+    p.append(h('b', {}, 'LLM explanation withheld'), ' — output failed ', mono(exp.outcome),
+      ', so nothing was persisted ', mut('(guardrail; the decision itself is unaffected)'), '.');
+  } else if (dec.judge) {
+    p.append(h('b', {}, 'LLM judge re-ranked the suggest-band candidates'), ' — chose ',
+      mono(String((dec.judge.chosen_item_id != null ? 'item ' + dec.judge.chosen_item_id : dec.judge.choice))),
+      '; label/confidence untouched by design.');
+  } else if (roles.length === 1 && roles[0] === 'extractor') {
+    p.append(h('b', {}, 'LLM touched features only'), ' — the extractor fed the ', mono("'llm'"),
+      ' evidence group; it never saw the label path.');
+  } else if (E.length && E.every((e) => ['timeout', 'breaker_open', 'dropped'].includes(e.outcome))) {
+    p.append(h('b', {}, 'LLM was asked but unavailable'), ` — ${E.length}× ${E[0].outcome}; the decision proceeded without it.`);
+  } else {
+    p.append(h('b', {}, 'LLM sidecar activity recorded'), ` — ${E.length} event(s) for this item.`);
+  }
+  return p;
+}
+
+function coldstartTile(dec, E) {
+  const ev = E.find((e) => e.role === 'coldstart' && e.outcome === 'ok' && e.output);
+  const cs = dec.coldstart || {};
+  const rule = cs.rule || (ev && ev.output && ev.output.rubric_rule_matched) || '—';
+  const reason = ev && ev.output && ev.output.reason;
+  const tile = h('div', { class: 'llm-tile' });
+  tile.appendChild(h('div', { class: 'role-line' },
+    h('span', { class: 'role-key' }, 'coldstart'), h('span', { class: 'tag-prov' }, 'provisional')));
+  tile.appendChild(h('div', { class: 'provisional' },
+    h('div', { class: 'chip-row' },
+      labelChip(dec, defectName(dec.predicted_label, dec.predicted_group)),
+      h('span', { class: 'chip mono' }, dec.model_ver || ''),
+      h('span', { class: 'chip' }, `conf ${fmt(dec.confidence, 2)} (fixed)`),
+      h('span', { class: 'chip mono' }, `rule ${rule}`))));
+  if (reason) tile.appendChild(h('div', { class: 'llm-quote' }, reason,
+    h('span', { class: 'attr' }, 'model rationale — cold-start')));
+  return tile;
+}
+
+function explainerTile(dec, ev) {
+  const tile = h('div', { class: 'llm-tile' });
+  tile.appendChild(h('div', { class: 'role-line' },
+    h('span', { class: 'role-key' }, 'explainer'), h('span', { class: 'chip mono' }, ev.model)));
+  tile.appendChild(h('div', { class: 'llm-quote', title: `prompt_hash ${ev.prompt_hash || '—'}${ev.cache_hit ? ' · cache hit' : ''}` },
+    dec.explanation,
+    h('span', { class: 'attr' }, `model’s rationale — ${ev.model} · ${latFmt(ev.latency_ms)} · ${relTime(ev.created_at)}`)));
+  return tile;
+}
+
+function judgeTile(dec) {
+  const j = dec.judge || {};
+  const tile = h('div', { class: 'llm-tile' });
+  tile.appendChild(h('div', { class: 'role-line' },
+    h('span', { class: 'role-key' }, 'judge'), h('span', { class: 'chip' }, `chose ${j.choice ?? '—'}`)));
+  tile.appendChild(h('div', { class: 'chip-row' },
+    j.chosen_item_id != null ? idChip(`item ${j.chosen_item_id}`, null, 'chip mono') : h('span', { class: 'chip' }, 'demoted all'),
+    h('span', { class: 'muted', style: { fontSize: '11px' } }, 'order only — label/conf untouched')));
+  return tile;
+}
+
+function extractorTile(ev) {
+  const o = ev.output || {};
+  const tile = h('div', { class: 'llm-tile' });
+  tile.appendChild(h('div', { class: 'role-line' },
+    h('span', { class: 'role-key' }, 'extractor'),
+    h('span', { class: 'oc-chip oc-ok' }, ev.cache_hit ? 'cache ✓' : 'fresh call')));
+  const chips = h('div', { class: 'chip-row' });
+  if (o.failing_layer) chips.appendChild(h('span', { class: 'chip' }, `layer: ${o.failing_layer}`));
+  if (o.error_class) chips.appendChild(h('span', { class: 'chip' }, `class: ${o.error_class}`));
+  if (o.root_exception) chips.appendChild(h('span', { class: 'chip mono' }, o.root_exception));
+  tile.appendChild(chips);
+  tile.appendChild(h('div', { class: 'note', style: { marginTop: '6px' } },
+    'feeds the ', h('span', { class: 'mono' }, "'llm'"), ' evidence group above.'));
+  return tile;
+}
+
+function guardNote(ev) {
+  return h('div', { class: 'guard-note' },
+    h('div', { class: 'g-tag' }, `⛨ guardrail fired · ${ev.outcome}`),
+    'The model’s output failed validation, so nothing was persisted — no hallucinated explanation ever reaches the row. Retried once (seed 7 → 8), then dropped.');
+}
+
+function llmEng(llm, dec) {
+  const E = llm.events || [];
+  const tbl = h('table', { class: 'data' },
+    h('thead', {}, h('tr', {}, ...['role', 'outcome', 'model', 'cache', 'latency', 'when'].map((t) => h('th', {}, t)))),
+    h('tbody', {}, ...E.map((e) => h('tr', {},
+      h('td', { class: 'mono' }, e.role),
+      h('td', {}, h('span', { class: `oc-chip ${ocClass(e.outcome)}` }, e.outcome)),
+      h('td', { class: 'mono' }, e.model || '—'),
+      h('td', { class: 'mono' }, e.cache_hit ? 'cache' : '—'),
+      h('td', { class: 'mono' }, latFmt(e.latency_ms)),
+      h('td', { class: 'mono' }, relTime(e.created_at))))));
+  return engDetails('llm',
+    h('dl', { class: 'kv' },
+      h('dt', {}, 'llm_used'), h('dd', { class: 'mono' }, String(dec.llm_used)),
+      h('dt', {}, 'model_ver'), h('dd', { class: 'mono' }, dec.model_ver || '—')),
+    E.length ? h('div', { class: 'table-wrap', style: { marginTop: '10px' } }, tbl) : h('p', { class: 'note' }, 'No llm_event rows for this item.'),
+    h('p', { class: 'note', style: { marginTop: '8px' } }, 'append-only ',
+      h('span', { class: 'mono' }, 'analyzer.llm_event'), ', newest 20 for this item · ',
+      h('a', { href: '#view=llm', class: 'idlink' }, 'all events → LLM tab')));
 }
 
 // ---- Stage 5: feedback ----

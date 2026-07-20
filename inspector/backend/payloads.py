@@ -453,8 +453,255 @@ def item_journey(
         "reconstruction": reconstruction,
         "decision": decision_block,
         "feedback": feedback_block,
+        "llm": _item_llm(db, project_id, item_id),
         "rp": _rp_block(rp, project_id),
     }
+
+
+# --------------------------------------------------------------------------- #
+# LLM sidecar observability (read-only; spec 04 tables). All graceful when the
+# llm_* tables are empty — absence of events is itself a signal, never faked.
+# --------------------------------------------------------------------------- #
+_LLM_ROLES = ("coldstart", "explainer", "judge", "extractor")
+
+
+def _item_llm(db: Database, project_id: int, item_id: int) -> dict[str, Any]:
+    """Per-item LLM involvement: this item's llm_event rows (newest 20) + the
+    project's llm_role_state. `output` passes through verbatim (jsonb → dict);
+    it is NULL unless outcome='ok', by engine design."""
+    events = db.rows(
+        """
+        SELECT event_id, role, model, prompt_hash, cache_hit, outcome, output,
+               latency_ms, created_at
+        FROM analyzer.llm_event
+        WHERE project_id = %s AND item_id = %s
+        ORDER BY created_at DESC, event_id DESC
+        LIMIT 20
+        """,
+        (project_id, item_id),
+    )
+    role_state = db.rows(
+        "SELECT role, enabled, reason, decided_at FROM analyzer.llm_role_state "
+        "WHERE project_id = %s",
+        (project_id,),
+    )
+    return {
+        "events": [
+            {
+                "event_id": e["event_id"],
+                "role": e["role"],
+                "model": e["model"],
+                "prompt_hash": e["prompt_hash"],
+                "cache_hit": e["cache_hit"],
+                "outcome": e["outcome"],
+                "output": e["output"],
+                "latency_ms": e["latency_ms"],
+                "created_at": _iso(e["created_at"]),
+            }
+            for e in events
+        ],
+        "role_state": [
+            {
+                "role": r["role"],
+                "enabled": r["enabled"],
+                "reason": r["reason"],
+                "decided_at": _iso(r["decided_at"]),
+            }
+            for r in role_state
+        ],
+    }
+
+
+def llm_summary(db: Database, project_id: int) -> dict[str, Any]:
+    """Per-role counts by outcome, last-event time, latency (p50/p90/max over
+    non-cache-hit ok calls), and the kill-switch state (absence = default-on)."""
+    mix = db.rows(
+        "SELECT role, outcome, count(*) AS n, count(*) FILTER (WHERE cache_hit) AS from_cache "
+        "FROM analyzer.llm_event WHERE project_id = %s GROUP BY role, outcome",
+        (project_id,),
+    )
+    lat = db.rows(
+        """
+        SELECT role,
+               percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms) AS p50,
+               percentile_cont(0.9) WITHIN GROUP (ORDER BY latency_ms) AS p90,
+               max(latency_ms) AS mx, count(*) AS n
+        FROM analyzer.llm_event
+        WHERE project_id = %s AND NOT cache_hit AND latency_ms IS NOT NULL AND outcome = 'ok'
+        GROUP BY role
+        """,
+        (project_id,),
+    )
+    last = db.rows(
+        "SELECT role, max(created_at) AS last_event FROM analyzer.llm_event "
+        "WHERE project_id = %s GROUP BY role",
+        (project_id,),
+    )
+    states = db.rows(
+        "SELECT role, enabled, reason, stats, decided_at FROM analyzer.llm_role_state "
+        "WHERE project_id = %s",
+        (project_id,),
+    )
+    lat_by = {r["role"]: r for r in lat}
+    last_by = {r["role"]: r for r in last}
+    state_by = {r["role"]: r for r in states}
+    mix_by: dict[str, dict[str, int]] = {}
+    cache_by: dict[str, int] = {}
+    for m in mix:
+        mix_by.setdefault(m["role"], {})[m["outcome"]] = m["n"]
+        cache_by[m["role"]] = cache_by.get(m["role"], 0) + (m["from_cache"] or 0)
+
+    roles_out = []
+    for role in _LLM_ROLES:
+        outcomes = mix_by.get(role, {})
+        lr = lat_by.get(role)
+        st = state_by.get(role)
+        roles_out.append(
+            {
+                "role": role,
+                "outcomes": outcomes,
+                "event_count": sum(outcomes.values()),
+                "ok": outcomes.get("ok", 0),
+                "from_cache": cache_by.get(role, 0),
+                "last_event": _iso(last_by.get(role, {}).get("last_event")) if role in last_by else None,
+                "latency": (
+                    {
+                        "p50": _num(lr["p50"]),
+                        "p90": _num(lr["p90"]),
+                        "max": _num(lr["mx"]),
+                        "n": lr["n"],
+                    }
+                    if lr
+                    else None
+                ),
+                "state": (
+                    {
+                        "enabled": st["enabled"],
+                        "reason": st["reason"],
+                        "stats": st["stats"],
+                        "decided_at": _iso(st["decided_at"]),
+                    }
+                    if st
+                    else None  # absence = default-on
+                ),
+            }
+        )
+
+    model_row = db.one(
+        "SELECT model FROM analyzer.llm_event WHERE project_id = %s "
+        "ORDER BY created_at DESC, event_id DESC LIMIT 1",
+        (project_id,),
+    )
+    return {
+        "roles": roles_out,
+        "event_total": sum(r["event_count"] for r in roles_out),
+        "model": model_row["model"] if model_row else None,
+    }
+
+
+def llm_events(
+    db: Database,
+    project_id: int,
+    role: str | None,
+    outcome: str | None,
+    limit: int,
+    rp: RPNameResolver | None = None,
+) -> dict[str, Any]:
+    """Activity stream, newest-first, capped. `outcome` is a GROUP filter:
+    ok | guardrail (schema_fail/validation_fail) | unavailable (timeout/
+    breaker_open/dropped)."""
+    where = ["e.project_id = %s"]
+    params: list[Any] = [project_id]
+    if role and role != "all":
+        where.append("e.role = %s")
+        params.append(role)
+    if outcome == "ok":
+        where.append("e.outcome = 'ok'")
+    elif outcome == "guardrail":
+        where.append("e.outcome IN ('schema_fail','validation_fail')")
+    elif outcome == "unavailable":
+        where.append("e.outcome IN ('timeout','breaker_open','dropped')")
+    rows = db.rows(
+        f"""
+        SELECT e.event_id, e.item_id, e.role, e.model, e.cache_hit, e.outcome,
+               e.output, e.latency_ms, e.created_at, ti.item_name, ti.launch_id
+        FROM analyzer.llm_event e
+        LEFT JOIN analyzer.test_item ti
+               ON ti.project_id = e.project_id AND ti.item_id = e.item_id
+        WHERE {" AND ".join(where)}
+        ORDER BY e.created_at DESC, e.event_id DESC
+        LIMIT %s
+        """,
+        (*params, limit),
+    )
+    links = rp.item_links(project_id, [r["item_id"] for r in rows]) if rp else {}
+    return {
+        "events": [
+            {
+                "event_id": r["event_id"],
+                "item_id": r["item_id"],
+                "item_name": r["item_name"],
+                "launch_id": r["launch_id"],
+                "role": r["role"],
+                "model": r["model"],
+                "cache_hit": r["cache_hit"],
+                "outcome": r["outcome"],
+                "output": r["output"],
+                "latency_ms": r["latency_ms"],
+                "created_at": _iso(r["created_at"]),
+                **_ui_url(links.get(r["item_id"])),
+            }
+            for r in rows
+        ],
+        "count": len(rows),
+        "limit": limit,
+    }
+
+
+def llm_cache(
+    db: Database, project_id: int, role: str, limit: int
+) -> dict[str, Any]:
+    """Cache rows for a role (default extractor), ordered by reuse. Includes the
+    honest 'hits undercounts feature-time reads' via the caption on the client."""
+    rows = db.rows(
+        """
+        SELECT template_hash, cache_key, model, hits, output, created_at, last_hit_at,
+               (created_at >= now() - make_interval(days =>
+                   CASE %s WHEN 'judge' THEN 14 ELSE 90 END)) AS fresh
+        FROM analyzer.llm_cache
+        WHERE project_id = %s AND role = %s
+        ORDER BY hits DESC, last_hit_at DESC NULLS LAST
+        LIMIT %s
+        """,
+        (role, project_id, role, limit),
+    )
+    summ = db.one(
+        "SELECT count(*) AS entries, COALESCE(sum(hits), 0) AS hits "
+        "FROM analyzer.llm_cache WHERE project_id = %s AND role = %s",
+        (project_id, role),
+    )
+    return {
+        "role": role,
+        "entries": summ["entries"] if summ else 0,
+        "total_hits": summ["hits"] if summ else 0,
+        "rows": [
+            {
+                "template_hash": _s(r["template_hash"]),
+                "cache_key": r["cache_key"],
+                "model": r["model"],
+                "hits": r["hits"],
+                "output": r["output"],
+                "created_at": _iso(r["created_at"]),
+                "last_hit_at": _iso(r["last_hit_at"]),
+                "fresh": r["fresh"],
+            }
+            for r in rows
+        ],
+    }
+
+
+def _num(v: Any) -> float | None:
+    return None if v is None else float(v)
 
 
 def _matching_decision(
@@ -567,6 +814,10 @@ def _matching_decision(
         "tau_suggest": TAU_SUGGEST,
         "tau_auto": TAU_AUTO,
         "model_ver": sug["model_ver"],
+        # Non-numeric LLM annotations riding suggestion.features (dropped from the
+        # numeric feature vector above): coldstart rubric + judge verdict, verbatim.
+        "coldstart": features.get("coldstart") if isinstance(features, dict) else None,
+        "judge": features.get("judge") if isinstance(features, dict) else None,
         # Verbatim when stored; derived (see above) so the field is always present.
         "method": method,
         # Verbatim when the suggestion row stores it; None otherwise (the frontend

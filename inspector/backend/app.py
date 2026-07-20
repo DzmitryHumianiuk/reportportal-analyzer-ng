@@ -61,6 +61,17 @@ def _build_inner(cfg: Config) -> FastAPI:
     app.state.db = db
     app.state.rp = rp
 
+    # Static assets are ES modules; without revalidation a redeploy can leave a
+    # browser running a stale module tree (query-busting the HTML never busts the
+    # module URLs). `no-cache` forces a conditional request each load, so a
+    # changed ETag serves fresh code immediately.
+    @app.middleware("http")
+    async def _revalidate_static(request, call_next):  # noqa: ANN001, ANN202
+        response = await call_next(request)
+        if "/static/" in request.url.path:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     # ---- Health ----
     @app.get("/healthz")
     def healthz() -> dict[str, Any]:
@@ -142,6 +153,28 @@ def _build_inner(cfg: Config) -> FastAPI:
         if data is None:
             raise HTTPException(status_code=404, detail="error_hash not found")
         return data
+
+    # ---- LLM sidecar observability (read-only; spec 04 tables) ----
+    @app.get("/api/llm/summary")
+    def api_llm_summary(project: int = Query(...)) -> dict[str, Any]:
+        return payloads.llm_summary(db, project)
+
+    @app.get("/api/llm/events")
+    def api_llm_events(
+        project: int = Query(...),
+        role: str | None = Query(default=None),
+        outcome: str | None = Query(default=None),
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        return payloads.llm_events(db, project, role, outcome, limit, rp)
+
+    @app.get("/api/llm/cache")
+    def api_llm_cache(
+        project: int = Query(...),
+        role: str = Query(default="extractor"),
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        return payloads.llm_cache(db, project, role, limit)
 
     # ---- Optional live analyzer health proxy ----
     @app.get("/api/analyzer-health")

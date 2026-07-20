@@ -30,4 +30,8 @@ export const api = {
   signatureHash: (project, errorHash) =>
     get(`api/signature-hash?${qs({ project, error_hash: errorHash })}`),
   analyzerHealth: () => get('api/analyzer-health'),
+  llmSummary: (project) => get(`api/llm/summary?${qs({ project })}`),
+  llmEvents: (project, role, outcome, limit) =>
+    get(`api/llm/events?${qs({ project, role, outcome, limit })}`),
+  llmCache: (project, role, limit) => get(`api/llm/cache?${qs({ project, role, limit })}`),
 };

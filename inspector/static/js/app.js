@@ -9,10 +9,11 @@ import { renderModes } from './views/modes.js';
 import { renderGroups, setGroupsState } from './views/groups.js';
 import { renderLoop } from './views/loop.js';
 import { renderSignatures, setSignaturesState } from './views/signatures.js';
+import { renderLlm, setLlmState } from './views/llm.js';
 
 const VIEWS = {
   journey: renderJourney, drain: renderDrain, modes: renderModes,
-  groups: renderGroups, loop: renderLoop, signatures: renderSignatures,
+  groups: renderGroups, loop: renderLoop, signatures: renderSignatures, llm: renderLlm,
 };
 
 export const state = {
@@ -27,7 +28,7 @@ export const state = {
 let PROJECTS = [];
 // Per-view selection mirrored into the hash. `launch`/`item` = journey;
 // `glaunch` = groups' launch; `q`/`conflicts`/`hash` = signatures.
-const linkState = { launch: null, item: null, glaunch: null, q: '', conflicts: false, hash: null };
+const linkState = { launch: null, item: null, glaunch: null, q: '', conflicts: false, hash: null, lrole: null, loutcome: null };
 
 const num = (v) => {
   if (v == null || v === '') return null;
@@ -51,6 +52,7 @@ function serializeHash() {
   if (state.view === 'journey') { p.launch = linkState.launch; p.item = linkState.item; }
   else if (state.view === 'signatures') { p.q = linkState.q || null; p.conflicts = linkState.conflicts ? '1' : null; p.hash = linkState.hash; }
   else if (state.view === 'groups') { p.launch = linkState.glaunch; }
+  else if (state.view === 'llm') { p.lrole = linkState.lrole; p.loutcome = linkState.loutcome; }
   writeHashParams(p);
 }
 
@@ -113,9 +115,12 @@ async function applyHashState(hp, opts) {
   linkState.hash = hp.hash || null;
   linkState.launch = view === 'groups' ? null : num(hp.launch);
   linkState.glaunch = view === 'groups' ? (hp.launch || null) : null;
+  linkState.lrole = hp.lrole || null;
+  linkState.loutcome = hp.loutcome || null;
   setJourneyState({ launch: linkState.launch, item: linkState.item });
   setSignaturesState({ q: linkState.q, conflicts: linkState.conflicts, expanded: linkState.hash });
   setGroupsState({ launch: linkState.glaunch });
+  setLlmState({ role: linkState.lrole, outcome: linkState.loutcome });
 
   if (projectChanged || opts.initial) await loadRp();
   state.view = view;
