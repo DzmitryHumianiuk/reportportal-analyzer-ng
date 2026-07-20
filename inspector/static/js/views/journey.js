@@ -515,7 +515,7 @@ function fnNode(kText, state, cap, art, letter) {
   return node;
 }
 function fnCaption(state, letter) {
-  if (state === 'won') return '✓ decided here';
+  if (state === 'won') return 'decided here';
   if (state === 'skip') return 'not reached';
   return letter === 'B' ? 'passed — scored, no short-circuit' : 'passed — no decision';
 }
@@ -1087,7 +1087,7 @@ function extractorTile(ev) {
   const tile = h('div', { class: 'llm-tile' });
   tile.appendChild(h('div', { class: 'role-line' },
     h('span', { class: 'role-key' }, 'extractor'),
-    h('span', { class: 'oc-chip oc-ok' }, ev.cache_hit ? 'cache ✓' : 'fresh call')));
+    h('span', { class: 'oc-chip oc-ok' }, ev.cache_hit ? 'cache hit' : 'fresh call')));
   const chips = h('div', { class: 'chip-row' });
   if (o.failing_layer) chips.appendChild(h('span', { class: 'chip' }, `layer: ${o.failing_layer}`));
   if (o.error_class) chips.appendChild(h('span', { class: 'chip' }, `class: ${o.error_class}`));
@@ -1131,7 +1131,7 @@ function feedbackCard(d) {
   const c = card('Feedback', { step: 5, sub: 'label_event log — append-only' });
   const body = c.querySelector('.card-body');
   if (!F.length) {
-    body.appendChild(emptyState('✍️', 'No label events',
+    body.appendChild(emptyState('📈', 'No label events',
       'No label events — never labeled or relabeled since ingest. Events append on RP defect updates (rp), UI accepts (human), auto-apply (ai_suggested), seed catalog (seed).',
       'analyzer.label_event'));
     return c;
