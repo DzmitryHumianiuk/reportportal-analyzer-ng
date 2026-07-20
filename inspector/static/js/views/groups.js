@@ -90,7 +90,7 @@ function renderForce(el, d) {
   node.append('circle')
     .attr('r', 11)
     .attr('fill', (n) => defectColor(n.issue_type, n.label_group))
-    .attr('stroke', (n) => (n.is_auto_analyzed ? 'var(--accent)' : '#0d0d0d'))
+    .attr('stroke', (n) => (n.is_auto_analyzed ? 'var(--accent)' : '#ffffff'))
     .attr('stroke-width', (n) => (n.is_auto_analyzed ? 3 : 1.2));
   node.append('title').text((n) => `item ${n.item_id}\n${n.name || ''}\nlabel ${nodeLabelText(n)}\ngroup ${n.group_id ?? 'none'}${n.is_auto_analyzed ? '\n⭑ auto-analyzed' : ''}${n.ui_url ? '\n↗ click id to open in ReportPortal' : ''}`);
   // Wrap the id label in an SVG <a> so it opens the item in the RP UI (new tab)

@@ -1,81 +1,89 @@
-/* analyzer-ng inspector — dark-first design system.
-   Palette derived from the validated dataviz reference (dark surface #1a1a19).
-   Label classes carry fixed categorical hues; every use is paired with a text
-   label so identity is never color-alone (CVD secondary encoding). */
+/* analyzer-ng inspector — ReportPortal "new design language" (light-first).
+   Tokens extracted from reportportal/ui-kit (docs/rp-design-system). The old
+   dark custom-property names survive as compatibility aliases re-pointed at
+   their RP light-theme equivalents (DESIGN-PLATFORM §7 map), so every existing
+   inline style / rule that references var(--ink) etc. translates automatically.
+   Defect identity is carried by a color DOT (issue_type.hex_color), never fill. */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  /* surfaces / planes */
-  --plane:       #0d0d0d;
-  --surface-1:   #17181a;
-  --surface-2:   #1e2023;
-  --surface-3:   #26292d;
-  --hairline:    #2c2e31;
-  --hairline-2:  #383b3f;
+  /* ===== RP design-system tokens (docs/rp-design-system/tokens.css) ===== */
+  --rp-bg-000:#ffffff; --rp-bg-100:#f7f7f8; --rp-bg-200:#eceff4;
+  --rp-topaz-100:#e5f5f8; --rp-topaz:#00829b; --rp-topaz-hover:#009dbb;
+  --rp-topaz-focused:#00b0d1; --rp-topaz-pressed:#00758c;
+  --rp-almost-black:#3f3f3f; --rp-charcoal:#464547;
+  --rp-e-100:#e3e7ec; --rp-e-200:#c1c7d0; --rp-e-300:#a2aab5; --rp-e-400:#8d95a1;
+  --rp-error:#dc5959; --rp-sm-error:#db3549;
+  --rp-yellow-800:#ffc208; --rp-yellow-700:#d4a002;
+  --rp-sm-warning:#d78706;
+  --rp-status-passed:#3aa76d; --rp-status-skipped:#b8b8b8;
+  --rp-shadow-rgb:55,67,98;
+  --rp-shadow:0 1px 3px rgba(var(--rp-shadow-rgb),.1);
+  --rp-shadow-hover:0 1px 3px rgba(var(--rp-shadow-rgb),.2);
+  --rp-shadow-secondary:0 8px 40px rgba(0,0,0,.15);
+  --rp-tooltip-bg:rgba(34,34,34,.91);
+  --rp-font:Roboto,Arial,Helvetica,"Segoe UI",sans-serif;
+  --rp-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
 
-  /* ink */
-  --ink:         #f4f5f6;
-  --ink-2:       #c3c2b7;
-  --muted:       #898781;
+  /* ===== compatibility aliases (old dark names → RP light) ===== */
+  --plane:var(--rp-bg-100);
+  --surface-1:var(--rp-bg-000);
+  --surface-2:var(--rp-bg-100);
+  --surface-3:var(--rp-bg-200);
+  --hairline:var(--rp-e-100);
+  --hairline-2:var(--rp-e-200);
+  --ink:var(--rp-almost-black);
+  --ink-2:var(--rp-charcoal);
+  --muted:var(--rp-e-400);
+  --accent:var(--rp-topaz);
+  --accent-soft:var(--rp-topaz-100);
+  --good:var(--rp-status-passed);
+  --warning:var(--rp-sm-warning);
+  --serious:var(--rp-error);
+  --critical:var(--rp-sm-error);
 
-  /* accents */
-  --accent:      #3987e5;
-  --accent-soft: rgba(57,135,229,0.14);
+  /* decision-band semantics (auto / abstain / suggest) */
+  --band-abstain:var(--rp-e-300);
+  --band-suggest:var(--rp-yellow-700);
+  --band-auto:var(--rp-status-passed);
 
-  /* label classes (validated first-4 categorical slots + neutral) */
-  --lbl-si:  #3987e5;   /* system issue        */
-  --lbl-nd:  #34a853;   /* no defect           */
-  --lbl-pb:  #d55181;   /* product bug         */
-  --lbl-ab:  #c98500;   /* automation bug      */
-  --lbl-ti:  #898781;   /* to investigate      */
-  --lbl-none:#5a5d61;
+  /* defect-type DOT colors — RP group fallbacks; project issue_type.hex_color
+     overrides per-label at render time (util.js defectColor). */
+  --lbl-pb:#d32f2f; --lbl-ab:#ffc208; --lbl-si:#3e7be6; --lbl-nd:#76839b;
+  --lbl-ti:#00829b; --lbl-none:var(--rp-e-400);
 
-  /* status */
-  --good:     #0ca30c;
-  --warning:  #fab219;
-  --serious:  #ec835a;
-  --critical: #d03b3b;
-
-  /* decision bands */
-  --band-abstain: #5a5d61;
-  --band-suggest: #c98500;
-  --band-auto:    #34a853;
-
-  --radius:   12px;
-  --radius-s: 8px;
-  --shadow:   0 1px 0 rgba(255,255,255,0.03), 0 8px 24px rgba(0,0,0,0.35);
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --radius:4px; --radius-s:8px;
+  --shadow:var(--rp-shadow);
+  --mono:var(--rp-mono);
+  --sans:var(--rp-font);
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
-  font-family: var(--sans);
-  background:
-    radial-gradient(1200px 600px at 80% -10%, rgba(57,135,229,0.08), transparent 60%),
-    var(--plane);
-  color: var(--ink);
-  font-size: 14px;
-  line-height: 1.5;
+  font-family: var(--rp-font);
+  background: var(--rp-bg-100);
+  color: var(--rp-almost-black);
+  font-size: 13px;
+  line-height: 20px;
   -webkit-font-smoothing: antialiased;
 }
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--rp-topaz); text-decoration: none; }
 
 /* ---------------- top bar ---------------- */
 .topbar {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 24px; padding: 14px 24px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent), var(--surface-1);
-  border-bottom: 1px solid var(--hairline);
+  gap: 24px; padding: 14px 32px;
+  background: #fff;
+  border-bottom: 1px solid var(--rp-e-100);
   position: sticky; top: 0; z-index: 40;
 }
 .brand { display: flex; align-items: center; gap: 12px; }
-.brand-mark { font-size: 26px; filter: saturate(1.1); }
+.brand-mark { font-size: 26px; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.2; }
-.brand-title { font-size: 15px; letter-spacing: 0.2px; }
-.brand-title b { color: var(--accent); font-weight: 700; }
+.brand-title { font-size: 15px; letter-spacing: 0.2px; color: var(--rp-almost-black); }
+.brand-title b { color: var(--rp-topaz); font-weight: 700; }
 .brand-sub { font-size: 11.5px; color: var(--muted); }
 /* RP name-resolution status — data-driven (live / unavailable / not configured). */
 #rp-status.ok { color: var(--good); }
@@ -85,12 +93,13 @@ a { color: var(--accent); text-decoration: none; }
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
 .select {
-  background: var(--surface-2); color: var(--ink);
-  border: 1px solid var(--hairline-2); border-radius: var(--radius-s);
-  padding: 7px 10px; font-size: 13px; min-width: 170px; font-family: var(--sans);
-  cursor: pointer;
+  background: #fff; color: var(--rp-almost-black);
+  border: 1px solid var(--rp-e-200); border-radius: var(--rp-radius-control, 3px);
+  padding: 7px 12px; font-size: 13px; min-width: 170px; font-family: var(--rp-font);
+  cursor: pointer; height: 36px;
 }
-.select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.select:hover { border-color: var(--rp-e-300); }
+.select:focus-visible { outline: none; border-color: var(--rp-topaz-focused); box-shadow: inset 0 0 0 1px var(--rp-topaz-focused); }
 
 .counters { display: flex; gap: 10px; flex-wrap: wrap; }
 .counter {
@@ -135,20 +144,19 @@ a { color: var(--accent); text-decoration: none; }
 .view { padding: 22px 24px 60px; max-width: 1440px; margin: 0 auto; animation: fade .2s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
-/* ---------------- cards ---------------- */
+/* ---------------- cards (RP: white, blue-grey shadow, no border, radius 4) ---------------- */
 .card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.015), transparent), var(--surface-1);
-  border: 1px solid var(--hairline); border-radius: var(--radius);
-  box-shadow: var(--shadow); overflow: hidden;
+  background: #fff; border-radius: var(--radius);
+  box-shadow: var(--rp-shadow); overflow: hidden;
 }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 13px 16px; border-bottom: 1px solid var(--hairline); }
-.card-title { font-size: 13.5px; font-weight: 650; letter-spacing: 0.2px; display: flex; align-items: center; gap: 9px; }
+  padding: 16px; border-bottom: 1px solid var(--rp-e-100); }
+.card-title { font-size: 15px; line-height: 24px; font-weight: 600; color: var(--rp-almost-black); display: flex; align-items: center; gap: 9px; }
 .card-title .step-num {
-  width: 22px; height: 22px; border-radius: 6px; background: var(--accent-soft); color: var(--accent);
+  width: 24px; height: 24px; border-radius: 4px; background: var(--rp-topaz-100); color: var(--rp-topaz);
   display: inline-grid; place-items: center; font-size: 12px; font-weight: 700;
 }
-.card-sub { font-size: 11.5px; color: var(--muted); }
+.card-sub { font-size: 11px; line-height: 16px; color: var(--rp-e-400); }
 .card-body { padding: 16px; }
 
 .grid { display: grid; gap: 16px; }
@@ -158,11 +166,11 @@ a { color: var(--accent); text-decoration: none; }
 
 /* ---------------- pills / chips / badges ---------------- */
 .chip {
-  font-family: var(--mono); font-size: 12px; background: var(--surface-2);
-  border: 1px solid var(--hairline-2); border-radius: 6px; padding: 2px 7px; color: var(--ink-2);
+  font-family: var(--rp-mono); font-size: 12px; line-height: 18px; background: var(--rp-bg-200);
+  border: 1px solid transparent; border-radius: 6px; padding: 3px 8px; color: var(--rp-charcoal);
   white-space: nowrap; display: inline-flex; align-items: center; gap: 5px;
 }
-.chip.mono-strong { color: var(--ink); }
+.chip.mono-strong { color: var(--rp-almost-black); }
 /* An id rendered as a real ReportPortal deep link. Inherits the look of its
    surrounding chip/text, adds only a clickable affordance (accent + underline). */
 a.idlink { color: inherit; text-decoration: none; cursor: pointer; }
@@ -174,24 +182,24 @@ a.chip.idlink:hover { color: var(--accent); border-color: var(--accent);
 svg a.idlink { cursor: pointer; }
 svg a.idlink:hover text { fill: var(--accent); text-decoration: underline; }
 .badge {
-  font-size: 11px; font-weight: 600; letter-spacing: .3px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; letter-spacing: .2px; border-radius: 100px;
   padding: 2px 9px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid transparent;
 }
 .badge .dot { width: 8px; height: 8px; border-radius: 50%; }
+/* signature FTS field badges — neutral (RP: never defect-label colors, AP-S5) */
 .field-badge {
   font-size: 10px; text-transform: uppercase; letter-spacing: .5px; font-weight: 700;
-  padding: 2px 6px; border-radius: 4px; color: var(--plane);
+  padding: 2px 6px; border-radius: 4px; color: var(--rp-charcoal); background: var(--rp-bg-200);
+  border: 1px solid var(--rp-e-200);
 }
-.fb-exc { background: var(--lbl-pb); }
-.fb-msg { background: var(--lbl-si); }
-.fb-templates { background: var(--lbl-ab); color: #1a1a19; }
-.fb-frames { background: var(--lbl-nd); }
-.fb-codes { background: var(--serious); }
+.fb-exc, .fb-msg, .fb-templates, .fb-frames, .fb-codes {
+  color: var(--rp-charcoal); background: var(--rp-bg-200); border-color: var(--rp-e-200);
+}
 
-/* label class badges */
-.lbl { --c: var(--lbl-none); color: var(--c); border-color: color-mix(in srgb, var(--c) 40%, transparent);
-  background: color-mix(in srgb, var(--c) 14%, transparent); }
-.lbl .dot { background: var(--c); }
+/* label / defect pills — RP white pill, 1px e-200 border, color on the DOT only */
+.lbl { --c: var(--lbl-none); color: var(--rp-almost-black); border-color: var(--rp-e-200);
+  background: #fff; font-weight: 600; }
+.lbl .dot { background: var(--c); width: 12px; height: 12px; }
 .lbl.pb { --c: var(--lbl-pb); } .lbl.ab { --c: var(--lbl-ab); }
 .lbl.si { --c: var(--lbl-si); } .lbl.nd { --c: var(--lbl-nd); }
 .lbl.ti { --c: var(--lbl-ti); } .lbl.none, .lbl.other { --c: var(--lbl-none); }
@@ -219,15 +227,20 @@ svg a.idlink:hover text { fill: var(--accent); text-decoration: underline; }
 }
 .stage-pill:last-child .s-flow { display: none; }
 
-/* ---------------- tables ---------------- */
-.table-wrap { overflow-x: auto; }
-table.data { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-table.data th, table.data td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
-table.data th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; position: sticky; top: 0; background: var(--surface-1); }
+/* ---------------- tables: RP floating white row-cards on a grey inset (G4) ---------------- */
+.table-wrap { overflow-x: auto; background: var(--rp-bg-100); border: 1px solid var(--rp-e-100);
+  border-radius: var(--radius-s); padding: 6px 8px; }
+table.data { width: 100%; border-collapse: separate; border-spacing: 0 4px; font-size: 13px; }
+table.data th { color: var(--rp-e-400); font-weight: 400; font-size: 11px; line-height: 16px; text-align: left;
+  padding: 4px 16px; white-space: nowrap; }
+table.data td { background: #fff; color: var(--rp-almost-black); padding: 11px 16px; text-align: left;
+  white-space: nowrap; box-shadow: var(--rp-shadow-hover); }
+table.data tr td:first-child { border-radius: 4px 0 0 4px; }
+table.data tr td:last-child { border-radius: 0 4px 4px 0; }
 table.data td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
-table.data tr:hover td { background: rgba(255,255,255,0.02); }
-table.data tr.is-self td { background: var(--accent-soft); }
-table.data .rank { color: var(--muted); font-family: var(--mono); }
+table.data tr:hover td { background: var(--rp-bg-100); }
+table.data tr.is-self td { background: var(--rp-topaz-100); }
+table.data .rank { color: var(--rp-e-400); font-family: var(--mono); }
 
 /* rrf bar in cell */
 .microbar { position: relative; height: 6px; border-radius: 3px; background: var(--surface-3); min-width: 60px; }
@@ -241,10 +254,10 @@ table.data .rank { color: var(--muted); font-family: var(--mono); }
 /* templates / token highlight */
 .pattern { font-family: var(--mono); font-size: 12.5px; line-height: 1.7; word-break: break-word; white-space: pre-wrap; }
 .tok { border-radius: 4px; padding: 0 4px; font-weight: 600; }
-.tok-num { background: rgba(201,133,0,0.18); color: #f0b74a; }
-.tok-uuid { background: rgba(213,81,129,0.18); color: #ec8fb2; }
-.tok-wild { background: rgba(57,135,229,0.18); color: #7db4f0; }
-.tok-url { background: rgba(52,168,83,0.16); color: #6bd08a; }
+.tok-num { background: rgba(212,160,2,0.16); color: #916b00; }
+.tok-uuid { background: rgba(211,47,47,0.12); color: #b03030; }
+.tok-wild { background: rgba(0,130,155,0.12); color: #00758c; }
+.tok-url { background: rgba(58,167,109,0.14); color: #237a4c; }
 
 /* gauge (banded confidence gauge — position:relative anchors the threshold chips) */
 .gauge-wrap { position: relative; width: 260px; height: 150px; }
@@ -273,8 +286,8 @@ table.data .rank { color: var(--muted); font-family: var(--mono); }
 /* toast */
 .toast {
   position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px);
-  background: var(--surface-3); border: 1px solid var(--hairline-2); color: var(--ink);
-  padding: 9px 16px; border-radius: 10px; font-size: 13px; box-shadow: var(--shadow);
+  background: #fff; border: 1px solid var(--rp-e-200); color: var(--rp-almost-black);
+  padding: 12px 16px; border-radius: var(--radius-s); font-size: 13px; box-shadow: var(--rp-shadow-secondary);
   opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 90;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }

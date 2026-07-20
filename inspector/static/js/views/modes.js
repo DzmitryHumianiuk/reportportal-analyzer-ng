@@ -105,12 +105,12 @@ function draw3d(el, d) {
     itemStyle: { opacity: 1, borderColor: '#fff', borderWidth: 1 },
   });
   chart.setOption({
-    tooltip: { backgroundColor: '#26292d', borderColor: HAIRLINE, textStyle: { color: INK }, enterable: true, formatter: tip },
+    tooltip: { backgroundColor: '#ffffff', borderColor: HAIRLINE, borderWidth: 1, textStyle: { color: INK2 }, extraCssText: 'box-shadow:0 8px 40px rgba(0,0,0,.15);border-radius:8px;', enterable: true, formatter: tip },
     xAxis3D: axis('PC1'), yAxis3D: axis('PC2'), zAxis3D: axis('PC3'),
     grid3D: {
       viewControl: { autoRotate: true, autoRotateSpeed: 6, distance: 190 },
-      axisLine: { lineStyle: { color: HAIRLINE } }, splitLine: { lineStyle: { color: '#232527' } },
-      environment: '#101112',
+      axisLine: { lineStyle: { color: HAIRLINE } }, splitLine: { lineStyle: { color: HAIRLINE } },
+      environment: '#ffffff',
     },
     series,
   });
@@ -122,7 +122,7 @@ function draw2d(el, d) {
   const series = Object.entries(byGroup).map(([g, pts]) => ({
     type: 'scatter', name: defectName(null, g),
     data: pts.map((p) => ({ value: coord(p), meta: p })),
-    symbolSize: 14, itemStyle: { color: defectColor(null, g), opacity: 0.9, borderColor: '#0d0d0d', borderWidth: 1 },
+    symbolSize: 14, itemStyle: { color: defectColor(null, g), opacity: 0.9, borderColor: '#ffffff', borderWidth: 1 },
   }));
   if (modes.length) series.push({
     type: 'scatter', name: 'centroid',
@@ -131,7 +131,7 @@ function draw2d(el, d) {
     itemStyle: { borderColor: '#fff', borderWidth: 1.5 },
   });
   chart.setOption({
-    tooltip: { backgroundColor: '#26292d', borderColor: HAIRLINE, textStyle: { color: INK }, enterable: true, formatter: tip },
+    tooltip: { backgroundColor: '#ffffff', borderColor: HAIRLINE, borderWidth: 1, textStyle: { color: INK2 }, extraCssText: 'box-shadow:0 8px 40px rgba(0,0,0,.15);border-radius:8px;', enterable: true, formatter: tip },
     grid: { left: 30, right: 20, top: 20, bottom: 30, containLabel: true },
     xAxis: { name: 'PC1', nameTextStyle: { color: MUTED }, axisLabel: { color: MUTED }, splitLine: { lineStyle: { color: HAIRLINE } } },
     yAxis: { name: 'PC2', nameTextStyle: { color: MUTED }, axisLabel: { color: MUTED }, splitLine: { lineStyle: { color: HAIRLINE } } },

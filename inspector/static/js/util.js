@@ -66,20 +66,19 @@ export function defectName(locator, group) {
   return (byGroup && byGroup.name) || labelName(g);
 }
 
-// Badge showing the REAL defect long-name accented by the RP hex_color, with the
-// locator kept as a secondary monospace chip (locator is real data too). Falls
-// back to the static group name + palette color when RP names are unavailable.
+// RP defect pill (DESIGN-PLATFORM §4): white fill, 1px #c1c7d0 border, radius
+// 100px, a 12px color DOT filled from issue_type.hex_color, name in neutral ink.
+// Color is carried by the dot — never the fill or the text. The raw locator is
+// not shown inline (it lives in Technical Details); it stays in the tooltip.
 export function defectBadge(locator, group) {
   const g = group || labelGroup(locator);
   const col = defectColor(locator, g);
   const name = defectName(locator, g);
-  const badge = h('span', { class: 'badge defect',
-    style: { color: col, borderColor: col, background: `color-mix(in srgb, ${col} 15%, transparent)` } },
-    h('span', { class: 'dot', style: { background: col } }), name);
-  if (!locator) return badge;
   const info = defectInfo(locator);
-  return h('span', { class: 'flex center gap-8' }, badge,
-    h('span', { class: 'chip mono', title: info ? 'RP locator' : 'locator (RP name unavailable)' }, locator));
+  const title = [info && info.name, locator].filter(Boolean).join(' · ') || null;
+  return h('span', { class: 'badge defect', title,
+    style: { background: '#fff', color: 'var(--rp-almost-black)', borderColor: 'var(--rp-e-200)', fontWeight: 600 } },
+    h('span', { class: 'dot', style: { background: col, width: '12px', height: '12px' } }), name);
 }
 
 // Compact defect badge for dense lists: shows the RP abbreviation
@@ -94,8 +93,8 @@ export function defectBadgeAbbr(locator, group) {
     || (['pb', 'ab', 'si', 'nd', 'ti'].includes(g) ? g.toUpperCase() : labelName(g));
   const title = [info && info.name, locator].filter(Boolean).join(' · ');
   return h('span', { class: 'badge defect', title: title || null,
-    style: { color: col, borderColor: col, background: `color-mix(in srgb, ${col} 15%, transparent)` } },
-    h('span', { class: 'dot', style: { background: col } }), abbr);
+    style: { background: '#fff', color: 'var(--rp-almost-black)', borderColor: 'var(--rp-e-200)', fontWeight: 600 } },
+    h('span', { class: 'dot', style: { background: col, width: '10px', height: '10px' } }), abbr);
 }
 
 // Render a test-item / launch id as a hyperlink into the ReportPortal UI when a
@@ -281,13 +280,16 @@ export function engDetails(key, ...children) {
   return engDrawer(key, 'Technical Details', ...children);
 }
 
-// ECharts shared dark options
+// ECharts shared options (RP light: dark axis ink, light gridlines). Chart
+// tooltips are light (white card + soft shadow) so the rich formatter HTML —
+// which colors text with the dark INK/INK2/MUTED tokens — stays readable.
 export function echartsBase() {
   return {
-    textStyle: { fontFamily: 'system-ui, sans-serif', color: INK2 },
+    textStyle: { fontFamily: 'Roboto, Arial, sans-serif', color: INK2 },
     grid: { left: 8, right: 16, top: 24, bottom: 8, containLabel: true },
     tooltip: {
-      backgroundColor: '#26292d', borderColor: HAIRLINE, textStyle: { color: INK },
+      backgroundColor: '#ffffff', borderColor: HAIRLINE, borderWidth: 1,
+      textStyle: { color: INK2 }, extraCssText: 'box-shadow:0 8px 40px rgba(0,0,0,.15);border-radius:8px;',
       confine: true,
     },
   };

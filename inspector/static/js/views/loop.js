@@ -62,7 +62,7 @@ function renderEvents(el, events) {
           return `<b>${id}</b><br>${transitionText(e.old_label, e.old_group) || '(new)'} → <b>${transitionText(e.new_label, e.new_group)}</b><br><span style="color:${MUTED}">${e.source} · ${shortTime(e.ts)}</span>`;
         },
       },
-      series: [{ type: 'scatter', symbolSize: 15, data, encode: { x: 0, y: 1 }, itemStyle: { borderColor: '#0d0d0d', borderWidth: 1 } }],
+      series: [{ type: 'scatter', symbolSize: 15, data, encode: { x: 0, y: 1 }, itemStyle: { borderColor: '#ffffff', borderWidth: 1 } }],
     });
   });
   // transition list
