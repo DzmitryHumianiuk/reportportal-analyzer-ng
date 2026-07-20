@@ -147,6 +147,103 @@ LIMIT 10;
 """.strip()
 
 
+# --------------------------------------------------------------------------- #
+# spec 03 §8.2 — similar-"To Investigate" search (the `search` AMQP route).
+#
+# Same hybrid lexical+dense RRF fusion as STAGE_B_HYBRID_SQL, but the target set is
+# the MIRROR IMAGE of the decision path: still-uninvestigated TI items only
+# (issue_type_group = 'ti'), restricted to the launches RP asks us to search within
+# (filteredLaunchIds), excluding the query item itself. This is a SEPARATE named
+# query — it does not touch the versioned STAGE_B SQL, so HYBRID_RETRIEVAL_VERSION
+# is NOT bumped (the golden-file decision-path ordering is unchanged).
+#
+# Legacy parity (service-auto-analyzer search_service.search_logs): the OpenSearch
+# query filtered `exists issue_type` + `terms launch_id ∈ filteredLaunchIds` +
+# `must_not test_item_id == itemId` + `should issue_type wildcard "ti*"`. TI items
+# always carry a `ti***` locator, so `issue_type_group = 'ti'` reproduces both the
+# "exists" and the "ti*" clauses.
+#
+# params: $1 project_id, $2 emb_model_ver, $3 salient-terms string,
+#         $4 query halfvec literal, $5 exception-name string for trgm fallback,
+#         $6 query template_ids bigint[], $7 k, $8 filtered launch_ids bigint[]
+#         (empty = no launch restriction), $9 self item_id (excluded)
+# --------------------------------------------------------------------------- #
+SEARCH_TI_HYBRID_SQL = """
+WITH q AS (
+    SELECT websearch_to_tsquery('simple', $3) AS tsq
+),
+lex AS (                                          -- lexical top-50, field-boosted
+    SELECT fs.item_id,
+           ts_rank_cd('{0.1, 0.2, 0.4, 1.0}',    -- weights {D,C,B,A}: tmpl,frames,msg,exc
+                      fs.signature_tsv, q.tsq) AS lex_score,
+           row_number() OVER (
+               ORDER BY ts_rank_cd('{0.1,0.2,0.4,1.0}', fs.signature_tsv, q.tsq) DESC,
+                        fs.item_id DESC) AS l_rank
+    FROM analyzer.failure_signature fs
+    JOIN analyzer.test_item ti USING (project_id, item_id)
+    CROSS JOIN q
+    WHERE fs.project_id = $1
+      AND ti.issue_type_group = 'ti'
+      AND ti.item_id <> $9
+      AND (cardinality($8::bigint[]) = 0 OR ti.launch_id = ANY($8::bigint[]))
+      AND fs.signature_tsv @@ q.tsq
+    ORDER BY lex_score DESC, fs.item_id DESC
+    LIMIT 50
+),
+lex_trgm AS (                                     -- fallback when FTS found nothing
+    SELECT fs.item_id,
+           similarity(fs.exc_text, $5) AS lex_score,
+           row_number() OVER (ORDER BY similarity(fs.exc_text, $5) DESC,
+                              fs.item_id DESC) AS l_rank
+    FROM analyzer.failure_signature fs
+    JOIN analyzer.test_item ti USING (project_id, item_id)
+    WHERE fs.project_id = $1
+      AND ti.issue_type_group = 'ti'
+      AND ti.item_id <> $9
+      AND (cardinality($8::bigint[]) = 0 OR ti.launch_id = ANY($8::bigint[]))
+      AND $5 <> '' AND fs.exc_text % $5
+      AND NOT EXISTS (SELECT 1 FROM lex)
+    ORDER BY lex_score DESC, fs.item_id DESC
+    LIMIT 50
+),
+sparse AS (
+    SELECT * FROM lex UNION ALL SELECT * FROM lex_trgm
+),
+dense AS (                                        -- dense top-50 (HNSW or exact per §2.5)
+    SELECT fs.item_id,
+           1 - (fs.emb <=> $4::halfvec(384)) AS cosine,
+           row_number() OVER (ORDER BY fs.emb <=> $4::halfvec(384),
+                              fs.item_id DESC) AS d_rank
+    FROM analyzer.failure_signature fs
+    JOIN analyzer.test_item ti USING (project_id, item_id)
+    WHERE fs.project_id = $1
+      AND fs.emb_model_ver = $2
+      AND fs.emb IS NOT NULL
+      AND ti.issue_type_group = 'ti'
+      AND ti.item_id <> $9
+      AND (cardinality($8::bigint[]) = 0 OR ti.launch_id = ANY($8::bigint[]))
+    ORDER BY fs.emb <=> $4::halfvec(384), fs.item_id DESC
+    LIMIT 50
+),
+fused AS (                                        -- RRF, k = 60
+    SELECT COALESCE(s.item_id, d.item_id)                    AS item_id,
+           s.l_rank                                          AS sparse_rank,
+           d.d_rank                                          AS dense_rank,
+           s.lex_score, d.cosine,
+           COALESCE(1.0 / (60 + s.l_rank), 0)
+         + COALESCE(1.0 / (60 + d.d_rank), 0)                AS rrf_score
+    FROM sparse s FULL OUTER JOIN dense d USING (item_id)
+)
+SELECT f.item_id, f.sparse_rank, f.dense_rank, f.lex_score, f.cosine, f.rrf_score,
+       ti.launch_id, ti.launch_number, fs.error_log_id
+FROM fused f
+JOIN analyzer.failure_signature fs ON fs.project_id = $1 AND fs.item_id = f.item_id
+JOIN analyzer.test_item          ti ON ti.project_id = $1 AND ti.item_id = f.item_id
+ORDER BY f.rrf_score DESC, f.item_id DESC
+LIMIT $7;
+""".strip()
+
+
 _PARAM_RE = re.compile(r"\$(\d+)")
 
 

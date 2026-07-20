@@ -372,19 +372,30 @@ class AnalysisEngine:
             return []
 
         q = self._query_signature(rep, launch_id=request.launchId, launch_number=0)
-        cands = self.retrieval.find_candidates(project, q, k=TOP_K)
-        filtered = set(request.filteredLaunchIds)
+        # §8.2: the search route is the MIRROR of the decision path — it hunts still-
+        # uninvestigated (TI) look-alikes, scoped to the launches RP asks us to search
+        # within (filteredLaunchIds), excluding the query item. The decision-path
+        # ``find_candidates`` filters ``issue_type_group <> 'ti'`` in every leg, which
+        # is exactly wrong here, so search has its own TI-only retrieval variant.
+        cands = self.retrieval.search_ti_candidates(
+            project,
+            q,
+            k=TOP_K,
+            filtered_launch_ids=list(request.filteredLaunchIds),
+            self_item_id=request.itemId,
+        )
         out: list[SearchLogInfo] = []
         for c in cands:
             if c.item_id is None:
-                continue
-            if filtered and c.launch_id not in filtered:
                 continue
             cos = c.cosine or 0.0
             fts_hit = (c.lex_score or 0.0) > 0.0
             if cos >= SEARCH_COS_THRESHOLD or fts_hit:
                 out.append(
                     SearchLogInfo(
+                        # Real RP log id of the matched item's first ERROR log: the RP
+                        # backend loads the log BY this id and drops rows it cannot find
+                        # (SearchLogServiceImpl). NULL (pre-migration rows) → 0.
                         logId=c.relevant_log_id or 0,
                         testItemId=c.item_id,
                         matchScore=round(min(1.0, cos) * 100, 2),

@@ -52,6 +52,10 @@ class SignatureIn(BaseModel):
     paths: list[str] = []
     emb: list[float] | None = None  # 384 floats; None => embed asynchronously
     emb_model_ver: int = 0
+    # RP log id of the item's first ERROR log (spec 03 §8.2). The similar-TI search
+    # reply must carry a real RP log id — the RP backend loads the log by this id and
+    # drops any row it cannot find. None for items indexed before this was captured.
+    error_log_id: int | None = None
 
 
 class StoredSignature(BaseModel):

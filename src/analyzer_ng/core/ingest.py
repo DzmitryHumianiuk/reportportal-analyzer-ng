@@ -222,6 +222,17 @@ class IndexPipeline:
 
         issue_type = (item.issueType or "").strip().lower() or None
         test_case_hash = item.testCaseHash or None
+        # RP log id of the item's first ERROR-level log (spec §8.2): the similar-TI
+        # search reply must carry a real RP log id, and this is the only place the
+        # raw wire log ids are still in hand. Mirrors filter_item_logs' level gate.
+        error_log_id = next(
+            (
+                log.logId
+                for log in item.logs
+                if log.logLevel >= ERROR_LOGGING_LEVEL and log.message.strip()
+            ),
+            None,
+        )
         start_time = _ts7_to_datetime(item.startTime)
         log_times = [t for t in (_ts7_to_datetime(log.logTime) for log in item.logs) if t]
         log_time_max = max(log_times) if log_times else None
@@ -261,6 +272,7 @@ class IndexPipeline:
             status_codes=list(result.status_codes),
             emb=emb,
             emb_model_ver=emb_ver,
+            error_log_id=error_log_id,
         )
         ts = log_time_max or start_time or datetime.now(UTC)
         return item_in, sig_in, ts

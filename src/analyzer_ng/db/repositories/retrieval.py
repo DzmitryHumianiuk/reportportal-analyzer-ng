@@ -36,6 +36,7 @@ from analyzer_ng.db.repositories.models import (
 )
 from analyzer_ng.db.repositories.protocols import KBStore
 from analyzer_ng.db.repositories.queries import (
+    SEARCH_TI_HYBRID_SQL,
     SESSION_TUNING,
     STAGE_B_HYBRID_SQL,
     bind_numbered,
@@ -141,8 +142,8 @@ class PgRetrievalStore(StoreBase):
             INSERT INTO analyzer.failure_signature
                 (project_id, item_id, exception_fp, error_hash, top_frames, template_ids,
                  exc_text, msg_text, frames_text, tmpl_text, only_numbers, status_codes,
-                 urls, paths, emb, emb_model_ver)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 urls, paths, emb, emb_model_ver, error_log_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (project_id, item_id) DO UPDATE SET
                 exception_fp = EXCLUDED.exception_fp,
                 error_hash   = EXCLUDED.error_hash,
@@ -157,7 +158,10 @@ class PgRetrievalStore(StoreBase):
                 urls         = EXCLUDED.urls,
                 paths        = EXCLUDED.paths,
                 emb          = EXCLUDED.emb,
-                emb_model_ver = EXCLUDED.emb_model_ver
+                emb_model_ver = EXCLUDED.emb_model_ver,
+                -- keep a real log id if a re-index arrives without one; bare column =
+                -- the existing target row (ON CONFLICT), EXCLUDED = the proposed row.
+                error_log_id = COALESCE(EXCLUDED.error_log_id, error_log_id)
             """,
             [
                 (
@@ -177,6 +181,7 @@ class PgRetrievalStore(StoreBase):
                     s.paths,
                     halfvec_literal(s.emb) if s.emb is not None else None,
                     s.emb_model_ver,
+                    s.error_log_id,
                 )
                 for s in sigs
             ],
@@ -248,8 +253,7 @@ class PgRetrievalStore(StoreBase):
             bound += f" AND {column} >= %s"
             del_params = (project_id, before, after)
         subq = (
-            "item_id IN (SELECT item_id FROM analyzer.test_item "
-            f"WHERE project_id=%s AND {bound})"
+            f"item_id IN (SELECT item_id FROM analyzer.test_item WHERE project_id=%s AND {bound})"
         )
         with self._conn() as conn, conn.transaction():
             # _purge_items prefixes the predicate with its own `project_id=%s`, so the
@@ -379,6 +383,78 @@ class PgRetrievalStore(StoreBase):
         stage_a = self._kb.match_modes(project_id, q, k=10)
         stage_b = self._stage_b(project_id, q, k, filters)
         return (stage_a + stage_b)[: k + 10]
+
+    def search_ti_candidates(
+        self,
+        project_id: int,
+        q: QuerySignature,
+        k: int,
+        filtered_launch_ids: Sequence[int],
+        self_item_id: int,
+    ) -> list[Candidate]:
+        """Hybrid retrieval of similar still-uninvestigated (TI) items (spec §8.2).
+
+        Serves the ``search`` route ("Similar 'To Investigate' in the launch"). Same
+        lexical+dense RRF fusion as :meth:`find_candidates`' stage B, but the target
+        set is TI-only, scoped to ``filtered_launch_ids`` (RP's ``filteredLaunchIds``;
+        empty means no launch restriction) and with the query item excluded. Each
+        returned :class:`Candidate` carries ``relevant_log_id`` — the matched item's
+        real RP log id — so the reply's ``logId`` is one RP can load (a NULL becomes
+        ``None`` here; the caller coalesces to 0).
+        """
+        qvec = halfvec_literal(q.emb if q.emb is not None else _ZERO_VEC)
+        sql, params = bind_numbered(
+            SEARCH_TI_HYBRID_SQL,
+            [
+                project_id,
+                q.emb_model_ver,
+                " ".join(q.salient_terms),
+                qvec,
+                " ".join(q.exception_names),
+                bigint_array_literal(q.template_ids),
+                k,
+                bigint_array_literal(filtered_launch_ids),
+                self_item_id,
+            ],
+        )
+        with self._conn() as conn, conn.transaction():
+            for stmt in SESSION_TUNING:
+                conn.execute(stmt)
+            rows = conn.execute(sql, params).fetchall()
+
+        out: list[Candidate] = []
+        for r in rows:
+            (
+                item_id,
+                sparse_rank,
+                dense_rank,
+                lex_score,
+                cosine,
+                rrf_score,
+                launch_id,
+                launch_number,
+                error_log_id,
+            ) = r
+            launch_distance = (
+                abs(q.launch_number - launch_number)
+                if q.launch_number is not None and launch_number is not None
+                else None
+            )
+            out.append(
+                Candidate(
+                    item_id=item_id,
+                    mode_id=None,
+                    dense_rank=dense_rank,
+                    sparse_rank=sparse_rank,
+                    rrf_score=float(rrf_score),
+                    cosine=cosine,
+                    lex_score=lex_score,
+                    launch_distance=launch_distance,
+                    launch_id=launch_id,
+                    relevant_log_id=error_log_id,
+                )
+            )
+        return out
 
     def find_hash_matches(self, project_id: int, error_hash: int, limit: int = 10) -> list[dict]:
         """Stage-A exact-error_hash matches enriched with label provenance (spec §6.1).
