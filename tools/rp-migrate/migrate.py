@@ -86,12 +86,15 @@ class RP:
     # -- plumbing ---------------------------------------------------------- #
     def get(self, path: str, **params: Any) -> dict:
         r = self.s.get(f"{self.base}{path}", params=params, timeout=60)
-        r.raise_for_status()
+        if r.status_code >= 400:
+            # RP error bodies name the offending parameter ({"errorCode","message"})
+            raise RuntimeError(f"[{self.tag}] GET {path} -> {r.status_code}: {r.text[:300]}")
         return r.json()
 
     def get_bytes(self, path: str) -> tuple[bytes, str]:
         r = self.s.get(f"{self.base}{path}", timeout=120)
-        r.raise_for_status()
+        if r.status_code >= 400:
+            raise RuntimeError(f"[{self.tag}] GET {path} -> {r.status_code}: {r.text[:300]}")
         return r.content, r.headers.get("Content-Type", "application/octet-stream")
 
     def post(self, path: str, body: dict, **kw: Any) -> dict:
@@ -142,22 +145,41 @@ class RP:
                 return True
         return False
 
+    def _items_filtered(self, flt: dict[str, Any]) -> list[dict]:
+        """One filtered item listing. Some RP builds reject ``page.sort=id`` —
+        retry once with ``startTime,ASC`` on a 400 (final order is re-imposed
+        by the id sort in :meth:`items_of_launch`)."""
+        last: RuntimeError | None = None
+        for sort in ("id,ASC", "startTime,ASC"):
+            try:
+                return list(
+                    self.paged(
+                        f"/api/v1/{self.project}/item", **{**flt, "page.sort": sort}
+                    )
+                )
+            except RuntimeError as exc:
+                if "-> 400" not in str(exc):
+                    raise
+                last = exc
+        raise last  # both sorts rejected — surface the (body-bearing) error
+
     def items_of_launch(self, launch_id: int) -> list[dict]:
-        items = list(
-            self.paged(
-                f"/api/v1/{self.project}/item",
-                **{"filter.eq.launchId": launch_id, "page.sort": "id,ASC"},
-            )
-        )
+        # Every GET /item carries the launch id BOTH ways: newer RP builds
+        # (EPAM prod) resolve the listing provider from the plain ``launchId``
+        # param and reject requests carrying only ``filter.eq.launchId``
+        # ("Neither launch nor filter id specified", errorCode 40016), while
+        # 5.x reads the filter form and ignores the unknown plain param.
+        launch_flt = {"filter.eq.launchId": launch_id, "launchId": launch_id}
+        items = self._items_filtered(dict(launch_flt))
         # Some 5.x builds omit nested (hasStats=false) steps from the flat
-        # listing — fetch children per parent for any gap.
+        # listing — fetch children per parent for any gap. Newer RP versions
+        # require the launch id alongside parentId on GET /item, so thread it in.
         seen = {it["id"] for it in items}
         frontier = [it for it in items if it.get("hasChildren")]
         while frontier:
             parent = frontier.pop()
-            for child in self.paged(
-                f"/api/v1/{self.project}/item",
-                **{"filter.eq.parentId": parent["id"], "page.sort": "id,ASC"},
+            for child in self._items_filtered(
+                {"filter.eq.parentId": parent["id"], **launch_flt}
             ):
                 if child["id"] in seen:
                     continue
