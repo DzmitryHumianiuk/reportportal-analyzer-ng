@@ -29,7 +29,18 @@ from analyzer_ng.db.repositories.models import Candidate
 # status sets and both-no-identifier message sets now encode 0.0 (not 1.0), and a new
 # ``identifiers_present`` indicator lets the model separate 0.0-because-no-identifiers
 # from 0.0-because-they-disagree (mirrors ``status_codes_present``).
-FEATURE_SCHEMA_VER = 4
+# v5 (2026-07-20) redefines ``identifier_jaccard_top1`` to describe the evidence that
+# actually exists: it is now the identifier-token Jaccard against the BEST available
+# neighbour — the top-1 exact-hash match when one exists, else the top-1 Stage-C
+# candidate (the same neighbour the decision-layer boilerplate guard inspects). On
+# cold/migrated projects exact-hash matches barely exist, so under v4 nearly every
+# item scored 0.0 here while ``identifiers_present=1`` — the exact boilerplate-trap
+# signature the v4 GBM learned to distrust, discounting excellent textual evidence.
+# A new ``ident_jaccard_source`` column (hash=1.0 / stage-C=0.5 / none=0.0) preserves
+# provenance so the model can still weight the Jaccard by the strength of the neighbour
+# it was measured against; a real trap (hash present, disjoint identifiers) still
+# encodes jaccard=0.0 + identifiers_present=1.
+FEATURE_SCHEMA_VER = 5
 
 # spec 04 §4.2: the extractor's categorical outputs enter the GBM as ordinal
 # columns. The sentinel ``unknown`` (= 0) is the on-miss / LLM-off value, so a
@@ -175,17 +186,22 @@ FEATURES: tuple[FeatureDef, ...] = (
     # distrust near-miss hash traps. All default to 0.0 = "nothing to compare".
     FeatureDef("status_codes_present", 0.0),  # query has any un-masked status code
     FeatureDef("status_codes_match_top1", 0.0),  # 1.0 exact set match w/ top-1 evidence
-    FeatureDef("identifier_jaccard_top1", 0.0),  # identifier-token Jaccard vs top-1
+    FeatureDef("identifier_jaccard_top1", 0.0),  # identifier-token Jaccard vs best neighbour
     FeatureDef("hash_gate_blocked", 0.0),  # 1.0 = exact hash existed, gate rejected it
     # v4 (2026-07-18b): companion "present" indicator for identifier_jaccard_top1, so
     # the model separates "no identifiers to compare" (0.0) from "identifiers disagree"
     # (also 0.0) — the same disambiguation status_codes_present gives the status column.
     FeatureDef("identifiers_present", 0.0),  # query message carries any identifier token
+    # v5 (2026-07-20): provenance of the identifier_jaccard_top1 neighbour — 1.0 when it
+    # was the top-1 exact-hash match, 0.5 when the top-1 Stage-C candidate, 0.0 when no
+    # neighbour existed at all. Lets the retrained GBM weight the Jaccard by the strength
+    # of the evidence it was measured against without losing the trap signal.
+    FeatureDef("ident_jaccard_source", 0.0),
 )
 
-assert len(FEATURES) == 46, (
+assert len(FEATURES) == 47, (
     "spec 03 §6.4 (39) + spec 04 §4.2 (2 LLM) + 2026-07-18 errata (4 discriminant) "
-    "+ 2026-07-18b (1 identifiers_present)"
+    "+ 2026-07-18b (1 identifiers_present) + 2026-07-20 v5 (1 ident_jaccard_source)"
 )
 
 # name → registered default, for the forward/backward-compat vector assembly rule.
@@ -422,14 +438,23 @@ def extract_features(ctx: FeatureContext) -> dict[str, float]:
     #       both-empty pair is "nothing to compare" (0.0), never a match. present=1 +
     #       0 here is a genuine near-miss mismatch; has_hash_top1 says a neighbour exists.
     #   identifiers_present    — 1.0 iff the query message carries any identifier token.
-    #   identifier_jaccard_top1 — identifier-token Jaccard vs the top-1 neighbour when
-    #       either side has identifier tokens; 0.0 when NEITHER does ("nothing to
-    #       compare", not the gate's all-token fallback) or when no neighbour exists.
+    #   identifier_jaccard_top1 — (v5) identifier-token Jaccard vs the BEST AVAILABLE
+    #       neighbour: the top-1 exact-hash match when one exists, else the top-1 Stage-C
+    #       candidate (the same neighbour the decision-layer boilerplate guard inspects).
+    #       0.0 when NEITHER side has identifier tokens ("nothing to compare", not the
+    #       gate's all-token fallback) or when there is no neighbour at all. This makes
+    #       cold/migrated projects (no exact-hash matches) describe the textual evidence
+    #       that actually exists instead of wearing the boilerplate-trap signature.
+    #   ident_jaccard_source   — (v5) provenance of that neighbour: 1.0 exact-hash,
+    #       0.5 Stage-C candidate, 0.0 none.
     #   hash_gate_blocked      — 1.0 iff ≥1 exact error_hash match existed but the
     #       Stage-A discriminant gate rejected all of them (distrust-this-hash cue).
     query_ids = identifier_tokens(frozenset(ctx.query_msg_tokens))
     values["status_codes_present"] = 1.0 if ctx.query_status_codes else 0.0
     values["identifiers_present"] = 1.0 if query_ids else 0.0
+    # status_codes_match_top1 stays defined against the top-1 exact-hash neighbour only —
+    # its question ("does the near-miss hash trap share the query's un-masked code?") is
+    # specifically about an exact-hash neighbour.
     if ctx.has_hash_top1:
         values["status_codes_match_top1"] = (
             1.0
@@ -437,9 +462,22 @@ def extract_features(ctx: FeatureContext) -> dict[str, float]:
             and set(ctx.query_status_codes) == set(ctx.top1_status_codes)
             else 0.0
         )
-        top1_ids = identifier_tokens(frozenset(ctx.top1_msg_tokens))
+    # identifier_jaccard_top1 (v5): the best available neighbour — exact-hash top-1 when
+    # present, else the Stage-C top-1 (aligned with decision._boilerplate_only_top1,
+    # which tokenises stage_c[0].msg_text the same way).
+    neighbour_tokens: frozenset[str] | None = None
+    if ctx.has_hash_top1:
+        neighbour_tokens = frozenset(ctx.top1_msg_tokens)
+        values["ident_jaccard_source"] = 1.0
+    elif cands:
+        neighbour_tokens = frozenset(cands[0].msg_text.split())
+        values["ident_jaccard_source"] = 0.5
+    if neighbour_tokens is not None:
+        neighbour_ids = identifier_tokens(neighbour_tokens)
         values["identifier_jaccard_top1"] = (
-            _clamp01(jaccard(query_ids, top1_ids)) if (query_ids or top1_ids) else 0.0
+            _clamp01(jaccard(query_ids, neighbour_ids))
+            if (query_ids or neighbour_ids)
+            else 0.0
         )
     values["hash_gate_blocked"] = 1.0 if ctx.hash_gate_blocked else 0.0
 

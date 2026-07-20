@@ -27,13 +27,14 @@ def _cand(**kw):
     return Candidate(**base)
 
 
-def test_exactly_46_features_unique_order():
+def test_exactly_47_features_unique_order():
     # 39 classical (spec 03 §6.4) + 2 LLM-extractor columns (spec 04 §4.2)
     # + 4 discriminant-agreement columns (2026-07-18 errata)
-    # + 1 identifiers_present indicator (2026-07-18b, v4).
-    assert len(FEATURES) == 46
+    # + 1 identifiers_present indicator (2026-07-18b, v4)
+    # + 1 ident_jaccard_source provenance column (2026-07-20, v5).
+    assert len(FEATURES) == 47
     names = [f.name for f in FEATURES]
-    assert len(set(names)) == 46
+    assert len(set(names)) == 47
     assert names[0] == "top1_cosine"
     assert names[38] == "exception_count"
     assert names[39:41] == ["llm_failing_layer", "llm_error_class"]
@@ -43,13 +44,14 @@ def test_exactly_46_features_unique_order():
         "identifier_jaccard_top1",
         "hash_gate_blocked",
         "identifiers_present",
+        "ident_jaccard_source",
     ]
 
 
 def test_empty_context_returns_defaults_no_nan():
     values = extract_features(FeatureContext())
     vec = to_vector(values)
-    assert len(vec) == 46
+    assert len(vec) == 47
     # LLM-extractor columns default to the ``unknown`` sentinel (spec 04 §4.2).
     assert values["llm_failing_layer"] == 0.0
     assert values["llm_error_class"] == 0.0
@@ -97,7 +99,8 @@ def test_all_ranges_respected_on_rich_context():
     assert values["top1_cosine"] == 0.95
     assert values["status_codes_present"] == 0.0  # no query status codes given
     assert values["status_codes_match_top1"] == 0.0  # no hash top-1 evidence
-    assert values["identifier_jaccard_top1"] == 0.0
+    assert values["identifier_jaccard_top1"] == 0.0  # empty neighbour text, empty query
+    assert values["ident_jaccard_source"] == 0.5  # stage-C top-1 exists (no hash top-1)
     assert values["hash_gate_blocked"] == 0.0
     assert values["same_error_hash_top1"] == 1.0
     assert values["same_exception_fp_top1"] == 1.0
@@ -227,14 +230,69 @@ def test_identifier_jaccard_top1_matches_shared_tokenizer():
     # When identifier tokens exist on either side the feature equals the gate's Jaccard.
     assert hi["identifier_jaccard_top1"] == identifier_jaccard(q, same)
     assert lo["identifier_jaccard_top1"] == identifier_jaccard(q, diff)
-    # Absent when there is no top-1 neighbour to compare against.
-    assert extract_features(FeatureContext(query_msg_tokens=q))["identifier_jaccard_top1"] == 0.0
+    # Provenance: an exact-hash neighbour supplied the Jaccard → source = 1.0.
+    assert hi["ident_jaccard_source"] == 1.0
+    assert lo["ident_jaccard_source"] == 1.0
+    # Absent (0.0) with source=0.0 when there is no neighbour at all to compare against.
+    none_ctx = extract_features(FeatureContext(query_msg_tokens=q))
+    assert none_ctx["identifier_jaccard_top1"] == 0.0
+    assert none_ctx["ident_jaccard_source"] == 0.0
+
+
+def test_identifier_jaccard_top1_uses_stage_c_neighbour_when_no_hash_match():
+    # The item-3688 shape: NO exact-hash neighbour, but a strong Stage-C candidate whose
+    # message shares the query's identifier tokens. v4 scored this 0.0 (trap signature);
+    # v5 must describe the evidence that exists — Jaccard vs the Stage-C top-1 > 0, with
+    # provenance source=0.5 and identifiers_present=1 (NOT the boilerplate trap).
+    q = frozenset({"cannot", "invoke", "Session.userId", "because", "null"})
+    neighbour = _cand(item_id=9, msg_text="cannot invoke Session.userId because null")
+    v = extract_features(
+        FeatureContext(query_msg_tokens=q, candidates=[neighbour], candidate_ages_days=[0.0])
+    )
+    assert v["identifier_jaccard_top1"] > 0.0
+    assert v["identifier_jaccard_top1"] == 1.0  # identifier token Session.userId shared
+    assert v["ident_jaccard_source"] == 0.5  # provenance: Stage-C candidate
+    assert v["identifiers_present"] == 1.0
+
+
+def test_identifier_jaccard_top1_stage_c_disjoint_identifiers_preserves_trap():
+    # A REAL trap with no hash match: the Stage-C top-1's identifiers are disjoint from
+    # the query's → Jaccard 0.0 with identifiers_present=1 (the NET-XUN-15 signature must
+    # survive the v5 broadening; only genuine textual overlap should lift the score).
+    q = frozenset({"cannot", "invoke", "Session.userId", "because", "null"})
+    neighbour = _cand(item_id=9, msg_text="cannot invoke Region.rate because null")
+    v = extract_features(
+        FeatureContext(query_msg_tokens=q, candidates=[neighbour], candidate_ages_days=[0.0])
+    )
+    assert v["identifier_jaccard_top1"] == 0.0  # disjoint identifiers → trap preserved
+    assert v["ident_jaccard_source"] == 0.5
+    assert v["identifiers_present"] == 1.0
+
+
+def test_identifier_jaccard_top1_hash_neighbour_takes_priority_over_stage_c():
+    # When BOTH an exact-hash neighbour and a Stage-C candidate exist, the exact-hash
+    # neighbour wins (source=1.0) — v5 only changes behaviour where hash matches are
+    # absent, so hash-present behaviour is byte-identical to v4.
+    q = frozenset({"cannot", "invoke", "Session.userId", "because", "null"})
+    hash_same = frozenset({"cannot", "invoke", "Session.userId", "because", "null"})
+    stage_c_diff = _cand(item_id=9, msg_text="cannot invoke Region.rate because null")
+    v = extract_features(
+        FeatureContext(
+            query_msg_tokens=q,
+            top1_msg_tokens=hash_same,
+            has_hash_top1=True,
+            candidates=[stage_c_diff],
+            candidate_ages_days=[0.0],
+        )
+    )
+    assert v["identifier_jaccard_top1"] == 1.0  # from the hash neighbour, not stage-C
+    assert v["ident_jaccard_source"] == 1.0
 
 
 def test_identifier_jaccard_top1_nothing_to_compare_is_zero_not_match():
-    # v4: neither side carries an identifier token (pure boilerplate). The Stage-A GATE
-    # falls back to all-token Jaccard (→ 1.0 for identical boilerplate), but the FEATURE
-    # must encode "nothing to compare" as 0.0, never "match", with present=0 to say so.
+    # v4/v5: neither side carries an identifier token (pure boilerplate). The Stage-A
+    # GATE falls back to all-token Jaccard (→ 1.0 for identical boilerplate), but the
+    # FEATURE must encode "nothing to compare" as 0.0, never "match", present=0 to say so.
     boiler = frozenset({"cannot", "invoke", "because", "null"})
     v = extract_features(
         FeatureContext(query_msg_tokens=boiler, top1_msg_tokens=boiler, has_hash_top1=True)
@@ -242,6 +300,16 @@ def test_identifier_jaccard_top1_nothing_to_compare_is_zero_not_match():
     assert identifier_jaccard(boiler, boiler) == 1.0  # gate concession (unchanged)
     assert v["identifier_jaccard_top1"] == 0.0  # feature: nothing to compare
     assert v["identifiers_present"] == 0.0
+
+
+def test_identifier_jaccard_top1_no_neighbour_at_all_is_absent():
+    # No hash neighbour AND no Stage-C candidate → the feature stays at its 0.0 default
+    # and source=0.0, even though the query carries identifier tokens (present=1).
+    q = frozenset({"cannot", "invoke", "Session.userId", "because", "null"})
+    v = extract_features(FeatureContext(query_msg_tokens=q))
+    assert v["identifier_jaccard_top1"] == 0.0
+    assert v["ident_jaccard_source"] == 0.0
+    assert v["identifiers_present"] == 1.0
 
 
 def test_hash_gate_blocked_flag_passes_through():
@@ -271,9 +339,9 @@ def test_to_vector_for_new_list_backfills_missing_with_defaults():
     # A NEW-list model fed an OLD 41-key snapshot back-fills the 4 missing columns
     # with their registered defaults (all 0.0 here), never dropping the row.
     all_names = [f.name for f in FEATURES]
-    old_snapshot = {n: 0.5 for n in all_names[:41]}  # lacks the errata + v4 columns
+    old_snapshot = {n: 0.5 for n in all_names[:41]}  # lacks the errata + v4/v5 columns
     vec = to_vector_for(old_snapshot, all_names)
-    assert len(vec) == 46
+    assert len(vec) == 47
     assert vec[:41] == [0.5] * 41
     assert vec[41:] == [FEATURE_DEFAULTS[n] for n in all_names[41:]]
 
