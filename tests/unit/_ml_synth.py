@@ -204,6 +204,14 @@ class FakeModelStore:
         times = [r.trained_at for r in self._rows if r.kind == kind]
         return max(times) if times else None
 
+    def last_shipped_at(self, kind: str = KIND_GBM) -> datetime | None:
+        times = [
+            r.trained_at
+            for r in self._rows
+            if r.kind == kind and str(r.metrics.get("rejected")).lower() != "true"
+        ]
+        return max(times) if times else None
+
     def set_last_trained(self, when: datetime) -> None:
         """Test hook: stamp an active GBM row so debounce/threshold logic sees it."""
         self._rows.append(
@@ -216,6 +224,25 @@ class FakeModelStore:
                 n_events=0,
                 metrics={},
                 is_active=True,
+                trained_at=when,
+                blob=b"{}",
+            )
+        )
+        self._next_id += 1
+
+    def set_last_rejected(self, when: datetime) -> None:
+        """Test hook: stamp an inactive ship-gate-REJECTED GBM audit row (mirrors
+        gate._persist_rejected). It must NOT count toward the debounce anchor."""
+        self._rows.append(
+            ArtifactRecord(
+                model_id=self._next_id,
+                kind=KIND_GBM,
+                project_id=None,
+                version="gbm-rejected-preexisting",
+                feature_schema_ver=1,
+                n_events=0,
+                metrics={"rejected": True},
+                is_active=False,
                 trained_at=when,
                 blob=b"{}",
             )

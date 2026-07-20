@@ -75,6 +75,14 @@ class FakeModelStore:
         times = [r.trained_at for r in self._rows if r.kind == kind]
         return max(times) if times else None
 
+    def last_shipped_at(self, kind: str = KIND_GBM) -> datetime | None:
+        times = [
+            r.trained_at
+            for r in self._rows
+            if r.kind == kind and str(r.metrics.get("rejected")).lower() != "true"
+        ]
+        return max(times) if times else None
+
 
 def _deactivate(r: ArtifactRecord) -> ArtifactRecord:
     return ArtifactRecord(**{**r.__dict__, "is_active": False})

@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from psycopg_pool import ConnectionPool
@@ -223,6 +223,7 @@ class PipelineHandlers(StubHandlers):
         extractor_features: object | None = None,
         judge_tau: float = 0.75,
         engine_tunables: dict[str, float | int] | None = None,
+        retrain_debounce_s: int | None = None,
     ) -> None:
         """Attach the store layer once the PostgreSQL pool is open (spec 01 §6)."""
         self._sidecar = sidecar
@@ -257,11 +258,14 @@ class PipelineHandlers(StubHandlers):
         self._predictor = GbmPredictor(self._model_store)
         # The ship gate (T3.2) closes the loop: a retrained candidate replaces the
         # active model only if it holds up on the chronological eval slice (§10.2).
+        retrainer_kwargs: dict[str, object] = {"gate": make_ship_gate(self._model_store)}
+        if retrain_debounce_s is not None:
+            retrainer_kwargs["min_interval"] = timedelta(seconds=retrain_debounce_s)
         self._retrainer = Retrainer(
             label,
             self._model_store,
             self._predictor,
-            gate=make_ship_gate(self._model_store),
+            **retrainer_kwargs,  # type: ignore[arg-type]
         )
         # Single-flight background runner: triggers (defect_update counter, route,
         # nightly) enqueue here so the heavy fetch+train+ship never blocks an AMQP

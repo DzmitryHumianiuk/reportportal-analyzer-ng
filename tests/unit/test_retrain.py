@@ -66,6 +66,65 @@ def test_debounce_blocks_retrain_within_the_hour():
     assert out.reason == "debounced"
 
 
+def test_debounce_interval_is_tunable():
+    # The primary window is operator-tunable (ANALYZER_RETRAIN_DEBOUNCE_S wired through
+    # handlers.bind → Retrainer(min_interval=…)). A 30-min knob lets a ship 40 min old
+    # retrain even though the 1 h library default would still block it.
+    rows = synth_frame(n=300, seed=40)
+    labels = FakeLabels(rows, new_events=1000)
+    blocked = FakeModelStore()
+    r_block = Retrainer(labels, blocked, min_interval=timedelta(minutes=30), clock=lambda: NOW)
+    blocked.set_last_trained(NOW - timedelta(minutes=20))  # inside 30-min window
+    assert r_block.maybe_retrain(reason="nightly", now=NOW).reason == "debounced"
+
+    allowed = FakeModelStore()
+    r_allow = Retrainer(labels, allowed, min_interval=timedelta(minutes=30), clock=lambda: NOW)
+    allowed.set_last_trained(NOW - timedelta(minutes=40))  # outside 30-min window
+    assert r_allow.maybe_retrain(reason="nightly", now=NOW).shipped
+
+
+def test_rejected_candidate_does_not_advance_debounce_but_shipped_does():
+    rows = synth_frame(n=300, seed=41)
+    labels = FakeLabels(rows, new_events=1000)
+    # A ship-gate REJECTION persisted 1 min ago must NOT hold the debounce window: the
+    # anchor counts only shipped artifacts, so an operator can retry immediately.
+    rej = FakeModelStore()
+    r_rej = Retrainer(labels, rej, clock=lambda: NOW)
+    rej.set_last_rejected(NOW - timedelta(minutes=1))
+    assert r_rej.maybe_retrain(reason="route", now=NOW).shipped, (
+        "a rejected candidate must not lock out retraining"
+    )
+    # A genuine SHIP 1 min ago DOES hold the window.
+    shipped = FakeModelStore()
+    r_ship = Retrainer(labels, shipped, clock=lambda: NOW)
+    shipped.set_last_trained(NOW - timedelta(minutes=1))
+    assert r_ship.maybe_retrain(reason="route", now=NOW).reason == "debounced"
+
+
+def test_failed_attempt_cooldown_throttles_hotloop_then_allows_retry():
+    # After a gate rejection the shipped-window is untouched (so a retry is possible),
+    # but the short failed-attempt cooldown stops a failing trigger from hot-looping
+    # fetch+train on every message.
+    rows = synth_frame(n=300, seed=42)
+    labels = FakeLabels(rows, new_events=1000)
+    store = FakeModelStore()
+    r = Retrainer(
+        labels, store, gate=lambda _m, _r: False,
+        failed_cooldown=timedelta(minutes=5), clock=lambda: NOW,
+    )
+    first = r.maybe_retrain(reason="route", now=NOW)
+    assert first.reason == "gate_rejected"
+    assert labels.fetch_calls == 1
+    # Immediate retry within the cooldown → debounced, no re-fetch/train.
+    second = r.maybe_retrain(reason="route", now=NOW + timedelta(minutes=1))
+    assert second.reason == "debounced"
+    assert labels.fetch_calls == 1
+    # After the cooldown the retry runs again (no shipped model advanced the window).
+    third = r.maybe_retrain(reason="route", now=NOW + timedelta(minutes=6))
+    assert third.reason == "gate_rejected"
+    assert labels.fetch_calls == 2
+
+
 def test_nightly_retrains_regardless_of_event_count_when_debounce_ok():
     rows = synth_frame(n=300, seed=6)
     r, store, _ = _retrainer(rows, new_events=0)  # zero new events
@@ -167,12 +226,15 @@ def test_cold_phase_debounces_repeated_train_attempts():
     assert first.reason == "cold"
     assert labels.fetch_calls == 1  # first attempt fetched + tried to train
 
-    second = r.maybe_retrain(reason="events", now=NOW + timedelta(minutes=10))
+    # Within the short failed-attempt cooldown (5 min) a retry is debounced without a
+    # second fetch/train — a cold trigger cannot thrash an AMQP worker on every message.
+    second = r.maybe_retrain(reason="events", now=NOW + timedelta(minutes=2))
     assert second.reason == "debounced"
     assert labels.fetch_calls == 1  # debounced: no second fetch/train
 
-    # After the hour elapses, the cold retry is allowed again.
-    third = r.maybe_retrain(reason="events", now=NOW + timedelta(hours=2))
+    # Once the (short) cooldown elapses, the cold retry is allowed again — no longer a
+    # full hour, since a never-shipped attempt no longer holds the primary window.
+    third = r.maybe_retrain(reason="events", now=NOW + timedelta(minutes=6))
     assert third.reason == "cold"
     assert labels.fetch_calls == 2
 

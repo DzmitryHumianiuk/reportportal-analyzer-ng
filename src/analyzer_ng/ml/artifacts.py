@@ -66,6 +66,7 @@ class ModelStore(Protocol):
     def load_active_gbm(self) -> ArtifactRecord | None: ...
     def load_active_calibrators(self) -> list[ArtifactRecord]: ...
     def last_trained_at(self, kind: str = KIND_GBM) -> datetime | None: ...
+    def last_shipped_at(self, kind: str = KIND_GBM) -> datetime | None: ...
 
 
 class PgModelStore(StoreBase):
@@ -152,6 +153,23 @@ class PgModelStore(StoreBase):
         with self._conn() as conn:
             cur = conn.execute(
                 "SELECT max(trained_at) FROM analyzer.model_artifact WHERE kind = %s",
+                (kind,),
+            )
+            row = cur.fetchone()
+            return row[0] if row and row[0] is not None else None
+
+    def last_shipped_at(self, kind: str = KIND_GBM) -> datetime | None:
+        """``max(trained_at)`` over **shipped** artifacts only — the retrain debounce
+        anchor (spec §6.5). A ship-gate rejection is persisted as an inactive audit row
+        with ``metrics->>'rejected' = 'true'`` (see :func:`ml.gate._persist_rejected`);
+        those, and any never-accepted candidate, must NOT advance the debounce clock, or
+        a single rejected/accidental attempt would lock out retraining for a full window
+        even though no new model actually shipped. Excludes exactly those rows so the
+        clock reflects the last model that truly went live."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT max(trained_at) FROM analyzer.model_artifact "
+                "WHERE kind = %s AND (metrics ->> 'rejected') IS DISTINCT FROM 'true'",
                 (kind,),
             )
             row = cur.fetchone()

@@ -131,6 +131,13 @@ class AppConfig(BaseSettings):
     analyzer_suggest_max: int = 3  # == analysis.SUGGEST_MAX
     analyzer_burst_si_share: UnitInterval = 0.4  # == grouping.BURST_X
     analyzer_time_decay: UnitInterval = 2.0 ** (-1.0 / 90.0)  # == features.TIME_DECAY_PER_DAY
+    # Operator-tunable retrain debounce window, in seconds (spec §6.5). This is the
+    # PRIMARY throttle on how often a *shipped* model may be replaced; a ship-gate
+    # rejection no longer counts against it (retrain.last_shipped_at anchor). The default
+    # 1800s (30 min) is intentionally shorter than the library constant
+    # retrain.MIN_RETRAIN_INTERVAL (1 h) so operators recover faster from a bad/rejected
+    # ship without waiting a full hour; raise it to throttle harder.
+    analyzer_retrain_debounce_s: int = 1800
     # Optional LLM sidecar (spec 04 §1.2). All read once at startup; per-project
     # runtime disable lives in llm_role_state (spec 04 §6). With the master switch
     # off (the default) no code path touches the llm/ package beyond reading it.

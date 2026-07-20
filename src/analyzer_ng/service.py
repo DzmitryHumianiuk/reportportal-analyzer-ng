@@ -197,6 +197,7 @@ class AnalyzerService:
                 "burst_si_share": config.analyzer_burst_si_share,
                 "time_decay": config.analyzer_time_decay,
             },
+            retrain_debounce_s=config.analyzer_retrain_debounce_s,
         )
 
     def _resolve_embedder(self) -> tuple[object | None, int, str]:

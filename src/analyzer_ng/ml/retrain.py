@@ -37,9 +37,18 @@ from analyzer_ng.ml.trainer import GbmModel, TrainingError, build_xy, fit_calibr
 
 logger = logging.getLogger(__name__)
 
-# spec §6.5: retrain every 100 new events; debounce to ≥ 1 retrain/hour; nightly 02:00.
+# spec §6.5: retrain every 100 new events; debounce to ≥ 1 retrain/window; nightly 02:00.
 RETRAIN_EVENT_THRESHOLD = 100
+# Library default for the primary debounce window (kept at the spec's 1 hour so unwired
+# callers/tests are unchanged). Production overrides it via ANALYZER_RETRAIN_DEBOUNCE_S
+# (config default 1800s / 30 min) wired through handlers.bind → Retrainer(min_interval=…).
 MIN_RETRAIN_INTERVAL = timedelta(hours=1)
+# Secondary safeguard: a short cooldown after any *non-shipping* attempt (cold install or
+# ship-gate rejection). Because the primary window now counts only SHIPPED models, a
+# rejected candidate no longer advances that clock — this short cooldown is what stops a
+# failing trigger from hot-looping fetch+train on every message, while still letting a
+# legitimate retry land quickly once the underlying data/model conditions change.
+FAILED_ATTEMPT_COOLDOWN = timedelta(minutes=5)
 NIGHTLY_HOUR_UTC = 2
 
 REASON_EVENTS = "events"
@@ -89,6 +98,7 @@ class Retrainer:
         *,
         threshold: int = RETRAIN_EVENT_THRESHOLD,
         min_interval: timedelta = MIN_RETRAIN_INTERVAL,
+        failed_cooldown: timedelta = FAILED_ATTEMPT_COOLDOWN,
         gate: ShipGate | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -97,13 +107,15 @@ class Retrainer:
         self._predictor = predictor
         self._threshold = threshold
         self._min_interval = min_interval
+        self._failed_cooldown = failed_cooldown
         self._gate = gate
         self._clock = clock
         self._lock = threading.Lock()  # serialize concurrent triggers in one process
-        # Cold-phase debounce: before any model ships, store.last_trained_at() is
-        # None, so nothing else bounds how often a trigger attempts a full train.
-        # Record every attempt time and debounce off it too (spec §6.5 ≥1/hour).
-        self._last_attempt_at: datetime | None = None
+        # Time of the last attempt that did NOT ship (cold install or gate rejection).
+        # The primary debounce anchors on the last *shipped* model, so a failed attempt
+        # cannot lock the window; this short cooldown is the only thing that throttles a
+        # hot-looping failure, and it is cleared the moment an attempt ships.
+        self._last_failed_attempt_at: datetime | None = None
 
     def maybe_retrain(
         self, *, reason: str = REASON_EVENTS, now: datetime | None = None
@@ -116,35 +128,39 @@ class Retrainer:
         """
         now = now or self._clock()
         with self._lock:
-            shipped_at = self._last_trained_at()
-            # Genuine 1/hour throttle on ACTUAL trains (spec §6.5 "≥ 1 retrain/hour"):
-            # a model shipped inside the window blocks every reason.
+            shipped_at = self._last_shipped_at()
+            # Primary throttle (spec §6.5 "≥ 1 retrain/window"): a model that actually
+            # SHIPPED inside the window blocks every reason. Anchored on the last shipped
+            # artifact only, so a ship-gate rejection or an accidental never-shipped
+            # attempt does NOT push the clock — an operator can retry as soon as the last
+            # live model is older than the window (fixes the "rejected candidate locks
+            # out retraining" trap where the clock counted rejected candidates too).
             if shipped_at is not None and (now - shipped_at) < self._min_interval:
                 return RetrainOutcome(STATUS_SKIPPED, "debounced")
-            # Cold-phase attempt throttle: before any model exists, avoid re-fetching
-            # the training frame on every feedback message (review Important #2). This
-            # throttles ONLY the automatic events trigger — an explicit ``train_models``
-            # (route) or the nightly job must NEVER be swallowed by it. Otherwise a
-            # single cold early attempt (feedback fires the scheduler before the install
-            # crosses the 50-event floor) silently debounces every later retrain for an
-            # hour, so the GBM never ships even once enough data exists and even when an
-            # operator explicitly publishes train_models (live-fix Bug 2).
+            # Secondary safeguard: a short cooldown after any non-shipping attempt so a
+            # failing trigger cannot hot-loop fetch+train on every message. Unlike the old
+            # events-only throttle this applies to every reason (route/nightly included),
+            # but it is far shorter than the primary window, so a legitimate retry still
+            # lands quickly once conditions change (still honours live-fix Bug 2: a route
+            # publish is swallowed for at most FAILED_ATTEMPT_COOLDOWN, never a full hour).
             if (
-                reason == REASON_EVENTS
-                and self._last_attempt_at is not None
-                and (now - self._last_attempt_at) < self._min_interval
+                self._last_failed_attempt_at is not None
+                and (now - self._last_failed_attempt_at) < self._failed_cooldown
             ):
                 return RetrainOutcome(STATUS_SKIPPED, "debounced")
             if reason == REASON_EVENTS and shipped_at is not None:
                 new_events = self._labels.count_events_since(shipped_at)
                 if new_events < self._threshold:
                     return RetrainOutcome(STATUS_SKIPPED, "below_threshold")
-            self._last_attempt_at = now  # record before training so retries debounce
             try:
-                return self._retrain(reason, now)
+                outcome = self._retrain(reason, now)
             except TrainingError as exc:
                 logger.info("retrain skipped (cold): %s", exc)
+                self._last_failed_attempt_at = now
                 return RetrainOutcome(STATUS_SKIPPED, "cold")
+            # Clear the cooldown on a real ship; a gate rejection (STATUS_SKIPPED) arms it.
+            self._last_failed_attempt_at = None if outcome.shipped else now
+            return outcome
 
     def retrain(self, *, reason: str = REASON_ROUTE, now: datetime | None = None) -> RetrainOutcome:
         """Force a retrain regardless of debounce/threshold (still needs data)."""
@@ -210,8 +226,8 @@ class Retrainer:
             STATUS_SHIPPED, reason, version=version, n_events=n_events, class_counts=class_counts
         )
 
-    def _last_trained_at(self) -> datetime | None:
-        last = self._store.last_trained_at(KIND_GBM)
+    def _last_shipped_at(self) -> datetime | None:
+        last = self._store.last_shipped_at(KIND_GBM)
         if last is not None and last.tzinfo is None:
             last = last.replace(tzinfo=UTC)
         return last

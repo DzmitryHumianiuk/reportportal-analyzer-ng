@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 from gen import config, rp as rpmod  # noqa: E402
 
-PROBE_LAUNCHES = {config.WSU: 176, config.PSV: 177, config.FEA: 178}
+PROBE_LAUNCHES = {config.WSU: 270, config.PSV: 271, config.FEA: 272}
 PG_DEPLOY = "deploy/analyzer-pg"
 TAU_AUTO, TAU_SUGGEST = 0.75, 0.45
 
