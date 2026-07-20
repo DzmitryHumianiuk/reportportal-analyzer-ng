@@ -1,0 +1,67 @@
+{
+  "framework": "cypress",
+  "archetypes": [
+    {
+      "archetype_id": "TS-CY-01",
+      "framework": "cypress",
+      "label": "ab",
+      "title": "Legacy admin order-status contains assertion (stale expected wording)",
+      "test_name_pattern": "Legacy Admin > Orders > order {order_id} shows fulfillment status badge",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] cy.visit('/admin/orders/{order_id}')" },
+        { "level": "debug", "template": "cy:command  ✔ visit  https://admin.hawkins-lab.dev/admin/orders/{order_id}" },
+        { "level": "info", "template": "cy:intercept  route 'getOrder' -> GET /api/admin/orders/{order_id}" },
+        { "level": "info", "template": "cy:xhr  (getOrder) STATUS 200  GET /api/admin/orders/{order_id}  — fulfillment='{actual_status}'  ({ms}ms)" },
+        { "level": "info", "template": "[STEP] expect [data-cy=status-badge] to contain '{expected_status}'" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "AssertionError: Timed out retrying after 4000ms: expected '<span.status-badge>' to contain '{expected_status}'\n\n    + expected - actual\n\n    -'{actual_status}'\n    +'{expected_status}'\n\n    at Context.eval (webpack://legacy-admin/./cypress/e2e/admin/orders/status.cy.ts:{line}:34)\n    at getRet (https://admin.hawkins-lab.dev/__cypress/runner/cypress_runner.js:135233:16)\n    at tryCatcher (https://admin.hawkins-lab.dev/__cypress/runner/cypress_runner.js:1830:23)\n    at Promise._settlePromiseFromHandler (https://admin.hawkins-lab.dev/__cypress/runner/cypress_runner.js:143810:31)\n    at Promise._settlePromise (https://admin.hawkins-lab.dev/__cypress/runner/cypress_runner.js:143867:18)\n    at <unknown> (https://admin.hawkins-lab.dev/__cypress/runner/cypress_runner.js:150147:20)\n    at runnable.fn (https://admin.hawkins-lab.dev/__cypress/runner/cypress_runner.js:129847:21)" }
+      ],
+      "variants": [
+        { "params": { "order_id": "SO-40218", "expected_status": "Shipped", "actual_status": "Dispatched", "ms": "312", "line": "57" } },
+        { "params": { "order_id": "SO-40977", "expected_status": "Cancelled", "actual_status": "Canceled", "ms": "287", "line": "57" } },
+        { "params": { "order_id": "SO-41355", "expected_status": "Refunded", "actual_status": "Reimbursed", "ms": "341", "line": "59" } },
+        { "params": { "order_id": "SO-41802", "expected_status": "Awaiting Stock", "actual_status": "Backordered", "ms": "298", "line": "59" } },
+        { "params": { "order_id": "SO-42190", "expected_status": "Delivered", "actual_status": "Completed", "ms": "355", "line": "61" } },
+        { "params": { "order_id": "SO-42744", "expected_status": "On Hold", "actual_status": "Paused", "ms": "276", "line": "61" } }
+      ],
+      "attachments": [
+        { "name": "Legacy Admin -- Orders -- order {order_id} shows fulfillment status badge (failed).png", "kind": "image", "probability": 1 },
+        { "name": "admin-orders-status.cy.ts.mp4", "kind": "trace", "probability": 0.5 }
+      ],
+      "placeholders": ["order_id", "expected_status", "actual_status", "ms", "line"],
+      "scenario_refs": ["S34"],
+      "expected_behavior": "Grouped as one ab automation-bug mode across all six wording variants (masked expected/actual tokens collapse to one template); stale-label brittle assertion, retrieved history suggests ab. Appears in the Jul 1 Cypress weekly run (S34 outage day) but its own label is ab, not si."
+    },
+    {
+      "archetype_id": "TS-CY-02",
+      "framework": "cypress",
+      "label": "pb",
+      "title": "Bulk-refund uncaught application error (undefined refundId)",
+      "test_name_pattern": "Legacy Admin > Refunds > bulk refund {count} selected orders shows success toast",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] cy.visit('/admin/refunds')" },
+        { "level": "debug", "template": "cy:command  ✔ get  [data-cy=order-row]  — selected {count} rows" },
+        { "level": "info", "template": "cy:intercept  route 'bulkRefund' -> POST /api/admin/refunds/bulk" },
+        { "level": "warn", "template": "cy:xhr  (bulkRefund) STATUS 500  POST /api/admin/refunds/bulk  — batch={batch_id}  ({count} orders)  ({ms}ms)" },
+        { "level": "warn", "template": "cy:command  ⚠ retrying: expected [data-cy=refund-toast] to be 'visible'" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "The following error originated from your application code. It was caused by an unhandled promise rejection.\n\n  > TypeError: Cannot read properties of undefined (reading 'refundId')\n\nWhen Cypress detects uncaught errors originating from your application it will automatically fail the current test.\n\nThis behavior is configurable, and you can choose to turn it off by listening to the 'uncaught:exception' event.\n\n    at handleBulkRefundResponse (https://admin.hawkins-lab.dev/assets/refunds.{asset_hash}.js:2214:19)\n    at async processRefundBatch (https://admin.hawkins-lab.dev/assets/refunds.{asset_hash}.js:2188:5)\n\nFrom Your Spec Code:\n    at Context.eval (webpack://legacy-admin/./cypress/e2e/admin/refunds/bulk.cy.ts:{line}:8)" }
+      ],
+      "variants": [
+        { "params": { "count": "12", "batch_id": "rb_9f21c4", "asset_hash": "a3f91b7e", "ms": "1184", "line": "48" } },
+        { "params": { "count": "7", "batch_id": "rb_2d80af", "asset_hash": "a3f91b7e", "ms": "962", "line": "48" } },
+        { "params": { "count": "25", "batch_id": "rb_71ce30", "asset_hash": "c05d8a44", "ms": "1507", "line": "51" } }
+      ],
+      "attachments": [
+        { "name": "Legacy Admin -- Refunds -- bulk refund {count} selected orders shows success toast (failed).png", "kind": "image", "probability": 1 },
+        { "name": "admin-refunds-bulk.cy.ts.mp4", "kind": "trace", "probability": 0.5 },
+        { "name": "bulkRefund-response.json", "kind": "json", "probability": 0.7 }
+      ],
+      "placeholders": ["count", "batch_id", "asset_hash", "ms", "line"],
+      "scenario_refs": ["S39"],
+      "expected_behavior": "Product bug (pb): backend 500 leaves the refund response undefined and the admin SPA throws in handleBulkRefundResponse; Cypress fails via uncaught:exception. All three variants share one exception_fp (app-frame refunds.js:2214) regardless of asset hash / batch id; retrieval suggests pb. Daily-noise texture in the FEA Cypress admin suite."
+    }
+  ]
+}
