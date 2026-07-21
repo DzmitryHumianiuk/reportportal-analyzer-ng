@@ -379,3 +379,9 @@ def test_same_hash_divergent_context_splits_pb_si_abstain() -> None:
     # Bare member: own decision -> abstain (no unanimous gate match); never a confident pb.
     assert retr.suggestions[CTX_BARE].predicted_label == "ti"
     assert CTX_BARE not in retr.auto_labeled
+    # Decision provenance persisted as real columns (migration 0007): the abstain row
+    # carries method + abstain_reason; the pb inherit carries method='hash', no reason.
+    bare = retr.suggestions[CTX_BARE]
+    assert bare.method is not None and bare.abstain_reason is not None
+    assert retr.suggestions[CTX_REP].method == "hash"
+    assert retr.suggestions[CTX_REP].abstain_reason is None

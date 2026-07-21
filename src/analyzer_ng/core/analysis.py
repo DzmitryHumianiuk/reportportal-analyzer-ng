@@ -755,6 +755,8 @@ class AnalysisEngine:
                 features=decision.features,
                 model_ver=self._model_ver(decision),
                 explanation=self._stage_a_explanation(decision),
+                method=decision.method,
+                abstain_reason=decision.abstain_reason,
             )
         )
 

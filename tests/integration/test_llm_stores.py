@@ -208,13 +208,14 @@ def test_suggestion_ops_coldstart_and_explanation(pool: ConnectionPool) -> None:
     )
     with pool.connection() as conn:
         row = conn.execute(
-            "SELECT confidence, llm_used, predicted_label FROM analyzer.suggestion "
+            "SELECT confidence, llm_used, predicted_label, method FROM analyzer.suggestion "
             "WHERE project_id=7 AND suggestion_id=%s",
             (sid,),
         ).fetchone()
     assert row is not None
     assert row[0] < 0.75  # < τ_auto (cold-start never auto-applies)
     assert row[1] is True  # llm_used
+    assert row[3] == "coldstart"  # decision provenance column (migration 0007)
     ops.set_explanation(7, sid, "matched a connection failure mode")
     with pool.connection() as conn:
         expl = conn.execute(

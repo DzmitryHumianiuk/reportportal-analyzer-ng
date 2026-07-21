@@ -78,14 +78,17 @@ class PgSuggestionOps(StoreBase):
         model_ver: str,
         features: dict[str, Any],
     ) -> int:
-        """§4.4 row update: insert a suggest-band AI suggestion (``llm_used=true``)."""
+        """§4.4 row update: insert a suggest-band AI suggestion (``llm_used=true``).
+
+        ``method='coldstart'`` is stamped as a real column (migration 0007) so the read
+        path/Inspector shows the rubric provenance without parsing ``model_ver``."""
         with self._conn() as conn:
             cur = conn.execute(
                 """
                 INSERT INTO analyzer.suggestion
                     (project_id, item_id, launch_id, predicted_label, confidence,
-                     features, model_ver, llm_used)
-                VALUES (%s,%s,%s,%s,%s,%s,%s, true)
+                     features, model_ver, llm_used, method)
+                VALUES (%s,%s,%s,%s,%s,%s,%s, true, 'coldstart')
                 RETURNING suggestion_id
                 """,
                 (
@@ -141,7 +144,7 @@ class PgLlmFacts(StoreBase):
                 FROM analyzer.failure_signature fs
                 JOIN analyzer.test_item ti USING (project_id, item_id)
                 LEFT JOIN LATERAL (
-                    SELECT source FROM analyzer.label_event le
+                    SELECT source, ts FROM analyzer.label_event le
                     WHERE le.project_id = ti.project_id AND le.item_id = ti.item_id
                     ORDER BY le.ts DESC LIMIT 1
                 ) le ON true
