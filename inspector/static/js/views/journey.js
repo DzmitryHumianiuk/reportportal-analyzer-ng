@@ -761,8 +761,18 @@ function decisionCard(d) {
       ...(matchedItemId ? [h('dt', {}, 'matched_item_id'), h('dd', { class: 'mono' }, String(matchedItemId))] : []),
       ...(d.matching && d.matching.matched_mode_id ? [h('dt', {}, 'matched_mode_id'), h('dd', { class: 'mono' }, String(d.matching.matched_mode_id))] : []),
       h('dt', {}, 'llm_used'), h('dd', { class: 'mono' }, String(dec.llm_used)),
-      h('dt', {}, 'outcome'), h('dd', { class: 'mono' }, dec.outcome))));
+      h('dt', {}, 'outcome'), h('dd', { class: 'mono' }, dec.outcome),
+      ...(extraSnapshotRows(dec.extra_snapshot, 'snapshot extras')),
+      ...(cl ? extraSnapshotRows(cl.extra_snapshot, 'classical snapshot extras') : []))));
   return c;
+}
+
+// Numeric snapshot keys outside the feature registry — real data, surfaced in
+// Technical Details instead of inflating the waterfall's "N of M" counts.
+function extraSnapshotRows(extras, title) {
+  if (!extras || !Object.keys(extras).length) return [];
+  return [h('dt', {}, title),
+    h('dd', { class: 'mono', style: { fontSize: '11px' } }, JSON.stringify(extras))];
 }
 
 function muted(t) { return h('span', { class: 'muted' }, t); }

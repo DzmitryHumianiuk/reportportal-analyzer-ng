@@ -436,7 +436,7 @@ def item_journey(
         )
         if classical:
             c_conf = float(classical["confidence"] or 0.0)
-            c_feats = _feature_rows(classical["features"] or {})
+            c_feats, c_extras = _feature_rows(classical["features"] or {})
             decision_block["classical"] = {
                 "predicted_label": classical["predicted_label"],
                 "predicted_group": _grp(classical["predicted_label"]),
@@ -452,6 +452,7 @@ def item_journey(
                 "features": c_feats,
                 "feature_count": len(c_feats),
                 "feature_total": len(features_meta.FEATURE_DEFS),
+                "extra_snapshot": c_extras or None,
             }
         else:
             decision_block["classical"] = None
@@ -786,18 +787,26 @@ def _num(v: Any) -> float | None:
     return None if v is None else float(v)
 
 
-def _feature_rows(features: dict[str, Any]) -> list[dict[str, Any]]:
-    """Numeric feature snapshot → described rows, |value|-sorted (shared by the
-    primary decision and the classical row exposed on cold-start items)."""
+def _feature_rows(features: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Numeric feature snapshot → (described registry rows |value|-sorted, extras).
+
+    Only keys present in the features_meta registry become waterfall rows, so
+    "N of M signals" headers never exceed the registry size. Numeric keys OUTSIDE
+    the registry (riding annotations) are returned separately — real data, shown
+    in Technical Details rather than the waterfall."""
     rows: list[dict[str, Any]] = []
+    extras: dict[str, Any] = {}
     for key, val in features.items():
         try:
             fv = float(val)
         except (TypeError, ValueError):
             continue
-        rows.append({**features_meta.describe(key), "value": fv})
+        if key in features_meta.FEATURE_INDEX:
+            rows.append({**features_meta.describe(key), "value": fv})
+        else:
+            extras[key] = fv
     rows.sort(key=lambda r: abs(r["value"]), reverse=True)
-    return rows
+    return rows, extras
 
 
 def _matching_decision(
@@ -870,7 +879,7 @@ def _matching_decision(
 
     # Decision block — feature vector + gauge.
     features = sug["features"] or {}
-    feat_rows = _feature_rows(features)
+    feat_rows, extra_snapshot = _feature_rows(features)
 
     confidence = float(sug["confidence"] or 0.0)
     if confidence >= TAU_AUTO:
@@ -921,6 +930,7 @@ def _matching_decision(
         "created_at": _iso(sug["created_at"]),
         "features": feat_rows,
         "feature_count": len(feat_rows),
+        "extra_snapshot": extra_snapshot or None,
         # Full schema width, derived from the real feature table (not a magic
         # number in the UI) so "N of M" stays honest if the schema grows.
         "feature_total": len(features_meta.FEATURE_DEFS),
