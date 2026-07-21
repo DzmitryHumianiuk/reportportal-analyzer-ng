@@ -352,7 +352,7 @@ def migrate_launch(
         "attributes": clean_attributes(launch.get("attributes")),
     }
     luuid = dst.post(f"/api/v2/{dst.project}/launch", body)["id"]
-    print(f"  {len(items)} items")
+    print(f"  {len(items)} items", flush=True)
     uuid_of: dict[int, str] = {}
     issue_of: dict[int, str] = {}
     order: list[dict] = []
@@ -433,10 +433,10 @@ def replay_log(
             )
             if r.status_code < 400:
                 return
-            print(f"    ! attachment upload {r.status_code}; sending text-only")
+            print(f"    ! attachment upload {r.status_code}; sending text-only", flush=True)
             body.pop("file", None)
         except Exception as exc:  # noqa: BLE001 - degrade to text-only
-            print(f"    ! attachment transfer failed ({exc}); sending text-only")
+            print(f"    ! attachment transfer failed ({exc}); sending text-only", flush=True)
             body.pop("file", None)
     dst.post(f"/api/v2/{dst.project}/log", body)
 
@@ -508,6 +508,12 @@ def analyzer_label_events(pg_exec: str, item_ids: list[int]) -> int:
 # main
 # --------------------------------------------------------------------------- #
 def main() -> None:
+    # Flush every line as it is printed so progress stays live through a pipe
+    # (a slow/failing launch is visible immediately, without needing `python -u`).
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):  # non-standard stdout — flush per print below
+        pass
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--env", default=str(HERE / ".env"), help="env file path")
     sel = ap.add_mutually_exclusive_group(required=True)
@@ -523,6 +529,12 @@ def main() -> None:
                          "are dropped; containers survive while they hold non-passed "
                          "descendants)")
     ap.add_argument("--no-attachments", action="store_true")
+    ap.add_argument("--limit", type=int, default=None,
+                    help="cap the number of source launches processed: after "
+                         "selection, keep only the FIRST N (selection order — "
+                         "oldest-first for --from/--to, as given for --launch-ids). "
+                         "Applied BEFORE the pre-scan, so only the kept launches "
+                         "are ever fetched.")
     ap.add_argument("--dry-run", action="store_true", help="list what would be migrated")
     args = ap.parse_args()
 
@@ -546,6 +558,12 @@ def main() -> None:
         ts_to = parse_date(args.date_to) if args.date_to else int(time.time() * 1000)
         launches = list(src.launches_between(ts_from, ts_to))
     print(f"{len(launches)} source launch(es) selected")
+    # Apply --limit at SELECTION time, before any per-launch fetch (pre-scan /
+    # defect-type sync / migration), so only the kept launches are ever fetched.
+    if args.limit is not None:
+        total_selected = len(launches)
+        launches = launches[: args.limit]
+        print(f"limited to first {len(launches)} of {total_selected} selected launch(es)")
     if args.dry_run:
         for la in launches:
             print(f"  [{la['id']}] {la['name']} #{la.get('number')} @ {la.get('startTime')}")
@@ -556,13 +574,15 @@ def main() -> None:
     # Pre-scan needed defect locators (only for launches whose defects transfer).
     needed: set[str] = set()
     per_launch_items: dict[int, list[dict]] = {}
-    for la in launches:
+    for idx, la in enumerate(launches, 1):
+        print(f"pre-scan {idx}/{len(launches)}: scanning [{la['id']}] "
+              f"{la.get('name')} …", flush=True)
         items = src.items_of_launch(la["id"])
         if args.skip_passed:
             kept = drop_passed(items)
             if len(kept) != len(items):
                 print(f"  [{la['id']}] --skip-passed: {len(items) - len(kept)} of "
-                      f"{len(items)} item(s) dropped (passed subtrees)")
+                      f"{len(items)} item(s) dropped (passed subtrees)", flush=True)
             items = kept
         per_launch_items[la["id"]] = items
         if args.skip_all_defects or la["id"] in skip_defects:
@@ -577,9 +597,10 @@ def main() -> None:
     pending_replays: list[tuple[dict[int, str], dict[int, str]]] = []
     for la in launches:
         if dst.launch_exists(la.get("name", ""), la.get("startTime")):
-            print(f"SKIP [{la['id']}] {la['name']} — already on target (same name+startTime)")
+            print(f"SKIP [{la['id']}] {la['name']} — already on target (same name+startTime)",
+                  flush=True)
             continue
-        print(f"migrating [{la['id']}] {la['name']} #{la.get('number')}")
+        print(f"migrating [{la['id']}] {la['name']} #{la.get('number')}", flush=True)
         _, uuid_of, issue_of = migrate_launch(
             src, dst, la, per_launch_items[la["id"]],
             transfer_attachments=not args.no_attachments,

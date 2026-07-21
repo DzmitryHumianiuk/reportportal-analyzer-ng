@@ -47,7 +47,21 @@ python3 migrate.py --launch-ids 1201 --no-attachments
 # do not transfer PASSED tests/steps (whole passed subtrees are dropped;
 # suites survive while they still hold failed/skipped/… descendants)
 python3 migrate.py --launch-ids 1201 --skip-passed
+
+# test ONE launch at a time — process only the first launch of the selection
+# (the limit is applied BEFORE the pre-scan, so only that 1 launch is fetched,
+# not the whole selected set; composes with every other flag)
+python3 migrate.py --from 2026-07-21 --to 2026-07-22 --skip-passed --limit 1
 ```
+
+`--limit N` caps how many source launches are processed. It is applied right
+after selection, keeping the **first N** launches in selection order
+(oldest-first for `--from/--to`, as given for `--launch-ids`). Because it runs
+before the pre-scan, defect-type sync and migration, only the kept launches are
+ever fetched from the source — so `--limit 1` is a fast single-launch test
+instead of a full pre-scan of every selected launch. Prints e.g.
+`limited to first 1 of 9 selected launch(es)`. `--dry-run --limit 1` lists
+exactly that one launch.
 
 Re-runs are idempotent at launch level: a target launch with the same
 name+startTime is skipped.
