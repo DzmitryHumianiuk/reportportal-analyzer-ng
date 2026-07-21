@@ -453,6 +453,7 @@ def decide(
                 gbm,
                 inputs.stage_c,
                 result,
+                features=features,
                 query_msg_tokens=frozenset(inputs.query_msg_tokens),
                 tau_auto=tau_auto,
             )
@@ -479,6 +480,62 @@ def _pick_relevant(stage_c: Sequence[Candidate], base: str) -> Candidate | None:
     return None
 
 
+def _human_confirmed_hash_floor(
+    stage_c: Sequence[Candidate],
+    features: dict[str, float],
+    query_msg_tokens: frozenset[str],
+) -> Candidate | None:
+    """The human-confirmed exact-hash floor (tech-debt #3, Defect B).
+
+    Stage A already inherits a human-confirmed exact-hash label at 0.95 when ALL its
+    §6.1 guards pass. This floor covers the NEAR-MISS: Stage A legitimately declined
+    (e.g. newest match age > 180 d, or a non-unanimous crowd, or a single human label
+    below the 0.9 confidence guard) yet the top-1 retrieval neighbour is a
+    human-confirmed exact-error_hash match with CLEAN un-masked discriminants — and a
+    jittery GBM would then abstain (``p* < τ_suggest``), burying that strong evidence
+    behind an empty reply. Return that neighbour to promote the decision to the suggest
+    FLOOR (never auto); return ``None`` to leave the GBM's abstain intact.
+
+    Fires only when EVERY guard holds — deliberately narrower than Stage A so real traps
+    still abstain:
+
+    * ``stage_c[0].same_error_hash`` — an exact error_hash match (so a boilerplate-cosine
+      plateau with no hash, the NET-XUN-15 trap, can never reach this floor);
+    * ``stage_c[0].label_source in {rp, human}`` — the label was human-confirmed;
+    * ``hash_gate_blocked == 0`` — the Stage-A discriminant gate did NOT reject every
+      exact-hash match (we never resurrect a hash the S16 gate distrusted);
+    * status codes clean — NOT (query has un-masked status codes AND they disagree with
+      the exact-hash top-1): a 503-vs-500 near-miss status trap is excluded;
+    * identifier gate clean — ``_msg_gate_jaccard(query, top1) >= STAGE_A_MSG_JACCARD``,
+      the SAME identifier-token gate Stage A applies, so a ``Session.userId`` vs
+      ``Region.rate`` near-miss (disjoint identifiers) stays below threshold and does NOT
+      promote. The S16 gate is reused, never weakened;
+    * the neighbour's base group is a real GBM class (not ``ti``/unrecognized).
+    """
+    if not stage_c:
+        return None
+    top1 = stage_c[0]
+    if not top1.same_error_hash or top1.label_source not in ("rp", "human"):
+        return None
+    if features.get("hash_gate_blocked", 0.0) != 0.0:
+        return None
+    # Status-code near-miss trap: query carries un-masked codes that disagree with the
+    # exact-hash top-1 (status_codes_present=1 but status_codes_match_top1=0).
+    if (
+        features.get("status_codes_present", 0.0) == 1.0
+        and features.get("status_codes_match_top1", 0.0) != 1.0
+    ):
+        return None
+    # Identifier discriminant gate (S16, reused verbatim): disjoint identifier tokens
+    # keep a same-hash different-app-area trap below the inherit threshold.
+    top1_tokens = frozenset(top1.msg_text.split())
+    if _msg_gate_jaccard(query_msg_tokens, top1_tokens) < STAGE_A_MSG_JACCARD:
+        return None
+    if _base(top1.issue_type) not in BASE_LABELS:
+        return None
+    return top1
+
+
 def _boilerplate_only_top1(top1: Candidate, query_msg_tokens: frozenset[str]) -> bool:
     """True when the top-1 neighbour shares NO structural evidence with the query
     (2026-07-18 errata): no exact fingerprint, no exact error_hash, no template
@@ -498,6 +555,7 @@ def _gbm_result(
     stage_c: Sequence[Candidate],
     result_fn: Callable[..., DecisionResult],
     *,
+    features: dict[str, float],
     query_msg_tokens: frozenset[str] = frozenset(),
     tau_auto: float = TAU_AUTO,
 ) -> DecisionResult:
@@ -513,12 +571,27 @@ def _gbm_result(
     kind — is demoted to abstain, since the Stage-A discriminant gate never sees the
     Stage-B/GBM path and a boilerplate-cosine plateau is not real support. The auto
     band (``p* ≥ τ_auto``) is untouched.
+
+    Human-confirmed exact-hash floor (tech-debt #3, Defect B): the mirror of the demote
+    guard. A pure-abstain (``p* < τ_suggest``) whose top-1 neighbour is a human-confirmed
+    exact-error_hash match with clean un-masked discriminants is PROMOTED to the suggest
+    floor (never auto), so a jittery GBM cannot bury strong human-confirmed evidence
+    behind an empty reply. See :func:`_human_confirmed_hash_floor` for the guard set.
     """
     p = max(0.0, min(1.0, float(gbm.max_prob)))
     label = gbm.label if gbm.label in BASE_LABELS else "ti"
     probs = {b: float(gbm.probs.get(b, 0.0)) for b in BASE_LABELS}
     version = gbm.model_version or None
     if label == "ti" or p < TAU_SUGGEST:
+        floor = _human_confirmed_hash_floor(stage_c, features, query_msg_tokens)
+        if floor is not None:
+            flabel = _base(floor.issue_type)
+            locator = floor.issue_type or default_locator(flabel)
+            return result_fn(
+                flabel, locator, TAU_SUGGEST, METHOD_GBM,
+                relevant_item_id=floor.item_id, probs=probs, model_version=version,
+                relevant_label_source=floor.label_source,
+            )
         return result_fn(
             "ti", "ti", p, METHOD_GBM,
             abstain_reason="gbm_below_suggest", probs=probs, model_version=version,

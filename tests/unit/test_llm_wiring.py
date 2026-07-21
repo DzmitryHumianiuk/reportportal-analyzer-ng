@@ -64,7 +64,7 @@ def test_extractor_lookup_is_per_project() -> None:
 
 def test_feature_vector_byte_identical_off_vs_miss() -> None:
     # A build with the sidecar off (no lookup) and one whose lookup misses both
-    # produce the sentinel `unknown` → identical 41-float vectors.
+    # produce the `unknown` one-hot level → byte-identical feature vectors (v6).
     off = to_vector(extract_features(FeatureContext(has_stacktrace=True, exception_count=2)))
     miss = to_vector(
         extract_features(

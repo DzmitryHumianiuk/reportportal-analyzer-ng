@@ -40,38 +40,72 @@ from analyzer_ng.db.repositories.models import Candidate
 # provenance so the model can still weight the Jaccard by the strength of the neighbour
 # it was measured against; a real trap (hash present, disjoint identifiers) still
 # encodes jaccard=0.0 + identifiers_present=1.
-FEATURE_SCHEMA_VER = 5
+# v6 (2026-07-21) re-encodes the two LLM-extractor categoricals as ONE-HOT indicators
+# (tech-debt #3, Defect A). The v2..v5 ordinal encoding (``llm_error_class`` 0-13,
+# ``llm_failing_layer`` 0-4) was wrong twice over: (a) a RAW ORDINAL imposes a false
+# magnitude/order on an unordered category, and (b) the extractor cache warms
+# asynchronously, so the SAME item read the ``unknown``(0) sentinel while the cache was
+# cold and a real category once it warmed — flipping the ordinal and moving the item to a
+# different GBM leaf between a stale ``analyze`` snapshot and a fresh ``suggest`` read
+# (bidirectional noise). One-hot with an EXPLICIT ``unknown`` level fixes both: a
+# cold-cache read is now its own honest, distinct column (never blended into a real
+# class), and no split can read an order that isn't there. The two ordinal columns are
+# DROPPED and replaced by 5 + 14 = 19 binary columns appended at the tail; serving is
+# name-based and schema-ver-gated (a v5 model is never fed a v6 snapshot), and old v5
+# snapshots that lack the one-hot columns back-fill to the ``unknown`` level by default
+# (each ``*_unknown`` column defaults to 1.0). Realizing the fix REQUIRES a retrain on
+# fresh v6 snapshots — the drop/re-encode is not backward-compatible for a v5 booster.
+FEATURE_SCHEMA_VER = 6
 
-# spec 04 §4.2: the extractor's categorical outputs enter the GBM as ordinal
-# columns. The sentinel ``unknown`` (= 0) is the on-miss / LLM-off value, so a
-# build with the sidecar off is trained and served with these columns present and
-# constant — identical to an install where Ollama is never reachable. The enum
-# orders mirror the extractor schema (spec 04 §4.2); the ordinal is a stable
-# stand-in for LightGBM (tree splits are order-tolerant), not a magnitude.
+# spec 04 §4.2: the extractor's categorical outputs enter the GBM as ONE-HOT indicator
+# columns (v6, tech-debt #3). Level order mirrors the extractor schema (spec 04 §4.2);
+# ``unknown`` is an explicit level (not an implicit drop-one baseline) so the on-miss /
+# LLM-off / cold-cache state is a distinct, honest column — a build with the sidecar off
+# is trained and served with ``*_unknown = 1`` constant, identical to an install where
+# Ollama is never reachable. Exactly one column per group is hot for any item.
 LLM_UNKNOWN = "unknown"
-FAILING_LAYER_ORDINAL: dict[str, int] = {
-    LLM_UNKNOWN: 0,
-    "test_code": 1,
-    "app_code": 2,
-    "infrastructure": 3,
-    "environment": 4,
-}
-ERROR_CLASS_ORDINAL: dict[str, int] = {
-    LLM_UNKNOWN: 0,
-    "assertion": 1,
-    "timeout": 2,
-    "connection": 3,
-    "http_4xx": 4,
-    "http_5xx": 5,
-    "null_reference": 6,
-    "not_found": 7,
-    "permission": 8,
-    "data_format": 9,
-    "resource_exhausted": 10,
-    "config": 11,
-    "concurrency": 12,
-    "other": 13,
-}
+FAILING_LAYER_LEVELS: tuple[str, ...] = (
+    LLM_UNKNOWN,
+    "test_code",
+    "app_code",
+    "infrastructure",
+    "environment",
+)
+ERROR_CLASS_LEVELS: tuple[str, ...] = (
+    LLM_UNKNOWN,
+    "assertion",
+    "timeout",
+    "connection",
+    "http_4xx",
+    "http_5xx",
+    "null_reference",
+    "not_found",
+    "permission",
+    "data_format",
+    "resource_exhausted",
+    "config",
+    "concurrency",
+    "other",
+)
+
+
+def _onehot_defs(prefix: str, levels: tuple[str, ...]) -> tuple[FeatureDef, ...]:
+    """One binary ``FeatureDef`` per category level. The ``unknown`` level defaults to
+    1.0 and every real level to 0.0, so an empty context, an LLM-off build and an old
+    snapshot lacking these columns all back-fill to the honest ``unknown`` state."""
+    return tuple(
+        FeatureDef(f"{prefix}_{lvl}", 1.0 if lvl == LLM_UNKNOWN else 0.0) for lvl in levels
+    )
+
+
+def _set_onehot(
+    values: dict[str, float], prefix: str, levels: tuple[str, ...], value: str
+) -> None:
+    """Set the one-hot block for ``prefix``: the column for ``value`` (or ``unknown``
+    when ``value`` is not a known level) to 1.0, every other column to 0.0."""
+    active = value if value in levels else LLM_UNKNOWN
+    for lvl in levels:
+        values[f"{prefix}_{lvl}"] = 1.0 if lvl == active else 0.0
 
 # Base issue-type groups the model predicts; ``ti`` is the abstain outcome.
 BASE_LABELS = ("pb", "ab", "si", "nd")
@@ -175,9 +209,6 @@ FEATURES: tuple[FeatureDef, ...] = (
     FeatureDef("is_assertion", 0.0),
     FeatureDef("is_merged_small_logs", 0.0),
     FeatureDef("exception_count", 0.0),
-    # spec 04 §4.2 optional LLM-extractor columns (sentinel 0 = unknown / LLM-off).
-    FeatureDef("llm_failing_layer", 0.0),
-    FeatureDef("llm_error_class", 0.0),
     # 2026-07-18 errata: discriminant-agreement columns. error_hash is computed over
     # Drain3-masked templates + normalized frames, so it collapses HTTP 500 vs 503
     # and same-exception failures from different app areas — the retrieval features
@@ -197,11 +228,18 @@ FEATURES: tuple[FeatureDef, ...] = (
     # neighbour existed at all. Lets the retrained GBM weight the Jaccard by the strength
     # of the evidence it was measured against without losing the trap signal.
     FeatureDef("ident_jaccard_source", 0.0),
+    # v6 (2026-07-21, tech-debt #3): the two LLM-extractor categoricals, ONE-HOT
+    # encoded (was ordinal in v2..v5). 5 failing-layer + 14 error-class binary columns,
+    # each group carrying an explicit ``unknown`` level (default 1.0) so a cold-cache /
+    # LLM-off read is a distinct honest column. Appended at the tail (spec 04 §4.2).
+    *_onehot_defs("llm_failing_layer", FAILING_LAYER_LEVELS),
+    *_onehot_defs("llm_error_class", ERROR_CLASS_LEVELS),
 )
 
-assert len(FEATURES) == 47, (
-    "spec 03 §6.4 (39) + spec 04 §4.2 (2 LLM) + 2026-07-18 errata (4 discriminant) "
-    "+ 2026-07-18b (1 identifiers_present) + 2026-07-20 v5 (1 ident_jaccard_source)"
+assert len(FEATURES) == 64, (
+    "spec 03 §6.4 (39) + 2026-07-18 errata (4 discriminant) + 2026-07-18b (1 "
+    "identifiers_present) + 2026-07-20 v5 (1 ident_jaccard_source) + 2026-07-21 v6 "
+    "(19 one-hot LLM: 5 failing_layer + 14 error_class, replacing the 2 ordinals)"
 )
 
 # name → registered default, for the forward/backward-compat vector assembly rule.
@@ -422,10 +460,13 @@ def extract_features(ctx: FeatureContext) -> dict[str, float]:
     values["is_merged_small_logs"] = 1.0 if ctx.is_merged_small_logs else 0.0
     values["exception_count"] = _clamp01(min(ctx.exception_count, 5) / 5.0)
 
-    # spec 04 §4.2: ordinal-encode the LLM-extractor categoricals (sentinel 0 when
-    # unknown / LLM-off). Not clamped to [0,1] — the ordinal is the category id.
-    values["llm_failing_layer"] = float(FAILING_LAYER_ORDINAL.get(ctx.llm_failing_layer, 0))
-    values["llm_error_class"] = float(ERROR_CLASS_ORDINAL.get(ctx.llm_error_class, 0))
+    # spec 04 §4.2 / v6 (tech-debt #3): one-hot the LLM-extractor categoricals. Exactly
+    # one column per group is hot; an unrecognised value (or a cold-cache / LLM-off miss)
+    # lands on the explicit ``unknown`` column — never blended into a real class, so a
+    # cold read is a distinct honest state and cannot flip the item's GBM leaf as the
+    # async extractor cache warms. All binary → no NaN/inf can reach the model.
+    _set_onehot(values, "llm_failing_layer", FAILING_LAYER_LEVELS, ctx.llm_failing_layer)
+    _set_onehot(values, "llm_error_class", ERROR_CLASS_LEVELS, ctx.llm_error_class)
 
     # discriminant-agreement signals (2026-07-18 errata; v4 re-encode 2026-07-18b).
     # Encoding principle: "nothing to compare" must NEVER read as "match" — a bare

@@ -27,18 +27,21 @@ def _cand(**kw):
     return Candidate(**base)
 
 
-def test_exactly_47_features_unique_order():
-    # 39 classical (spec 03 §6.4) + 2 LLM-extractor columns (spec 04 §4.2)
-    # + 4 discriminant-agreement columns (2026-07-18 errata)
+def test_exactly_64_features_unique_order():
+    # 39 classical (spec 03 §6.4) + 4 discriminant-agreement columns (2026-07-18 errata)
     # + 1 identifiers_present indicator (2026-07-18b, v4)
-    # + 1 ident_jaccard_source provenance column (2026-07-20, v5).
-    assert len(FEATURES) == 47
+    # + 1 ident_jaccard_source provenance column (2026-07-20, v5)
+    # + 19 one-hot LLM-extractor columns (2026-07-21, v6: 5 failing_layer + 14
+    #   error_class, replacing the 2 ordinal columns that flipped as the cache warmed).
+    assert len(FEATURES) == 64
     names = [f.name for f in FEATURES]
-    assert len(set(names)) == 47
+    assert len(set(names)) == 64
     assert names[0] == "top1_cosine"
     assert names[38] == "exception_count"
-    assert names[39:41] == ["llm_failing_layer", "llm_error_class"]
-    assert names[41:] == [
+    # v6: the two LLM ordinals are GONE from the registry (dropped, not re-mapped).
+    assert "llm_failing_layer" not in names
+    assert "llm_error_class" not in names
+    assert names[39:45] == [
         "status_codes_present",
         "status_codes_match_top1",
         "identifier_jaccard_top1",
@@ -46,15 +49,43 @@ def test_exactly_47_features_unique_order():
         "identifiers_present",
         "ident_jaccard_source",
     ]
+    # v6 one-hot block, appended at the tail: 5 failing-layer then 14 error-class.
+    assert names[45:50] == [
+        "llm_failing_layer_unknown",
+        "llm_failing_layer_test_code",
+        "llm_failing_layer_app_code",
+        "llm_failing_layer_infrastructure",
+        "llm_failing_layer_environment",
+    ]
+    assert names[50:] == [
+        "llm_error_class_unknown",
+        "llm_error_class_assertion",
+        "llm_error_class_timeout",
+        "llm_error_class_connection",
+        "llm_error_class_http_4xx",
+        "llm_error_class_http_5xx",
+        "llm_error_class_null_reference",
+        "llm_error_class_not_found",
+        "llm_error_class_permission",
+        "llm_error_class_data_format",
+        "llm_error_class_resource_exhausted",
+        "llm_error_class_config",
+        "llm_error_class_concurrency",
+        "llm_error_class_other",
+    ]
 
 
 def test_empty_context_returns_defaults_no_nan():
     values = extract_features(FeatureContext())
     vec = to_vector(values)
-    assert len(vec) == 47
-    # LLM-extractor columns default to the ``unknown`` sentinel (spec 04 §4.2).
-    assert values["llm_failing_layer"] == 0.0
-    assert values["llm_error_class"] == 0.0
+    assert len(vec) == 64
+    # v6: on an empty/cold context the one-hot LLM blocks land on their explicit
+    # ``unknown`` level (1.0), every real level 0.0 — the honest cold-cache / LLM-off
+    # state, and exactly one column hot per group.
+    assert values["llm_failing_layer_unknown"] == 1.0
+    assert values["llm_error_class_unknown"] == 1.0
+    assert sum(v for k, v in values.items() if k.startswith("llm_failing_layer_")) == 1.0
+    assert sum(v for k, v in values.items() if k.startswith("llm_error_class_")) == 1.0
     assert all(math.isfinite(v) for v in vec)
     # Documented defaults for the missing-data case.
     assert values["label_hist_entropy"] == 1.0
@@ -159,16 +190,61 @@ def test_si_prior_capped_at_09():
     assert values["si_prior"] == 0.9
 
 
-def test_llm_extractor_columns_ordinal_encoded():
-    # spec 04 §4.2: a cache hit supplies the categoricals; they ordinal-encode.
+def test_llm_extractor_columns_one_hot_encoded():
+    # v6 (tech-debt #3, Defect A): a cache hit supplies the categoricals; they ONE-HOT
+    # encode. The named level is hot (1.0), every sibling — including ``unknown`` — 0.0.
     ctx = FeatureContext(llm_failing_layer="infrastructure", llm_error_class="http_5xx")
     values = extract_features(ctx)
-    assert values["llm_failing_layer"] == 3.0
-    assert values["llm_error_class"] == 5.0
-    # An unrecognised value falls back to the sentinel (0), never NaN.
-    junk = extract_features(FeatureContext(llm_error_class="bogus"))
-    assert junk["llm_error_class"] == 0.0
-    assert math.isfinite(junk["llm_error_class"])
+    assert values["llm_failing_layer_infrastructure"] == 1.0
+    assert values["llm_failing_layer_unknown"] == 0.0
+    assert values["llm_failing_layer_app_code"] == 0.0
+    assert values["llm_error_class_http_5xx"] == 1.0
+    assert values["llm_error_class_unknown"] == 0.0
+    # Exactly one column hot per group (a true one-hot, no leakage across levels).
+    assert sum(v for k, v in values.items() if k.startswith("llm_failing_layer_")) == 1.0
+    assert sum(v for k, v in values.items() if k.startswith("llm_error_class_")) == 1.0
+
+
+def test_llm_one_hot_covers_every_level_including_unknown():
+    from analyzer_ng.core.features import ERROR_CLASS_LEVELS, FAILING_LAYER_LEVELS
+
+    for lvl in FAILING_LAYER_LEVELS:
+        v = extract_features(FeatureContext(llm_failing_layer=lvl))
+        assert v[f"llm_failing_layer_{lvl}"] == 1.0
+        assert sum(x for k, x in v.items() if k.startswith("llm_failing_layer_")) == 1.0
+    for lvl in ERROR_CLASS_LEVELS:
+        v = extract_features(FeatureContext(llm_error_class=lvl))
+        assert v[f"llm_error_class_{lvl}"] == 1.0
+        assert sum(x for k, x in v.items() if k.startswith("llm_error_class_")) == 1.0
+
+
+def test_llm_one_hot_unknown_on_unrecognised_value():
+    # An unrecognised category is NOT NaN and is NOT blended into a real class — it lands
+    # on the explicit ``unknown`` level, so a cold-cache / garbage read is a distinct,
+    # honest state (the Defect-A volatility fix).
+    junk = extract_features(FeatureContext(llm_error_class="bogus", llm_failing_layer="nope"))
+    assert junk["llm_error_class_unknown"] == 1.0
+    assert junk["llm_failing_layer_unknown"] == 1.0
+    assert all(
+        math.isfinite(v)
+        for k, v in junk.items()
+        if k.startswith(("llm_error_class_", "llm_failing_layer_"))
+    )
+
+
+def test_llm_one_hot_backfills_old_snapshot_to_unknown():
+    # Defect A back-fill: a v5 snapshot has no one-hot columns at all. Assembled for the
+    # current (v6) registry, the missing one-hot columns back-fill to their registered
+    # defaults — each ``*_unknown`` column defaults to 1.0 — so an old cold-cache row is
+    # read as the honest ``unknown`` state, never blended into a real class.
+    all_names = [f.name for f in FEATURES]
+    classical_only = {n: 0.2 for n in all_names[:39]}  # predates every appended block
+    vec = to_vector_for(classical_only, all_names)
+    idx = {n: i for i, n in enumerate(all_names)}
+    assert vec[idx["llm_failing_layer_unknown"]] == 1.0
+    assert vec[idx["llm_error_class_unknown"]] == 1.0
+    assert vec[idx["llm_failing_layer_infrastructure"]] == 0.0
+    assert vec[idx["llm_error_class_http_5xx"]] == 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -323,9 +399,9 @@ def test_hash_gate_blocked_flag_passes_through():
 # Forward/backward-compat vector assembly (schema invariant)
 # --------------------------------------------------------------------------- #
 def test_to_vector_for_old_list_drops_new_columns():
-    # A model trained on the OLD (pre-errata) 41-name list, fed a full NEW snapshot,
-    # assembles exactly its 41 trained columns in its own order — the 4 new columns
-    # it never saw are dropped.
+    # A model trained on an OLDER, shorter feature list, fed a full NEW snapshot,
+    # assembles exactly its own trained columns in its own order — columns it never saw
+    # are dropped (schema-robust serving invariant).
     old_names = [f.name for f in FEATURES][:41]
     full = extract_features(
         FeatureContext(query_status_codes=("503",), has_hash_top1=True)
@@ -336,14 +412,19 @@ def test_to_vector_for_old_list_drops_new_columns():
 
 
 def test_to_vector_for_new_list_backfills_missing_with_defaults():
-    # A NEW-list model fed an OLD 41-key snapshot back-fills the 4 missing columns
-    # with their registered defaults (all 0.0 here), never dropping the row.
+    # A NEW-list (v6) model fed an OLDER snapshot back-fills the missing columns with
+    # their registered defaults, never dropping the row. Note the one-hot ``*_unknown``
+    # columns default to 1.0 (their honest cold state), which FEATURE_DEFAULTS carries.
     all_names = [f.name for f in FEATURES]
-    old_snapshot = {n: 0.5 for n in all_names[:41]}  # lacks the errata + v4/v5 columns
+    old_snapshot = {n: 0.5 for n in all_names[:41]}  # an older, shorter snapshot
     vec = to_vector_for(old_snapshot, all_names)
-    assert len(vec) == 47
+    assert len(vec) == 64
     assert vec[:41] == [0.5] * 41
     assert vec[41:] == [FEATURE_DEFAULTS[n] for n in all_names[41:]]
+    # the back-filled one-hot unknown columns are 1.0, real levels 0.0.
+    idx = {n: i for i, n in enumerate(all_names)}
+    assert vec[idx["llm_failing_layer_unknown"]] == 1.0
+    assert vec[idx["llm_error_class_unknown"]] == 1.0
 
 
 def test_launch_fail_fraction_zero_when_total_unknown():

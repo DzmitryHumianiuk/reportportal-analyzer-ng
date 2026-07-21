@@ -271,7 +271,7 @@ def test_decide_stage_a_auto():
     assert res.confidence == 0.95
     assert res.relevant_item_id == 7
     assert res.issue_type == "pb001"
-    assert len(res.features) == 47
+    assert len(res.features) == 64
 
 
 def test_decide_kb_short_circuit():
@@ -318,7 +318,7 @@ def test_decide_pure_abstain_features_present():
     res = decide(DecisionInputs(exception_fp=0), now=NOW)
     assert res.label == "ti"
     assert res.action == ACTION_ABSTAIN
-    assert len(res.features) == 47
+    assert len(res.features) == 64
 
 
 # --------------------------------------------------------------------------- #
@@ -560,6 +560,181 @@ def test_guard_both_empty_identifier_sets_follow_stage_a_fallback():
     )
     assert res.action == ACTION_SUGGEST
     assert res.label == "pb"
+
+
+# --------------------------------------------------------------------------- #
+# Human-confirmed exact-hash floor on the GBM abstain band (tech-debt #3, Defect B)
+# --------------------------------------------------------------------------- #
+# Query + neighbour share the discriminating identifier token Session.userId, so the
+# S16 identifier gate passes (clean textual evidence).
+_HC_Q = frozenset({"cannot", "invoke", "Session.userId", "because", "null"})
+_HC_MSG = "cannot invoke Session.userId because null"
+
+
+def _hc_cand(**kw):
+    """A human-confirmed exact-error_hash Stage-C top-1 neighbour."""
+    base = dict(
+        item_id=77,
+        mode_id=None,
+        cosine=0.9,
+        issue_type="pb001",
+        label_source="rp",
+        same_error_hash=True,
+        same_exception_fp=False,
+        jaccard_templates=0.0,
+        msg_text=_HC_MSG,
+    )
+    base.update(kw)
+    return Candidate(**base)
+
+
+def test_human_confirmed_hash_floor_promotes_abstain_to_suggest():
+    # Stage A declined (the sole hash match is 200 d old — past the 180 d guard), the GBM
+    # jitters to a pure abstain (p=0.3), but the top-1 neighbour is a human-confirmed
+    # exact-hash match with clean discriminants → promote to the SUGGEST floor, anchored
+    # on that neighbour. Never auto.
+    res = decide(
+        DecisionInputs(
+            exception_fp=9,
+            hash_matches=[_hm(7, "pb001", "rp", days_ago=200, msg_tokens=_HC_Q)],
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand()],
+            gbm_predict=_gbm("si", 0.3),  # jittery pure-abstain
+        ),
+        now=NOW,
+    )
+    assert res.method != METHOD_HASH  # Stage A did NOT inherit (age guard)
+    assert res.method == METHOD_GBM
+    assert res.action == ACTION_SUGGEST
+    assert res.label == "pb"  # anchored on the human-confirmed neighbour, not the GBM
+    assert res.issue_type == "pb001"
+    assert res.confidence == 0.45  # the suggest floor (τ_suggest), never auto
+    assert res.relevant_item_id == 77
+    assert res.relevant_label_source == "rp"
+    assert res.abstain_reason is None
+    # The GBM's own distribution is still carried for audit.
+    assert set(res.probs) == {"pb", "ab", "si", "nd"}
+
+
+def test_human_confirmed_hash_floor_fires_for_human_source_too():
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand(label_source="human")],
+            gbm_predict=_gbm("si", 0.2),
+        ),
+        now=NOW,
+    )
+    assert res.action == ACTION_SUGGEST
+    assert res.label == "pb"
+    assert res.relevant_label_source == "human"
+
+
+def test_floor_does_not_fire_on_identifier_mismatch_trap():
+    # Same error_hash + human-confirmed, but the neighbour's identifier (Region.rate) is
+    # disjoint from the query's (Session.userId): a same-hash different-app-area trap. The
+    # reused S16 gate keeps it below threshold → the GBM abstain stands.
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand(msg_text="cannot invoke Region.rate because null")],
+            gbm_predict=_gbm("si", 0.3),
+        ),
+        now=NOW,
+    )
+    assert res.label == "ti"
+    assert res.action == ACTION_ABSTAIN
+    assert res.abstain_reason == "gbm_below_suggest"
+
+
+def test_floor_does_not_fire_on_status_code_near_miss():
+    # The query carries an un-masked status code but no exact-hash neighbour confirms it
+    # agrees (status_codes_present=1, status_codes_match_top1=0) → the status guard blocks
+    # the promotion even though the identifier gate would pass.
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            query_msg_tokens=_HC_Q,
+            query_status_codes=("503",),
+            stage_c=[_hc_cand()],
+            gbm_predict=_gbm("si", 0.3),
+        ),
+        now=NOW,
+    )
+    assert res.features["status_codes_present"] == 1.0
+    assert res.features["status_codes_match_top1"] == 0.0
+    assert res.label == "ti"
+    assert res.action == ACTION_ABSTAIN
+
+
+def test_floor_does_not_fire_when_hash_gate_blocked():
+    # A 503-vs-500 exact-hash trap: the discriminant gate rejected every hash match
+    # (hash_gate_blocked=1), so the floor must NOT resurrect that distrusted hash — even
+    # though a stage-C neighbour is flagged same_error_hash + human.
+    res = decide(
+        DecisionInputs(
+            exception_fp=9,
+            hash_matches=[_hm(1, "pb001", "rp", status_codes=("500",), msg_tokens=_HC_Q)],
+            query_status_codes=("503",),
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand()],
+            gbm_predict=_gbm("si", 0.3),
+        ),
+        now=NOW,
+    )
+    assert res.features["hash_gate_blocked"] == 1.0
+    assert res.label == "ti"
+    assert res.action == ACTION_ABSTAIN
+
+
+def test_floor_does_not_fire_for_non_human_source():
+    # An ai_suggested (unreviewed) same-hash neighbour is NOT authoritative → no floor.
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand(label_source="ai_suggested")],
+            gbm_predict=_gbm("si", 0.3),
+        ),
+        now=NOW,
+    )
+    assert res.label == "ti"
+    assert res.action == ACTION_ABSTAIN
+
+
+def test_floor_does_not_fire_without_exact_hash():
+    # No exact error_hash on the neighbour (a boilerplate-cosine plateau) → the floor
+    # never engages, preserving the NET-XUN-15 abstain.
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand(same_error_hash=False)],
+            gbm_predict=_gbm("si", 0.3),
+        ),
+        now=NOW,
+    )
+    assert res.label == "ti"
+    assert res.action == ACTION_ABSTAIN
+
+
+def test_floor_never_promotes_into_auto_band():
+    # The floor lifts a pure abstain only to the suggest floor — a genuine suggest-band
+    # GBM prediction (p=0.6) is untouched by the floor (it is not in the abstain branch).
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand()],
+            gbm_predict=_gbm("si", 0.6),
+        ),
+        now=NOW,
+    )
+    assert res.action == ACTION_SUGGEST
+    assert res.label == "si"  # the GBM's own suggest-band label, not the floor's
+    assert res.confidence == 0.6
 
 
 # ---------------------------------------------------------------------------

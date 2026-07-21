@@ -57,28 +57,35 @@ def test_build_xy_skips_rows_without_snapshot_or_class():
     x, y, projects = build_xy(rows)
     assert y == ["pb"]
     assert projects == [1]
-    assert x.shape == (1, 47)
+    assert x.shape == (1, 64)
 
 
 def test_build_xy_fills_missing_new_columns_with_defaults_not_drop():
     # Forward-compat (schema bump): a historical snapshot predating the newest
     # columns is NOT dropped — to_vector back-fills the missing columns with their
     # registered defaults, so old snapshots stay trainable across schema versions.
-    old_names = [f.name for f in FEATURES][:41]  # pre-errata snapshot (no 4 new cols)
+    all_names = [f.name for f in FEATURES]
+    classical = all_names[:39]  # a pre-append snapshot (39 classical columns only)
     rows = [
         {
             "project_id": 1,
             "item_id": i,
             "new_label": ("pb001" if i % 2 else "ab001"),
-            "features": {n: 0.3 for n in old_names},
+            "features": {n: 0.3 for n in classical},
         }
         for i in range(10)
     ]
     x, y, _p = build_xy(rows)
-    assert x.shape == (10, 47)  # padded to the full current width
+    assert x.shape == (10, 64)  # padded to the full current v6 width
     assert len(y) == 10  # every historical row kept
-    # The 4 errata + 1 v4 + 1 v5 columns default to 0.0 (their registered default).
-    assert x[:, 41:].tolist() == [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]] * 10
+    # Every appended column back-fills to its registered default. The one-hot
+    # ``*_unknown`` columns default to 1.0 (honest cold-cache state), all else 0.0 —
+    # so a v5 snapshot with no LLM one-hot columns trains as the ``unknown`` level.
+    idx = {n: i for i, n in enumerate(all_names)}
+    assert (x[:, idx["llm_failing_layer_unknown"]] == 1.0).all()
+    assert (x[:, idx["llm_error_class_unknown"]] == 1.0).all()
+    assert (x[:, idx["llm_failing_layer_infrastructure"]] == 0.0).all()
+    assert (x[:, idx["status_codes_present"]] == 0.0).all()
 
 
 def test_gbm_model_stamps_and_roundtrips_feature_names():
