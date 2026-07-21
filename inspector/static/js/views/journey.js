@@ -200,17 +200,27 @@ function signatureCard(d) {
   }
   body.appendChild(grid);
 
-  // referenced drain templates
+  // referenced drain templates — long lists collapse behind a drawer
   if (d.templates && d.templates.length) {
     body.appendChild(h('div', { class: 'section-title', style: { marginTop: '16px' } },
       `Referenced Drain3 templates (${d.templates.length})`));
-    for (const t of d.templates) {
-      body.appendChild(h('div', { style: { padding: '8px 10px', background: 'var(--surface-2)', border: '1px solid var(--hairline)', borderRadius: '8px', marginBottom: '6px' } },
-        h('div', { class: 'flex between center mb-8' },
-          h('span', { class: 'chip mono' }, `#${t.template_id}`),
-          t.missing ? h('span', { class: 'muted' }, 'template row missing') :
-            h('span', { class: 'muted', style: { fontSize: '11px' } }, `${t.token_count} tok · ${t.match_count} matches`)),
-        h('div', { class: 'pattern', html: highlightPattern(t.pattern) })));
+    const tplCard = (t) => h('div', { style: { padding: '8px 10px', background: 'var(--surface-2)', border: '1px solid var(--hairline)', borderRadius: '8px', marginBottom: '6px' } },
+      h('div', { class: 'flex between center mb-8' },
+        h('span', { class: 'chip mono' }, `#${t.template_id}`),
+        t.missing ? h('span', { class: 'muted' }, 'template row missing') :
+          h('span', { class: 'muted', style: { fontSize: '11px' } }, `${t.token_count} tok · ${t.match_count} matches`)),
+      h('div', { class: 'pattern', html: highlightPattern(t.pattern) }));
+    const TPL_VISIBLE = 5;
+    const collapse = d.templates.length > TPL_VISIBLE + 1;
+    for (const t of (collapse ? d.templates.slice(0, TPL_VISIBLE) : d.templates)) body.appendChild(tplCard(t));
+    if (collapse) {
+      const rest = d.templates.slice(TPL_VISIBLE);
+      const det = h('details', { class: 'out-drawer tpl-more' },
+        h('summary', {},
+          h('span', { class: 'more' }, `show ${rest.length} more templates`),
+          h('span', { class: 'less' }, 'show fewer templates')));
+      for (const t of rest) det.appendChild(tplCard(t));
+      body.appendChild(det);
     }
   }
   return c;

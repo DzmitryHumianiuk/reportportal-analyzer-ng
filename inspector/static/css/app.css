@@ -623,6 +623,10 @@ details.out-drawer > summary { cursor: pointer; list-style: none; font-size: 10.
   letter-spacing: .4px; color: var(--rp-e-400); font-weight: 600; }
 details.out-drawer > summary::-webkit-details-marker { display: none; }
 details.out-drawer > summary:hover { color: var(--rp-topaz); }
+details.tpl-more { margin-top: 2px; }
+details.tpl-more > summary { padding: 4px 0 8px; }
+details.tpl-more > summary .less, details.tpl-more[open] > summary .more { display: none; }
+details.tpl-more[open] > summary .less { display: inline; }
 pre.out-json { margin: 8px 0 2px; padding: 10px 12px; background: var(--rp-bg-100); border: 1px solid var(--rp-e-100);
   border-radius: var(--radius-s); font-family: var(--rp-mono); font-size: 11px; color: var(--rp-charcoal); line-height: 16px;
   white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
