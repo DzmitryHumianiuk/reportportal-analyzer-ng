@@ -6,10 +6,35 @@ presentation shipped in the earlier `ng1` patch while keeping that patch's analy
 parsing intact. This is an **RP-side** change (the user owns the stand).
 
 - Patch: [`service-ui-5.15.3-bench.patch`](./service-ui-5.15.3-bench.patch)
-- Built image: `reportportal/service-ui:5.15.3-ng2`
+- Built image: `reportportal/service-ui:5.15.3-ng3` (full-width; supersedes `ng2`)
 - Design source of truth: [`../consilium-make-decision/mockup-bench-rp.html`](../consilium-make-decision/mockup-bench-rp.html)
-  plus the `lens-bench-*` / `gpos-VERDICT` docs.
+  (revised in place to full-width) plus the `lens-bench-*` / `gpos-VERDICT` docs.
 - Live evidence: [`evidence/bench/`](./evidence/bench)
+
+## ng3 — full-width layout (approved)
+
+`ng2` capped the Bench content at ~1180px centred inside the RP dark modal shell, which
+spans the whole screen — leaving large empty dark margins (measured ~495px each side at a
+2227px viewport). `ng3` fills that reclaimed width:
+
+- The light surface spans the modal width up to a graceful **1600px cap** (`.modal-scroll`),
+  no horizontal scroll. Measured at a **1920** viewport: Bench **1602px** (was ~1180),
+  margins shrank to ~188/130; the three advisor cards grew from **224 → ~351px** each
+  (`.check { flex: 1 1 240px; max-width: 380px }`), using the width instead of stretching
+  whitespace.
+- A **left context column** (`.context-col`, ~340px) in the reclaimed space carries the
+  **group of identical failures** as first-class context: the populated group card (count
+  badge, **Show the tests** member chips, **See the group in Inspector**) when same-signature
+  To-Investigate twins exist, or the honest **"This failure is on its own in this run"**
+  state when none do. The group ACTION (fan-out) still lives in the bottom scope control per
+  the approved HYBRID; the quiet pointer scrolls/pulses it.
+- The declined dock is a **full-width horizontal strip** (`.dock { flex-basis: 100% }`, items
+  side by side via `repeat(auto-fill, minmax(320px,1fr))`); the "line the analyzer must clear"
+  is a **horizontal divider** (`.bar-sep { flex-basis: 100% }`).
+- Long test names wrap with **zero clip** (`word-break: break-word`). Everything else is
+  unchanged from `ng2` (advisors, agreement banner, AI why, verdict bar with the reused manual
+  `DefectTypeSelector`, single log toggle, R2 compare overlay + Esc-closes-compare, Inspector
+  permalinks, humanized copy, no em-dashes).
 
 ## Patch shape — this is the FULL diff over the 5.15.3 tag
 
@@ -33,7 +58,7 @@ reachable; **bulk** edits and analyzer-off keep the stock dark tabs.
 |---|---|---|
 | Item stripe | test name, `· FAILED ·`, current defect pill, one **Show error log** toggle, **Open full details in Inspector** | `currentTestItems[0]`, `projectInfoIdSelector` |
 | R1 "This failure" | first ERROR line once; expand = **Stack trace and context (ERROR level)** without repeating the header line | `currentTestItems[0].logs` (bulkLastLogs) |
-| Group (HYBRID) | top context cue "This exact failure shows up in N tests in this run", read-only **Show the tests** reveal, Inspector permalink, and a quiet pointer that scrolls+pulses the scope control (arms nothing) | `modalState.testItems` (similar TI in the launch) |
+| Group (HYBRID, ng3 = LEFT context column) | "In this run": either the populated group card ("This exact failure shows up in N tests in this run", **Show the tests** member chips, **See the group in Inspector**, quiet pointer that scrolls+pulses the scope control) or the honest **"This failure is on its own in this run"** state | `modalState.testItems` (similar TI in the launch) |
 | Agreement banner | one of 4 states: **The checks agree: X** / **The checks do not agree** / **Only the AI has a guess** / **The analyzer is not sure about this one** | derived from the per-row bands |
 | Three checks | **Past decision** (auto band / exact match), **Similar failures** (GBM/classical), **AI guess** (rubric) with plain band words and defect pills | `suggestedItems[*].suggestRs` |
 | Declined dock | below-0.45 rows: quiet grey dashed inset, struck defect names, "The analyzer said no to these", never pre-selected | `band=below_suggest` rows (see follow-up) |
@@ -56,8 +81,8 @@ Enter can never target it) until the human clicks the type.
 ## Files changed
 
 New:
-- `.../makeDecisionModal/bench/bench.jsx` — the Bench (state machine, checks, compare, verdict wiring).
-- `.../makeDecisionModal/bench/bench.scss` — RP Design System 6 light tokens, scoped under `.bench-modal`.
+- `.../makeDecisionModal/bench/bench.jsx` — the Bench (state machine, checks, compare, verdict wiring; `ng3` adds `bench-split` + left `context-col` `renderGroup`, full-width dock body).
+- `.../makeDecisionModal/bench/bench.scss` — RP Design System 6 light tokens, scoped under `.bench-modal`; `ng3` adds `.modal-scroll` (1600 cap), `.bench-split`/`.context-col`/`.bench-main`, flexible `.check`, horizontal `.bar-sep`/`.dock`.
 - `.../makeDecisionModal/bench/index.js`
 - (`ng1`) `.../makeDecisionModal/analyzerSuggestionMeta.js` — extended with `parseBand`,
   `parseConfidence`, `parseExplanation`, `parseExplKind`, `parseNgVersion`, `BANDS`,
@@ -89,8 +114,8 @@ NODE_OPTIONS="--max-old-space-size=4096" npm run build  # Node 22 verified; webp
 
 # thin overlay over the stock image (preserves buildInfo.json -> footer stays 5.15.3)
 eval $(minikube -p minikube docker-env)
-docker build -f Dockerfile.ng -t reportportal/service-ui:5.15.3-ng2 .   # Dockerfile.ng in app/
-kubectl set image deployment/reportportal-ui ui=reportportal/service-ui:5.15.3-ng2
+docker build -f Dockerfile.ng -t reportportal/service-ui:5.15.3-ng3 .   # Dockerfile.ng in app/
+kubectl set image deployment/reportportal-ui ui=reportportal/service-ui:5.15.3-ng3
 kubectl rollout status deployment/reportportal-ui
 ```
 
@@ -102,6 +127,27 @@ COPY build/ /usr/share/nginx/html/
 ```
 
 ## Live verification (superadmin)
+
+### ng3 full-width measurements (Playwright, 1920 viewport)
+
+| | ng2 (centred, capped) | ng3 (full-width) |
+|---|---|---|
+| Bench content width | ~1180px | **1602px** (1600 cap + border) |
+| Left / right margin | ~342px each (centred 1180) | **188 / 130px** (margins shrank) |
+| Advisor card width | 224px fixed | **~351px** flexible (240–380) |
+| Left context column | none | **present, 381px** |
+| Horizontal scroll | n/a | **none** (`documentElement.scrollWidth == clientWidth`) |
+
+- Item **4998** (wide): left **"In this run"** column shows the **populated** group card
+  (badge **18**, bolded **18 tests**, **Show the tests**, fan-out pointer); three advisor cards
+  spread to ~351px; console **0 errors**; em-dashes **0**.
+- Item **2941** (wide): left column shows the honest **"This failure is on its own in this run"**
+  group-alone state (no twins); long name *"Checkout. Tax & totals. Recalculate VAT on mixed cart
+  [llm-explainer-demo]"* wraps with **zero clip** (`scrollWidth == clientWidth`); **Compare logs**
+  opens side-by-side and **Esc closes the compare, modal stays open**; console **0 errors**;
+  em-dashes **0**.
+
+### Scenario detail
 
 `migrated-project` rubric item **4998** (`.../267/4996/4997/4998/log`):
 - Banner **Only the AI has a guess**; **AI guess** card = **Product Bug** hypothesis, **65%**,
@@ -123,9 +169,14 @@ COPY build/ /usr/share/nginx/html/
   returns to "What the analyzer saw".
 - No declined dock (below-band rows absent — degrades cleanly).
 
-Console: only a pre-existing `401 /api/users?ids=:0` from the RP shell (not Bench-originated).
-Rendered em-dashes: 0 on both modals. Screenshots in [`evidence/bench/`](./evidence/bench):
-`bench-4998-full.png`, `bench-4998-adopted.png`, `bench-webshop-agree.png`, `bench-webshop-compare.png`.
+Console: clean (0 errors) on the ng3 runs; any `401 /api/users?ids=:0` seen earlier is a
+pre-existing RP-shell request, not Bench-originated. Rendered em-dashes: 0 on every modal.
+Screenshots in [`evidence/bench/`](./evidence/bench):
+- ng3 full-width: `bench-ng3-4998-fullwidth.png` (populated group column, wide cards),
+  `bench-ng3-webshop-agree-alone.png` ("on its own" group state, agree banner).
+- ng2 (interaction detail, layout aside): `bench-4998-full.png`, `bench-4998-adopted.png`
+  (adopt → prefill → Apply enabled), `bench-webshop-agree.png`, `bench-webshop-compare.png`
+  (R2 compare).
 
 ## Graceful degradation (what happens without below-band data)
 
