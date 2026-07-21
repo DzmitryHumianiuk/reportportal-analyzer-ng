@@ -169,6 +169,16 @@ class LlmSidecar:
         return self._client.probe()
 
     # -- production ------------------------------------------------------- #
+    def role_enabled(self, role: str) -> bool:
+        """True when the master switch AND the role's config flag are on (spec 04 §6).
+
+        The static gate consulted by the synchronous read path (e.g. the suggest
+        route surfacing a cold-start rubric provisional). The per-project runtime
+        kill-switch (``llm_role_state``) is honored only on the async ``_process``
+        path, never on this cheap read.
+        """
+        return self.enabled and self._role_enabled.get(role, False)
+
     def enqueue(self, role: str, project_id: int, item_id: int, payload: dict) -> None:
         """Enqueue an async LLM job. No-op when the master switch or role is off."""
         if not self.enabled or self._queue is None:

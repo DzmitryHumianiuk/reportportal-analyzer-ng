@@ -240,7 +240,12 @@ class AnalysisEngine:
                 if canon_disc.get(member.item_id) != rep_disc:
                     m_ana = by_id[member.item_id]
                     m_decision, m_mode = self._decide(
-                        project, scope_q, analyzer_mode, m_ana, group, total_failures,
+                        project,
+                        scope_q,
+                        analyzer_mode,
+                        m_ana,
+                        group,
+                        total_failures,
                         route="analyze",
                     )
                     # §6.7/§9: this member joins the mode ITS own decision matched.
@@ -308,6 +313,11 @@ class AnalysisEngine:
             self.retrieval.latest_judge(info.project, info.testItemId) if self._llm_on() else None
         )
         out = self._render_suggestions(info, rep, decision, elapsed, judge_verdict)
+        # Cold-start rubric fallback (product ext 2026-07-20): when the classical path
+        # yields NO evidence-backed suggestion, surface the LLM rubric provisional the
+        # cold-start role already persisted (read-only — no LLM call on the suggest
+        # budget). Never displaces a real suggestion.
+        out = self._maybe_rubric_fallback(out, info, rep, elapsed)
         # §1.5: enqueue async LLM enrichment *after* the classical reply is built and
         # the suggestion row committed. Never on the synchronous suggest budget.
         self._enqueue_llm(
@@ -322,6 +332,90 @@ class AnalysisEngine:
 
     def _llm_on(self) -> bool:
         return self.sidecar is not None and getattr(self.sidecar, "enabled", False)
+
+    def _coldstart_on(self) -> bool:
+        """Master switch AND the cold-start role flag are on (spec 04 §4.4/§6).
+
+        The gate for surfacing a persisted rubric provisional on the suggest read
+        path — honors ANALYZER_LLM_ENABLED and ANALYZER_LLM_COLDSTART so an operator
+        who turned the role off never sees stale rubric rows.
+        """
+        sidecar = self.sidecar
+        if sidecar is None or not getattr(sidecar, "enabled", False):
+            return False
+        role_enabled = getattr(sidecar, "role_enabled", None)
+        return bool(role_enabled("coldstart")) if callable(role_enabled) else False
+
+    def _maybe_rubric_fallback(
+        self,
+        out: list[SuggestAnalysisResult],
+        info: TestItemInfo,
+        rep: ItemAnalysis,
+        elapsed: float,
+    ) -> list[SuggestAnalysisResult]:
+        """Append the cold-start rubric provisional ONLY when the classical suggest
+        reply is empty (product ext 2026-07-20). A non-empty ``out`` — any real,
+        evidence-backed candidate — is returned untouched and no DB read happens, so
+        the rubric hypothesis can never displace or reorder a genuine suggestion.
+        """
+        if out:
+            return out
+        return self._rubric_provisional_suggestions(info, rep, elapsed)
+
+    def _rubric_provisional_suggestions(
+        self, info: TestItemInfo, rep: ItemAnalysis, elapsed: float
+    ) -> list[SuggestAnalysisResult]:
+        """Build a single rubric-hypothesis ``SuggestAnalysisResult`` from the item's
+        persisted cold-start provisional, or ``[]`` when the role is off or the latest
+        suggestion row is not a rubric provisional (§4.4).
+
+        Delivery mapping (see report):
+        * ``methodName='coldstart_rubric'`` — explicit/greppable; the RP UI ignores
+          methodName, so an unknown value cannot break the modal.
+        * ``issueType`` = the rubric locator (proposed defect type).
+        * ``matchScore`` = rubric confidence × 100 (a rubric confidence, NOT a
+          similarity — e.g. 0.65 → 65.0).
+        * ``relevantItem`` = the queried item itself (SELF-reference): RP loads the
+          relevant item by id to build ``testItemResource``; a fabricated neighbor id
+          would fail that load, so we point at the one id guaranteed to resolve — a
+          hypothesis about THIS very item. ``relevantLogId`` highlights its own log.
+        * ``explanation`` (the "why"): the RP suggestions tab renders NO analyzer text
+          field — only ``matchScore`` and the relevant item's own DB fields — so the
+          rationale rides in ``modelInfo`` (machine-readable; the Inspector shows it).
+        """
+        if not self._coldstart_on():
+            return []
+        row = self.retrieval.latest_rubric_provisional(info.project, info.testItemId)
+        if row is None:
+            return []
+        log_id = info.logs[0].logId if info.logs else 0
+        confidence = float(row.get("confidence") or 0.0)
+        explanation = (row.get("explanation") or "").strip()
+        model_ver = row.get("model_ver") or ""
+        return [
+            SuggestAnalysisResult(
+                project=info.project,
+                testItem=info.testItemId,
+                testItemLogId=log_id,
+                launchId=info.launchId,
+                launchName=info.launchName,
+                launchNumber=info.launchNumber,
+                issueType=str(row.get("predicted_label") or "ti"),
+                relevantItem=info.testItemId,
+                relevantLogId=log_id,
+                isMergedLog=rep.signature.is_merged_small_logs,
+                matchScore=round(min(1.0, confidence) * 100, 2),
+                resultPosition=0,
+                esScore=0.0,
+                esPosition=0,
+                modelInfo=f"coldstart_rubric;{model_ver};why={explanation}",
+                usedLogLines=info.analyzerConfig.numberOfLogLines,
+                minShouldMatch=info.analyzerConfig.minShouldMatch,
+                processedTime=round(elapsed, 4),
+                methodName="coldstart_rubric",
+                clusterId=info.clusterId,
+            )
+        ]
 
     # ------------------------------------------------------------------ #
     # cluster (spec §8.1)
@@ -464,9 +558,7 @@ class AnalysisEngine:
         value :meth:`_resolve_identity` would make canonical when that member is decided.
         Batched in one query so the split adds no per-member DB round-trips.
         """
-        stored = self.retrieval.get_signatures(
-            project, [a.item.testItemId for a in analyses]
-        )
+        stored = self.retrieval.get_signatures(project, [a.item.testItemId for a in analyses])
         out: dict[int, tuple[int, frozenset[str], frozenset[str]]] = {}
         for a in analyses:
             s = stored.get(a.item.testItemId)
@@ -772,11 +864,7 @@ class AnalysisEngine:
         """
         if decision.method != METHOD_HASH or decision.relevant_item_id is None:
             return None
-        human = (
-            "human-labeled "
-            if decision.relevant_label_source in ("human", "rp")
-            else ""
-        )
+        human = "human-labeled " if decision.relevant_label_source in ("human", "rp") else ""
         return (
             f"Inherited from item {decision.relevant_item_id} "
             f"({human}{decision.issue_type}, same error_hash, discriminant gate passed)."
@@ -803,9 +891,7 @@ class AnalysisEngine:
         # Only stamp a version when the representative carried a real vector — a
         # lexical-only degrade (emb=None) must not pin the mode to the emb=0 sentinel.
         emb_ver = rep.emb_model_ver if rep.emb is not None else None
-        members = [
-            (int(iid), float(mode_match.score), mode_match.matched_by) for iid in item_ids
-        ]
+        members = [(int(iid), float(mode_match.score), mode_match.matched_by) for iid in item_ids]
         try:
             self.kb.add_members(project, mode_match.mode_id, members, emb_ver)  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001 — membership persistence must never fail a decision
@@ -1024,9 +1110,7 @@ class AnalysisEngine:
             prov = (
                 "kb-mode"
                 if decision.method == METHOD_KB
-                else _provenance(
-                    decision.relevant_label_source, decision.relevant_is_auto_analyzed
-                )
+                else _provenance(decision.relevant_label_source, decision.relevant_is_auto_analyzed)
             )
             result.append(
                 (

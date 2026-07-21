@@ -666,6 +666,41 @@ class PgRetrievalStore(StoreBase):
             )
             return {int(r["item_id"]): r for r in cur.fetchall()}
 
+    def latest_rubric_provisional(self, project_id: int, item_id: int) -> dict | None:
+        """The item's outstanding LLM cold-start rubric hypothesis, or ``None``
+        (product ext 2026-07-20). Read-path source for the Make Decision rubric row.
+
+        Returns a rubric provisional — ``model_ver`` ``rubric+…`` AND a non-empty
+        ``explanation`` — only when it is the item's most recent *meaningful* decision.
+        Classical **abstain** rows (``predicted_label='ti'`` written by a non-rubric
+        model) are ignored: every ``suggest`` call persists one such abstain row for
+        the very item it is answering *before* this read runs, so counting it would
+        always mask the rubric. A genuine confident classical/auto answer
+        (``predicted_label <> 'ti'``) that is newer than the rubric DOES win — it
+        becomes the top row and, not being a ``rubric+`` row, yields ``None`` (the
+        rubric hypothesis never displaces a real evidence-backed label).
+        """
+        with self._conn() as conn:
+            cur = conn.cursor(row_factory=dict_row)
+            cur.execute(
+                """
+                SELECT predicted_label, confidence, explanation, model_ver
+                FROM analyzer.suggestion
+                WHERE project_id = %s AND item_id = %s
+                  AND NOT (predicted_label = 'ti' AND model_ver NOT LIKE 'rubric+%%')
+                ORDER BY created_at DESC, suggestion_id DESC
+                LIMIT 1
+                """,
+                (project_id, item_id),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        model_ver = row.get("model_ver") or ""
+        if not model_ver.startswith("rubric+") or not (row.get("explanation") or "").strip():
+            return None
+        return row
+
     def latest_judge(self, project_id: int, item_id: int) -> dict | None:
         """The freshest judge verdict for an item (spec 04 §4.3 read-path surfacing).
 
