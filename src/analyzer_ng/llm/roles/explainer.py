@@ -123,11 +123,13 @@ class AbstainExplainerRole(ExplainerRole):
         user = (
             "The analyzer DECLINED to auto-classify this failure (abstain). The facts "
             "below\ncarry the decision confidence versus the suggest threshold, the "
-            "gate that blocked\na choice, and the conflicting candidate matches.\n\n"
+            "gate that blocked\na choice, the top retrieved neighbours, and the "
+            "exact-error_hash pool of\npast items (which may carry conflicting defect "
+            "labels).\n\n"
             f"Facts:\n```json\n{fact_json}\n```\n\n"
             f"{block}\n\n"
             "In 1-3 sentences, explain why the analyzer declined to choose a defect "
-            "type,\nciting the conflicting candidate labels and the blocking gate. "
-            "Include at most 2\nexact quotes from the facts or log data."
+            "type,\nciting the conflicting labels (neighbours or the hash pool) and the "
+            "blocking gate.\nInclude at most 2 exact quotes from the facts or log data."
         )
         return _ABSTAIN_SYSTEM, user

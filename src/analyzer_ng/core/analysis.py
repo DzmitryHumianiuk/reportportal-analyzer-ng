@@ -831,9 +831,13 @@ class AnalysisEngine:
 
         Decision-outcome coverage (extension 2026-07-20):
 
-        * **abstain WITH candidates** → an ``abstain_explainer`` job narrates *why the
-          analyzer declined* (label conflict + blocking gate). A **pure-empty abstain**
-          (no retrieved candidates) enqueues nothing — there is nothing to explain.
+        * **abstain** → an ``abstain_explainer`` job narrates *why the analyzer
+          declined* (label conflict + blocking gate). The worker re-reads the evidence
+          fresh (§1.5): Stage-C neighbour cosines carried here + the exact-error_hash
+          conflict pool queried straight from the DB (which holds the pb-vs-ab conflict
+          even when ``exception_fp=0`` disables Stage A). A **pure-empty abstain** — no
+          Stage-C labels and an empty hash pool — makes no LLM call (the fact-loader
+          returns None: nothing to explain).
         * **Stage-A inherit** → no LLM: the deterministic "inherited from item N …"
           sentence is written at ``_write_suggestion`` time (unambiguous facts).
         * **suggest/auto with a match** → the match explainer (unchanged), plus the
@@ -847,9 +851,10 @@ class AnalysisEngine:
             # cache dedupes actual Ollama calls to once per novel template set (§4.2).
             sc.enqueue("extractor", project, item_id, {})  # type: ignore[attr-defined]
             if decision.label == "ti":
-                abstain_cands = self._abstain_candidates(decision)
-                if abstain_cands and suggestion_id is not None:
-                    # Abstain that still retrieved candidates → explain the decline.
+                if suggestion_id is not None:
+                    # Every abstain is a candidate for a decline explanation; the async
+                    # fact-loader gates on real conflicting evidence (Stage-C labels or a
+                    # non-empty exact-hash pool) and skips the LLM for a pure-empty one.
                     sc.enqueue(  # type: ignore[attr-defined]
                         "abstain_explainer",
                         project,
@@ -858,11 +863,9 @@ class AnalysisEngine:
                             "suggestion_id": suggestion_id,
                             "abstain_reason": decision.abstain_reason,
                             "confidence": decision.confidence,
-                            "candidates": abstain_cands,
+                            "candidates": self._abstain_candidates(decision),
                         },
                     )
-                # Pure-empty abstain (no candidates): no abstain_explainer — nothing
-                # to explain. Cold-start rubric still fires (fact_loader gates cold).
                 sc.enqueue("coldstart", project, item_id, {"launch_id": launch_id})  # type: ignore[attr-defined]
             elif decision.method == METHOD_HASH:
                 # Stage-A inherit: explanation is the deterministic template written at

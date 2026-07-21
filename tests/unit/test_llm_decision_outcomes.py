@@ -91,14 +91,16 @@ def test_abstain_with_candidates_enqueues_abstain_explainer() -> None:
     assert payload["candidates"][0]["similarity"] == 0.977
 
 
-def test_pure_empty_abstain_enqueues_no_explainer() -> None:
+def test_abstain_without_stage_c_still_enqueues_explainer() -> None:
+    # The hash-pool conflict (e.g. item 4998, exception_fp=0) lives only in the DB,
+    # so enqueue fires on every abstain; the async fact-loader is the emptiness gate.
     sc = FakeSidecar()
-    dec = _abstain("no_confident_rule", [])  # no retrieved candidates at all
-    _engine(sc)._enqueue_llm(7, 1, 1, dec, suggestion_id=1)
+    dec = _abstain("no_confident_rule", [])  # no Stage-C candidates carried
+    _engine(sc)._enqueue_llm(7, 1, 1, dec, suggestion_id=9)
     roles = [c[0] for c in sc.calls]
-    assert "abstain_explainer" not in roles  # nothing to explain → no LLM
-    assert roles.count("extractor") == 1
-    assert "coldstart" in roles
+    assert "abstain_explainer" in roles
+    ax = next(c for c in sc.calls if c[0] == "abstain_explainer")
+    assert ax[3]["candidates"] == []  # worker will re-read the hash pool from PG
 
 
 def test_abstain_without_suggestion_id_skips_explainer() -> None:
@@ -171,14 +173,20 @@ def test_stage_a_explanation_non_human_source_and_other_paths() -> None:
 # Abstain fact loader
 # --------------------------------------------------------------------------- #
 class _FakeFacts:
-    def __init__(self, sig: dict | None) -> None:
+    def __init__(self, sig: dict | None, pool: list[dict] | None = None) -> None:
         self._sig = sig
+        self._pool = pool or []
 
     def load_signature(self, project_id: int, item_id: int) -> dict | None:
         return self._sig
 
     def latest_suggestion(self, project_id: int, item_id: int) -> dict | None:
         return None
+
+    def hash_pool(
+        self, project_id: int, error_hash: int, exclude_item_id: int, limit: int = 10
+    ) -> list[dict]:
+        return self._pool
 
 
 _SIG = {
@@ -206,8 +214,16 @@ def _abstain_payload() -> dict:
     }
 
 
+_POOL = [
+    {"issue_type": "pb001", "issue_type_group": "pb", "label_source": "human"},
+    {"issue_type": "pb001", "issue_type_group": "pb", "label_source": "human"},
+    {"issue_type": "ab_x1", "issue_type_group": "ab", "label_source": "human"},
+    {"issue_type": "ab_x1", "issue_type_group": "ab", "label_source": "human"},
+]
+
+
 def test_abstain_fact_loader_builds_conflict_facts() -> None:
-    loader = PgLlmFactLoader(_FakeFacts(_SIG))
+    loader = PgLlmFactLoader(_FakeFacts(_SIG, _POOL))
     inp = loader("abstain_explainer", 7, 4998, _abstain_payload())
     assert inp is not None
     facts = inp["fact_block"]
@@ -218,16 +234,35 @@ def test_abstain_fact_loader_builds_conflict_facts() -> None:
         "cosine 0.977 label pb001",
         "cosine 0.951 label ab001",
     ]
-    assert facts["label_conflict"] == "candidates disagree: pb001, ab001"
+    # The exact-hash pool distribution (2x pb001 / 2x ab_x1) is injected as facts.
+    assert facts["exact_hash_pool"] == ["2x pb001", "2x ab_x1"]
+    assert "pb001" in facts["label_conflict"] and "ab_x1" in facts["label_conflict"]
     assert inp["suggestion_id"] == 555
 
 
-def test_abstain_fact_loader_skips_when_no_candidates_or_no_row() -> None:
-    loader = PgLlmFactLoader(_FakeFacts(_SIG))
+def test_abstain_fact_loader_uses_hash_pool_when_no_stage_c() -> None:
+    # Item 4998: exception_fp=0 → no Stage-A/Stage-C labels, conflict only in the pool.
+    loader = PgLlmFactLoader(_FakeFacts(_SIG, _POOL))
+    payload = {"suggestion_id": 555, "abstain_reason": "no_confident_rule", "candidates": []}
+    inp = loader("abstain_explainer", 7, 4998, payload)
+    assert inp is not None
+    assert inp["fact_block"]["exact_hash_pool"] == ["2x pb001", "2x ab_x1"]
+    assert inp["fact_block"]["top_candidates"] == []
+
+
+def test_abstain_fact_loader_skips_pure_empty_abstain() -> None:
+    loader = PgLlmFactLoader(_FakeFacts(_SIG, pool=[]))  # empty hash pool
     no_cands = {"suggestion_id": 1, "candidates": []}
-    assert loader("abstain_explainer", 7, 4998, no_cands) is None
-    no_row = {"candidates": [{"id": 1, "label": "pb001", "similarity": 0.9}]}
-    assert loader("abstain_explainer", 7, 4998, no_row) is None
+    assert loader("abstain_explainer", 7, 4998, no_cands) is None  # nothing to explain
+    # Missing suggestion row entirely → also skipped.
+    assert PgLlmFactLoader(_FakeFacts(None)).__call__(
+        "abstain_explainer", 7, 4998, {"suggestion_id": 1, "candidates": []}
+    ) is None
+    # Has a suggestion_id and candidates but no row → load_signature None → skip.
+    assert PgLlmFactLoader(_FakeFacts(None)).__call__(
+        "abstain_explainer", 7, 4998,
+        {"suggestion_id": 1, "candidates": [{"id": 1, "label": "pb001", "similarity": 0.9}]},
+    ) is None
 
 
 # --------------------------------------------------------------------------- #
@@ -273,8 +308,9 @@ def _abstain_role_input() -> dict[str, Any]:
             ),
             "confidence": "0.420",
             "suggest_threshold": "0.45",
-            "top_candidates": ["cosine 0.977 label pb001", "cosine 0.951 label ab001"],
-            "label_conflict": "candidates disagree: pb001, ab001",
+            "top_candidates": ["cosine 0.977 label pb001"],
+            "exact_hash_pool": ["2x pb001", "2x ab_x1"],
+            "label_conflict": "evidence splits across labels: pb001, ab_x1",
         },
         "log_excerpt": "org.example.ApiException: payment failed\nat com.acme.Checkout.pay",
     }
@@ -284,9 +320,10 @@ def test_abstain_role_injects_facts_into_prompt() -> None:
     role = AbstainExplainerRole()
     system, user = role.build_prompt(_abstain_role_input(), "abcd1234")
     assert "declined" in system.lower()
-    # Candidate conflict + gate injected as quotable facts.
-    assert "candidates disagree: pb001, ab001" in user
+    # Candidate conflict + hash pool + gate injected as quotable facts.
+    assert "evidence splits across labels: pb001, ab_x1" in user
     assert "cosine 0.977 label pb001" in user
+    assert "2x ab_x1" in user
     assert "boilerplate guard" in user
 
 
@@ -295,7 +332,7 @@ def test_abstain_role_grounding_rejects_fabricated_quote() -> None:
     inp = _abstain_role_input()
     role.build_prompt(inp, "abcd1234")  # populates inp["_corpus"]
     grounded = {
-        "explanation": 'Declined: "candidates disagree: pb001, ab001".',
+        "explanation": 'Declined: "evidence splits across labels: pb001, ab_x1".',
         "quoted_lines": ["cosine 0.977 label pb001"],
     }
     assert role.post_validate(grounded, inp) is True
