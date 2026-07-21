@@ -104,6 +104,41 @@ export function defectBadgeAbbr(locator, group) {
 // there is no real URL. `cls` is the class of the surrounding chip/text so the
 // link inherits its look and only gains a link affordance (see .idlink in CSS).
 // Opens in a new tab (target=_blank, rel=noopener).
+// Render untrusted/derived prose with raw defect-type locators (pb001,
+// ab_1iupzjso5bh9t, …) replaced by compact inline defect pills showing the
+// project's configured NAME (abbreviation when the name is long). SAFE by
+// construction: the text is tokenized around EXACT occurrences of known
+// locators (keys of the per-project defects map, longest-first, word-boundary
+// guarded) and assembled as text nodes + DOM pills — never innerHTML. Unknown
+// locators stay plain text (honest).
+const _LOCATOR_CHAR = /[A-Za-z0-9_]/;
+export function renderWithDefectNames(text) {
+  const frag = document.createDocumentFragment();
+  const s = String(text == null ? '' : text);
+  const keys = Object.keys(_defects).sort((a, b) => b.length - a.length);
+  let i = 0;
+  while (i < s.length) {
+    let best = null;
+    for (const k of keys) {
+      const at = s.indexOf(k, i);
+      if (at === -1) continue;
+      // word-boundary guard: locator chars must not continue on either side
+      const before = at > 0 ? s[at - 1] : '';
+      const after = at + k.length < s.length ? s[at + k.length] : '';
+      if ((before && _LOCATOR_CHAR.test(before)) || (after && _LOCATOR_CHAR.test(after))) continue;
+      if (!best || at < best.at || (at === best.at && k.length > best.k.length)) best = { at, k };
+    }
+    if (!best) { frag.appendChild(document.createTextNode(s.slice(i))); break; }
+    if (best.at > i) frag.appendChild(document.createTextNode(s.slice(i, best.at)));
+    const info = _defects[best.k];
+    const shown = (info.name && info.name.length > 18 && info.short_name) ? info.short_name : (info.name || best.k);
+    frag.appendChild(h('span', { class: 'defect-inline', title: `${info.name || shown} · ${best.k}` },
+      h('span', { class: 'dot', style: { background: info.color || 'var(--rp-e-300)' } }), shown));
+    i = best.at + best.k.length;
+  }
+  return frag;
+}
+
 export function idChip(label, url, cls = 'chip') {
   if (!url) return h('span', cls ? { class: cls } : {}, label);
   return h('a', {

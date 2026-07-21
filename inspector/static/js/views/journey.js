@@ -3,8 +3,8 @@
 import { api } from '../api.js';
 import { updateHash } from '../app.js';
 import {
-  h, icon, clear, card, defectBadge, defectBadgeAbbr, defectName, idChip, setDefects, fmt,
-  shortTime, relTime, highlightPattern, emptyState, loading, engDetails, engDrawer, srcInfo,
+  h, icon, clear, card, defectBadge, defectBadgeAbbr, defectName, idChip, renderWithDefectNames,
+  setDefects, fmt, shortTime, relTime, highlightPattern, emptyState, loading, engDetails, engDrawer, srcInfo,
   FEATURE_GROUP_COLORS, INK, MUTED,
 } from '../util.js';
 
@@ -1091,7 +1091,7 @@ function decisionSummary(d, dec, row) {
       'grounded quotes validated'));
   }
   wrap.appendChild(chips);
-  wrap.appendChild(h('div', {}, row.explanation));
+  wrap.appendChild(h('div', {}, renderWithDefectNames(row.explanation)));
   return wrap;
 }
 
@@ -1180,7 +1180,7 @@ function coldstartTile(dec, E, opts = {}) {
     h('span', { class: 'chip mono' }, `rule ${rule}`)));
   // The rationale text may already sit in the decision-summary block above.
   if (reason && !opts.explanationShownAbove) {
-    tile.appendChild(h('div', { class: 'llm-quote' }, reason,
+    tile.appendChild(h('div', { class: 'llm-quote' }, renderWithDefectNames(reason),
       h('span', { class: 'attr' }, 'model rationale — cold-start')));
   }
   return tile;
@@ -1191,7 +1191,7 @@ function explainerTile(dec, ev) {
   tile.appendChild(h('div', { class: 'role-line' },
     h('span', { class: 'role-key' }, 'explainer'), h('span', { class: 'chip mono' }, ev.model)));
   tile.appendChild(h('div', { class: 'llm-quote', title: `prompt_hash ${ev.prompt_hash || '—'}${ev.cache_hit ? ' · cache hit' : ''}` },
-    dec.explanation,
+    renderWithDefectNames(dec.explanation),
     h('span', { class: 'attr' }, `model’s rationale — ${ev.model} · ${latFmt(ev.latency_ms)} · ${relTime(ev.created_at)}`)));
   return tile;
 }
