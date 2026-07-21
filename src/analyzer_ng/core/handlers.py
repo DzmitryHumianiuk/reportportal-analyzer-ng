@@ -305,6 +305,11 @@ class PipelineHandlers(StubHandlers):
         return self._stats
 
     @property
+    def retrieval(self) -> PgRetrievalStore | None:
+        """The RetrievalStore (drives the nightly label_event orphan reaper)."""
+        return self._retrieval
+
+    @property
     def label(self) -> LabelStore | None:
         """The LabelStore (drives the cold-project check for the LLM sidecar)."""
         return self._label

@@ -333,10 +333,32 @@ class AnalyzerService:
                     MetricsDailyJob(stats, emb_model_ver=self.emb_model_ver).run(yesterday)
                 except Exception:  # noqa: BLE001 — reporting must not kill the timer
                     logger.exception("nightly metrics_daily rollup failed")
+            self._reap_orphan_label_events()
             self._run_llm_eval()
 
         self._retrain_timer = NightlyRetrainTimer(_trigger)
         self._retrain_timer.start()
+
+    def _reap_orphan_label_events(self) -> None:
+        """Nightly GC of label_event rows orphaned by a genuine deletion (tech-debt #6).
+
+        The append-only learning log is preserved by every delete path so a reindex
+        never loses history; this reclaims the rows a *genuine* project/item/launch
+        deletion leaves behind, once orphaned past the configured grace. A reindex
+        re-creates test_item within minutes, long inside the grace, so live history
+        is never reaped. Failures are swallowed — the reaper must not kill the timer.
+        """
+        retrieval = self._handlers.retrieval
+        if retrieval is None:
+            return  # store-less (unit) configuration
+        try:
+            purged = retrieval.reap_orphan_label_events(
+                self._config.analyzer_label_event_orphan_grace_days
+            )
+            if purged:
+                logger.info("label_event orphan reaper purged %d row(s)", purged)
+        except Exception:  # noqa: BLE001 — the reaper must not kill the timer
+            logger.exception("nightly label_event orphan reap failed")
 
     def _run_llm_eval(self) -> None:
         """Nightly LLM paired comparison + per-project kill-switch (spec 04 §6.2).

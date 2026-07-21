@@ -138,6 +138,13 @@ class AppConfig(BaseSettings):
     # retrain.MIN_RETRAIN_INTERVAL (1 h) so operators recover faster from a bad/rejected
     # ship without waiting a full hour; raise it to throttle harder.
     analyzer_retrain_debounce_s: int = 1800
+    # Grace (days) before the nightly label_event orphan reaper purges a genuinely
+    # deleted item's learning-log rows (tech-debt #6). Counted from when the reaper
+    # first observed the item orphaned, NOT from the label timestamp, so a reindex —
+    # which re-creates test_item within minutes — clears the tombstone long before
+    # the grace elapses and live history is never reaped. 30d is deliberately far
+    # longer than any real reindex. Set <= 0 to disable the sweep entirely.
+    analyzer_label_event_orphan_grace_days: int = 30
     # Optional LLM sidecar (spec 04 §1.2). All read once at startup; per-project
     # runtime disable lives in llm_role_state (spec 04 §6). With the master switch
     # off (the default) no code path touches the llm/ package beyond reading it.

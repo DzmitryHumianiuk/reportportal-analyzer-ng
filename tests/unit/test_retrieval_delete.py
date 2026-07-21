@@ -99,3 +99,99 @@ def test_delete_project_wipes_derived_tables_including_history_stats() -> None:
         "project",
     ):
         assert table in deleted, f"{table} should be deleted by delete_project"
+
+
+# --------------------------------------------------------------------------- #
+# reap_orphan_label_events — SQL-shape / guard proofs (tech-debt #6).
+#
+# Behavioral row-level proof (mark / unmark / sweep-after-grace / mid-reindex
+# never purges) lives in the pg-backed
+# tests/integration/test_db_stores.py::test_reap_orphan_label_events_* suite.
+# Here we prove, without a database, the invariants that keep the reaper from
+# ever destroying live learning history.
+# --------------------------------------------------------------------------- #
+class _ReapCursor:
+    def __init__(self, rowcount: int) -> None:
+        self.rowcount = rowcount
+
+
+class _ReapConn:
+    """Records (sql, params) for every execute; returns a fixed rowcount."""
+
+    def __init__(self, executed: list[tuple[str, object]], rowcount: int) -> None:
+        self._executed = executed
+        self._rowcount = rowcount
+        self.autocommit = True
+
+    def execute(self, sql: str, params: object = None) -> _ReapCursor:
+        self._executed.append((sql, params))
+        return _ReapCursor(self._rowcount)
+
+    @contextmanager
+    def transaction(self) -> Iterator[_ReapConn]:
+        yield self
+
+
+class _ReapPool:
+    def __init__(self, rowcount: int = 4) -> None:
+        self.executed: list[tuple[str, object]] = []
+        self._rowcount = rowcount
+
+    @contextmanager
+    def connection(self) -> Iterator[_ReapConn]:
+        yield _ReapConn(self.executed, self._rowcount)
+
+
+def test_reap_marks_unmarks_and_sweeps_guarded_by_test_item() -> None:
+    pool = _ReapPool(rowcount=4)
+    store = PgRetrievalStore(pool)  # type: ignore[arg-type]
+
+    purged = store.reap_orphan_label_events(grace_days=30)
+
+    # The sweep's DELETE FROM label_event rowcount is returned.
+    assert purged == 4
+    sqls = [sql for sql, _ in pool.executed]
+    joined = "\n---\n".join(sqls)
+
+    # 1. mark: only items with NO test_item are tombstoned.
+    mark = next(s for s in sqls if "INSERT INTO analyzer.label_event_orphan" in s)
+    assert "NOT EXISTS" in mark and "analyzer.test_item" in mark
+    assert "ON CONFLICT (project_id, item_id) DO NOTHING" in mark
+
+    # 2. unmark: a reappeared test_item clears the tombstone (reindex, not deletion).
+    unmark = next(
+        s
+        for s in sqls
+        if "DELETE FROM analyzer.label_event_orphan" in s and " EXISTS (" in s
+    )
+    assert "analyzer.test_item" in unmark
+
+    # 3. sweep: label_event is deleted ONLY past the grace AND still with no
+    #    test_item — never on age alone.
+    sweep = next(s for s in sqls if "DELETE FROM analyzer.label_event le" in s)
+    assert "make_interval(days =>" in sweep
+    assert "NOT EXISTS" in sweep and "analyzer.test_item" in sweep
+
+    # The only table whose rows the reaper deletes (besides its own tombstone) is
+    # label_event — never test_item or any derived table.
+    deleted_targets = {
+        line.split("DELETE FROM analyzer.", 1)[1].split()[0]
+        for line in joined.splitlines()
+        if "DELETE FROM analyzer." in line
+    }
+    assert deleted_targets == {"label_event", "label_event_orphan"}
+
+
+def test_reap_disabled_grace_skips_sweep() -> None:
+    # grace_days <= 0 disables the destructive sweep entirely (mark/unmark still
+    # run) so an operator can never set an aggressive grace that reaps history.
+    pool = _ReapPool(rowcount=9)
+    store = PgRetrievalStore(pool)  # type: ignore[arg-type]
+
+    purged = store.reap_orphan_label_events(grace_days=0)
+
+    assert purged == 0
+    sqls = [sql for sql, _ in pool.executed]
+    assert not any("DELETE FROM analyzer.label_event le" in s for s in sqls)
+    # mark + unmark still ran (they are non-destructive to label_event).
+    assert any("INSERT INTO analyzer.label_event_orphan" in s for s in sqls)

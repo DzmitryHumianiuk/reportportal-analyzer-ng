@@ -541,6 +541,104 @@ def test_delete_project_purges_derived_data_but_keeps_label_events(pool: Connect
         assert joined == [(1, "pb001")]
 
 
+def _orphan_reaper_seed(pool: ConnectionPool) -> PgRetrievalStore:
+    """A project with one labeled item, then genuinely deleted (item orphaned)."""
+    store = PgRetrievalStore(pool)
+    store.upsert_items(
+        [TestItemIn(item_id=1, project_id=1, launch_id=1, issue_type="pb001")]
+    )
+    PgLabelStore(pool).append_event(
+        LabelEventIn(project_id=1, item_id=1, new_label="pb001", source="human_ui")
+    )
+    store.delete_project(1)  # genuine deletion: test_item gone, label_event kept
+    return store
+
+
+def _label_events(pool: ConnectionPool) -> int:
+    with pool.connection() as conn:
+        return conn.execute(
+            "SELECT count(*) FROM analyzer.label_event WHERE project_id=1"
+        ).fetchone()[0]
+
+
+def _orphan_tombstones(pool: ConnectionPool) -> int:
+    with pool.connection() as conn:
+        return conn.execute(
+            "SELECT count(*) FROM analyzer.label_event_orphan WHERE project_id=1"
+        ).fetchone()[0]
+
+
+def _backdate_tombstone(pool: ConnectionPool, days: int) -> None:
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE analyzer.label_event_orphan "
+            "SET first_orphaned_at = now() - make_interval(days => %s) WHERE project_id=1",
+            (days,),
+        )
+
+
+def test_reap_marks_but_spares_freshly_orphaned_label_events(pool: ConnectionPool) -> None:
+    # tech-debt #6: the first pass only MARKS a genuinely-deleted item; nothing is
+    # purged until the grace elapses, so a same-day reindex can still reclaim it.
+    _orphan_reaper_seed(pool)
+    store = PgRetrievalStore(pool)
+
+    purged = store.reap_orphan_label_events(grace_days=30)
+
+    assert purged == 0
+    assert _label_events(pool) == 1  # history intact
+    assert _orphan_tombstones(pool) == 1  # tombstoned, grace running
+
+
+def test_reap_sweeps_label_events_orphaned_past_grace(pool: ConnectionPool) -> None:
+    # An item orphaned continuously past the grace (genuine deletion, never rebuilt)
+    # is finally purged, closing the orphan-accumulation leak.
+    _orphan_reaper_seed(pool)
+    store = PgRetrievalStore(pool)
+    store.reap_orphan_label_events(grace_days=30)  # mark
+    _backdate_tombstone(pool, days=31)  # grace has now elapsed
+
+    purged = store.reap_orphan_label_events(grace_days=30)  # sweep
+
+    assert purged == 1
+    assert _label_events(pool) == 0  # orphan reclaimed
+    assert _orphan_tombstones(pool) == 0  # tombstone cleaned up too
+
+
+def test_reap_never_purges_mid_reindex_even_past_grace(pool: ConnectionPool) -> None:
+    # The safety property: even if a tombstone is older than the grace, a reindex
+    # that re-creates test_item clears it via UNMARK, so live learning history is
+    # NEVER purged. Backdating past the grace makes the test independent of timing.
+    _orphan_reaper_seed(pool)
+    store = PgRetrievalStore(pool)
+    store.reap_orphan_label_events(grace_days=30)  # mark
+    _backdate_tombstone(pool, days=99)  # far past grace — maximally adversarial
+
+    # Reindex: RP re-publishes the launch, test_item returns under its stable id.
+    store.upsert_items(
+        [TestItemIn(item_id=1, project_id=1, launch_id=1, issue_type="pb001")]
+    )
+    purged = store.reap_orphan_label_events(grace_days=30)
+
+    assert purged == 0  # unmark cleared the tombstone before any sweep
+    assert _label_events(pool) == 1  # history survived the reindex
+    assert _orphan_tombstones(pool) == 0  # tombstone gone (item re-indexed)
+
+
+def test_reap_disabled_grace_marks_but_never_sweeps(pool: ConnectionPool) -> None:
+    # grace_days <= 0 disables the destructive sweep; an operator cannot set an
+    # aggressive grace that reaps history.
+    _orphan_reaper_seed(pool)
+    store = PgRetrievalStore(pool)
+    store.reap_orphan_label_events(grace_days=30)  # mark
+    _backdate_tombstone(pool, days=999)
+
+    purged = store.reap_orphan_label_events(grace_days=0)
+
+    assert purged == 0
+    assert _label_events(pool) == 1  # never swept
+
+
 def test_delete_by_log_time_respects_log_time_max(pool: ConnectionPool) -> None:
     store = PgRetrievalStore(pool)
     old, new = NOW - timedelta(days=10), NOW

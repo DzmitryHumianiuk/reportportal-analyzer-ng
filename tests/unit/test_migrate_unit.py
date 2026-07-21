@@ -74,7 +74,7 @@ def test_init_migration_splits_without_error() -> None:
 
 def test_discover_real_migrations() -> None:
     migrations = discover_migrations()
-    assert [m.version for m in migrations] == [1, 2, 3, 4, 5, 6, 7]
+    assert [m.version for m in migrations] == [1, 2, 3, 4, 5, 6, 7, 8]
     assert migrations[0].filename == "0001_init.sql"
     assert migrations[0].no_transaction is False
     assert migrations[1].filename == "0002_failure_mode_seed_key.sql"
@@ -89,6 +89,8 @@ def test_discover_real_migrations() -> None:
     assert migrations[5].no_transaction is False
     assert migrations[6].filename == "0007_suggestion_decision_cols.sql"
     assert migrations[6].no_transaction is False
+    assert migrations[7].filename == "0008_label_event_orphan_reaper.sql"
+    assert migrations[7].no_transaction is False
 
 
 def test_discover_tolerates_reserved_version_gap(tmp_path: Path) -> None:

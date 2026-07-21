@@ -322,11 +322,16 @@ class PgRetrievalStore(StoreBase):
         (signatures, templates, drain state, modes, suggestions, groups, caches,
         daily metrics) and regenerate on rebuild.
 
-        Trade-off (deliberate): a genuine RP *project deletion* also uses this
-        route, so it leaves orphaned ``label_event`` rows behind. That is harmless
-        — the rows are project-scoped and queryable, never resurfaced for a
-        deleted project — and is the accepted cost of not destroying learning
-        history on the far more common reindex.
+        Orphan cleanup (tech-debt #6): a genuine RP *project deletion* also uses
+        this route, so it leaves ``label_event`` rows with no surviving
+        ``test_item``. Those are swept by the nightly reaper
+        (:meth:`reap_orphan_label_events`) once they have been orphaned for longer
+        than the grace window — safe because a reindex re-creates ``test_item``
+        within minutes, long before the grace elapses, so live learning history is
+        never purged. RP sends no distinct "deleted forever" signal (verified
+        against the legacy analyzer: its ``delete`` route maps to
+        ``delete_index`` for both reindex and true deletion), so a time-based
+        reaper is the only path that cannot destroy history on a reindex.
         """
         # Children first; the project row last. label_event is intentionally
         # absent (preserved); it has no FK to project so the project delete leaves
@@ -354,6 +359,92 @@ class PgRetrievalStore(StoreBase):
                 conn.execute(f"DELETE FROM analyzer.{table} WHERE project_id=%s", (project_id,))
             conn.execute("DELETE FROM analyzer.project WHERE project_id=%s", (project_id,))
         return int(count)
+
+    def reap_orphan_label_events(self, grace_days: int = 30) -> int:
+        """GC ``label_event`` rows orphaned by a genuine deletion (tech-debt #6).
+
+        Every delete path preserves ``label_event`` so a reindex (RP's delete->
+        rebuild "Generate index") never loses learning history. This nightly reaper
+        reclaims the rows a *genuine* deletion leaves behind, WITHOUT ever purging a
+        row that a reindex will re-attach. Grace is counted from when the item was
+        first *observed* orphaned (the ``label_event_orphan`` tombstone), never from
+        ``label_event.ts`` — an old-but-live label whose ``test_item`` momentarily
+        vanishes mid-reindex must not be eligible.
+
+        Three set-based steps in one transaction:
+
+        * **mark**   — tombstone every ``(project_id,item_id)`` in ``label_event``
+          that currently has no ``test_item`` (idempotent; ``first_orphaned_at``
+          stays put on re-observation).
+        * **unmark** — drop tombstones whose ``test_item`` reappeared (a reindex
+          re-created it — typically within minutes, so by the next nightly pass).
+        * **sweep**  — delete ``label_event`` rows (and their tombstone) only where
+          the tombstone is older than ``grace_days`` AND still no ``test_item``
+          exists (re-checked here as a belt-and-suspenders guard).
+
+        A normal reindex is cleared by *unmark* long before *sweep* can see it, so
+        live history is never destroyed. Returns the number of ``label_event`` rows
+        purged. ``grace_days <= 0`` disables the sweep (mark/unmark still run) so an
+        operator can never accidentally set an aggressive grace that reaps history.
+        """
+        with self._conn() as conn, conn.transaction():
+            # 1. mark — newly-orphaned items get a tombstone; existing ones keep
+            #    their original first_orphaned_at (ON CONFLICT DO NOTHING).
+            conn.execute(
+                """
+                INSERT INTO analyzer.label_event_orphan (project_id, item_id)
+                SELECT DISTINCT le.project_id, le.item_id
+                FROM analyzer.label_event le
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM analyzer.test_item ti
+                    WHERE ti.project_id = le.project_id AND ti.item_id = le.item_id
+                )
+                ON CONFLICT (project_id, item_id) DO NOTHING
+                """
+            )
+            # 2. unmark — the item was re-indexed (test_item exists again): it was a
+            #    reindex, not a deletion. Clear the tombstone so its grace never runs.
+            conn.execute(
+                """
+                DELETE FROM analyzer.label_event_orphan o
+                WHERE EXISTS (
+                    SELECT 1 FROM analyzer.test_item ti
+                    WHERE ti.project_id = o.project_id AND ti.item_id = o.item_id
+                )
+                """
+            )
+            if grace_days <= 0:
+                return 0
+            # 3. sweep — purge label_event for items orphaned past the grace and
+            #    STILL absent from test_item. The NOT EXISTS re-check makes a project
+            #    reindexed on the grace boundary (after unmark, before this delete)
+            #    safe even within a single pass.
+            purged = conn.execute(
+                """
+                DELETE FROM analyzer.label_event le
+                USING analyzer.label_event_orphan o
+                WHERE le.project_id = o.project_id AND le.item_id = o.item_id
+                  AND o.first_orphaned_at < now() - make_interval(days => %s)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM analyzer.test_item ti
+                      WHERE ti.project_id = o.project_id AND ti.item_id = o.item_id
+                  )
+                """,
+                (grace_days,),
+            ).rowcount
+            # Drop the now-purged items' tombstones (same predicate).
+            conn.execute(
+                """
+                DELETE FROM analyzer.label_event_orphan o
+                WHERE o.first_orphaned_at < now() - make_interval(days => %s)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM analyzer.test_item ti
+                      WHERE ti.project_id = o.project_id AND ti.item_id = o.item_id
+                  )
+                """,
+                (grace_days,),
+            )
+            return int(purged)
 
     @staticmethod
     def _purge_items(conn, project_id: int, predicate: str, params: tuple) -> None:
