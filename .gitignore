@@ -12,3 +12,15 @@ models/
 tests/golden/**/*.actual.json
 .claude/
 .DS_Store
+
+# local scratch: PW screenshots, scenario captures, run logs
+*.jpeg
+*.png
+.playwright-mcp/
+demo-data/upload.log
+deploy/minikube/scripts/.iid
+deploy/minikube/scripts/.iuuid
+deploy/minikube/scripts/.lid
+deploy/minikube/scripts/.luuid
+deploy/minikube/scripts/.nid
+deploy/minikube/scripts/.tok

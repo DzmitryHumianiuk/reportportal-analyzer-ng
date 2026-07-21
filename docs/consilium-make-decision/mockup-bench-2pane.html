@@ -1,0 +1,1003 @@
+<title>Make Decision: the Bench (two-pane, RP light)</title>
+
+<!--
+  ============================================================================
+  MAKE DECISION — FULL POPUP REMAKE — TWO-PANE LIGHT RP
+  New file (keeps mockup-bench.html / mockup-bench-rp.html). Carries forward every
+  approved decision from mockup-bench-rp: plain humanized English, no em-dashes in
+  visible text, defect pills (white + color dot + configured name), Inspector
+  permalinks, declined dock for below-0.45 (degrades when absent), the HYBRID group
+  verdict (group as CONTEXT + group ACTION at the bottom scope control).
+
+  WHY THE REMAKE (live ng2 findings):
+   - The live modal is one narrow centre column: a long test name wraps/overflows and
+     pushes "Show error log" off the right edge. FIX: the name lives in the LEFT pane
+     and wraps (mono, overflow-wrap:anywhere); "Show error log" is on its own row below
+     it, so it can never be pushed off-screen.
+   - Some stock parts (the manual DefectTypeSelector) still render dark. FIX: the ENTIRE
+     popup is RP light, including a hand-themed light DefectTypeSelector dropdown.
+   - The left half was dead space. FIX: LEFT pane = context (test, error, group).
+
+  ----------------------------------------------------------------------------
+  TWO-PANE -> RP COMPONENT MAP
+  ----------------------------------------------------------------------------
+  Modal shell .............. §5.6 modal: white surface, radius 16, shadow-secondary, on grey page.
+  Top bar .................. page-header pattern: white, 1px #e3e7ec bottom rule; title + item id +
+                             Inspector permalink + close.
+  Body / two panes ......... flex row. LEFT pane = quiet grey rail (bg-100) for CONTEXT; RIGHT pane =
+                             white working area for the DECISION. 1px #e3e7ec divider between them.
+  LEFT: test name .......... mono, overflow-wrap:anywhere, own block; long pytest refs wrap, never clip.
+  LEFT: "This failure" ..... failed-red left bar (#dc5959); one control ("Show error log") on its own
+                             row; expanding adds the stack only, never repeats the header line.
+  LEFT: group block ........ launch_group. topaz-100 count badge (info tone); "Show the tests" member
+                             chips (same error_hash TI twins); "See group in Inspector". When there are
+                             NO twins, a quiet neutral "on its own in this run" line (e-400), no badge.
+  RIGHT: agreement banner .. warning-tone strip (sm-warning-line) for "not sure"; topaz-100 for "agree".
+  RIGHT: advisor checks .... §5.6 cards stacked; left edge = band tokens (auto->passed-green,
+                             suggest->yellow-700, abstain->e-300, rubric->dashed e-300).
+  RIGHT: the line + dock ... horizontal divider "the line the analyzer must clear"; declined dock below
+                             in a quiet grey inset (bg-200, dashed e-300, struck names, never topaz/blue).
+                             Degrades (absent) when there is nothing below 0.45.
+  RIGHT: AI why ............ warning-tinted info strip (guess tone).
+  FOOTER: verdict bar ...... full-width white footer (HYBRID: group ACTION at the bottom). Themed light
+                             DefectTypeSelector = §5.6 popover menu (white, radius 8, shadow-secondary,
+                             rows hover topaz-100, dot + configured name). Comment = §5.9 textarea +
+                             checkbox. Scope = group fan-out control. Apply = §5.1 primary; others ghost.
+  COMPARE overlay (R2) ..... spans the whole body (both panes) because a two-column diff needs width;
+                             the footer stays visible so you can decide right after comparing.
+
+  TRANSLATION-GAP (unchanged from bench-rp): diff highlight has no RP token —
+    "Same in both" = passed-green #3aa76d @12%; "Different" = warning-amber #ffc208 @16%
+    (red rejected: a differing line is "not the same failure", not an execution error).
+
+  DATA (real-shaped), two scenarios via the toggle:
+   A. item #3688 — very long pytest name, To Investigate, AI-guess-only (Automation Bug 65%),
+      NO twins -> left pane shows the honest "on its own in this run" state, no dock, no fan-out.
+   B. item #4998 — moderate name, To Investigate; look-alikes mixed (0.44), AI guess Product Bug 65%,
+      a declined dock (two below-0.45 candidates), and a GROUP of 12 identical To-Investigate failures
+      -> left-pane group populated, bottom scope fans the decision out to all 12.
+  ============================================================================
+-->
+
+<style>
+  :root{
+    /* RP Design System 6 tokens (light) */
+    --rp-bg-000:#ffffff; --rp-bg-100:#f7f7f8; --rp-bg-200:#eceff4;
+    --rp-topaz-100:#e5f5f8; --rp-topaz:#00829b; --rp-topaz-hover:#009dbb;
+    --rp-topaz-focused:#00b0d1; --rp-topaz-pressed:#00758c;
+    --rp-almost-black:#3f3f3f; --rp-charcoal:#464547;
+    --rp-e-100:#e3e7ec; --rp-e-200:#c1c7d0; --rp-e-300:#a2aab5; --rp-e-400:#8d95a1;
+    --rp-error:#dc5959; --rp-a-red-700:#c33c3d;
+    --rp-yellow-800:#ffc208; --rp-yellow-700:#d4a002;
+    --rp-sm-warning:#d78706; --rp-sm-warning-line-100:#fceecb; --rp-sm-warning-line-200:#fbe7b6;
+    --rp-status-passed:#3aa76d; --rp-a-green-800:#1c8b50;
+    --rp-shadow-rgb:55,67,98;
+    --rp-shadow:0 1px 3px rgba(var(--rp-shadow-rgb),.1);
+    --rp-shadow-hover:0 1px 3px rgba(var(--rp-shadow-rgb),.2);
+    --rp-shadow-secondary:0 8px 40px rgba(0,0,0,.15);
+    --rp-font:Roboto,Arial,Helvetica,sans-serif;
+    --rp-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --rp-fw-regular:400; --rp-fw-medium:500; --rp-fw-semibold:600; --rp-fw-bold:700;
+    /* defect GROUP fallbacks — dot colors only (real Inspector reads issue_type.hex_color) */
+    --pb:#d32f2f; --ab:#ffc208; --si:#3e7be6; --nd:#76839b; --ti:#00829b; --muted3:#8d95a1;
+  }
+  *{box-sizing:border-box;}
+  body,.page{margin:0;background:var(--rp-bg-100);color:var(--rp-almost-black);
+    font-family:var(--rp-font);font-size:13px;line-height:20px;-webkit-font-smoothing:antialiased;}
+  .page{padding:28px 20px 80px;}
+
+  .intro{max-width:1180px;margin:0 auto 18px;}
+  .intro h1{font-size:20px;line-height:31px;font-weight:var(--rp-fw-bold);margin:0 0 6px;color:var(--rp-almost-black);}
+  .intro p{color:var(--rp-e-400);font-size:13px;margin:0;max-width:1000px;}
+  .intro b{color:var(--rp-charcoal);font-weight:var(--rp-fw-semibold);}
+
+  /* scenario switch = segmented control */
+  .scn-switch{display:flex;gap:4px;flex-wrap:wrap;max-width:1180px;margin:0 auto 14px;padding:2px;align-items:center;}
+  .scn-switch .lbl{color:var(--rp-e-400);font-size:12px;margin-right:6px;font-weight:var(--rp-fw-medium);padding-left:2px;}
+  .scn-switch .seg{display:inline-flex;gap:4px;padding:2px;border-radius:6px;background:var(--rp-bg-200);}
+  .scn-switch button{background:transparent;border:1px solid transparent;color:var(--rp-almost-black);font-size:13px;
+    line-height:20px;padding:7px 12px;border-radius:4px;cursor:pointer;font-weight:var(--rp-fw-regular);
+    font-family:inherit;transition:background .2s,box-shadow .2s;}
+  .scn-switch button:hover:not(.on){background:var(--rp-e-100);}
+  .scn-switch button.on{background:var(--rp-bg-000);box-shadow:var(--rp-shadow);font-weight:var(--rp-fw-medium);}
+
+  /* ---- modal shell ---- */
+  .modal-scroll{max-width:1180px;margin:0 auto;overflow-x:auto;}
+  .modal{min-width:900px;background:var(--rp-bg-000);border-radius:16px;overflow:hidden;
+    box-shadow:var(--rp-shadow-secondary);border:1px solid var(--rp-e-100);}
+
+  /* top bar */
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 20px;
+    background:var(--rp-bg-000);border-bottom:1px solid var(--rp-e-100);}
+  .tb-title{font-size:15px;font-weight:var(--rp-fw-semibold);color:var(--rp-almost-black);display:flex;
+    align-items:center;gap:10px;flex-wrap:wrap;}
+  .tb-title .tb-id{font-family:var(--rp-mono);font-size:12px;color:var(--rp-e-400);font-weight:var(--rp-fw-regular);}
+  .tb-right{display:flex;align-items:center;gap:16px;}
+  .tb-close{background:none;border:none;color:var(--rp-e-400);font-size:18px;cursor:pointer;line-height:1;padding:2px 4px;}
+  .tb-close:hover{color:var(--rp-almost-black);}
+  .insp-link{display:inline-flex;align-items:center;gap:5px;color:var(--rp-topaz);font-size:12px;text-decoration:none;
+    font-weight:var(--rp-fw-medium);white-space:nowrap;}
+  .insp-link:hover{text-decoration:underline;color:var(--rp-topaz-hover);}
+  .insp-link .arr{font-size:11px;}
+
+  /* body / panes */
+  .body{position:relative;}
+  .twopane{display:flex;align-items:stretch;}
+  .pane{padding:18px 20px;}
+  .pane-left{width:40%;min-width:320px;max-width:440px;background:var(--rp-bg-100);
+    border-right:1px solid var(--rp-e-100);}
+  .pane-right{flex:1;min-width:420px;background:var(--rp-bg-000);}
+  .lp-cap{font-size:11px;line-height:16px;font-weight:var(--rp-fw-bold);letter-spacing:.8px;text-transform:uppercase;
+    color:var(--rp-e-400);margin:0 0 8px;}
+
+  /* left: failing test */
+  .test-name{font-family:var(--rp-mono);font-size:13px;line-height:1.5;font-weight:var(--rp-fw-medium);
+    color:var(--rp-almost-black);word-break:break-word;overflow-wrap:anywhere;margin-bottom:8px;}
+  .status-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--rp-e-400);}
+  .status-pill{display:inline-flex;align-items:center;gap:6px;color:var(--rp-almost-black);}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none;display:inline-block;}
+
+  /* left: "This failure" */
+  .fail-block{margin-top:16px;background:var(--rp-bg-000);border:1px solid var(--rp-e-100);border-radius:8px;
+    padding:12px 13px;box-shadow:var(--rp-shadow);}
+  .fail-line{display:flex;align-items:flex-start;gap:10px;}
+  .fail-bar{width:4px;align-self:stretch;min-height:20px;background:var(--rp-error);border-radius:2px;flex:none;}
+  .fail-main{min-width:0;flex:1;}
+  .fp-cap{font-size:11px;font-weight:var(--rp-fw-bold);letter-spacing:.6px;text-transform:uppercase;
+    color:var(--rp-e-400);margin-bottom:5px;}
+  .fp-top{font-family:var(--rp-mono);font-size:12px;color:var(--rp-almost-black);line-height:1.5;
+    word-break:break-word;overflow-wrap:anywhere;}
+  .fp-sub{font-family:var(--rp-mono);font-size:11px;color:var(--rp-e-400);margin-top:4px;
+    word-break:break-word;overflow-wrap:anywhere;}
+  .logtoggle{background:none;border:none;color:var(--rp-topaz);font-size:12.5px;cursor:pointer;
+    font-weight:var(--rp-fw-medium);display:inline-flex;align-items:center;gap:6px;padding:2px;font-family:inherit;
+    margin-top:11px;}
+  .logtoggle:hover{color:var(--rp-topaz-hover);}
+  .logtoggle .chev{font-size:10px;transition:transform .15s;}
+  .logtoggle.open .chev{transform:rotate(90deg);}
+  .fulllog{display:none;margin-top:11px;border-top:1px solid var(--rp-e-100);padding-top:10px;max-height:220px;
+    overflow:auto;}
+  .fulllog.open{display:block;}
+  .lg-cap{font-size:11px;font-weight:var(--rp-fw-bold);letter-spacing:.5px;text-transform:uppercase;
+    color:var(--rp-e-400);margin-bottom:8px;}
+  .logrow{font-family:var(--rp-mono);font-size:11.5px;color:var(--rp-charcoal);line-height:1.6;white-space:pre-wrap;
+    word-break:break-word;overflow-wrap:anywhere;padding:1px 0;}
+  .logrow.muted{color:var(--rp-e-400);}
+
+  /* left: group block */
+  .group-block{margin-top:16px;background:var(--rp-bg-000);border:1px solid var(--rp-e-100);border-radius:8px;
+    padding:12px 13px;box-shadow:var(--rp-shadow);}
+  .group-line{display:flex;align-items:flex-start;gap:11px;}
+  .group-badge{flex:none;min-width:32px;height:32px;padding:0 8px;border-radius:100px;background:var(--rp-topaz-100);
+    color:var(--rp-topaz);border:1px solid #bfe6ee;display:inline-flex;align-items:center;justify-content:center;
+    font-size:14px;font-weight:var(--rp-fw-bold);}
+  .group-main{flex:1;min-width:0;}
+  .group-head{font-size:13px;line-height:19px;color:var(--rp-almost-black);}
+  .group-head b{font-weight:var(--rp-fw-bold);}
+  .group-sub{font-size:12px;color:var(--rp-e-400);margin-top:3px;line-height:1.45;}
+  .group-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  .group-members{display:none;margin-top:11px;padding-top:11px;border-top:1px solid var(--rp-e-100);}
+  .group-members.open{display:block;}
+  .gm-list{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px;}
+  .gm-chip{display:inline-flex;align-items:center;gap:6px;background:var(--rp-bg-100);border:1px solid var(--rp-e-100);
+    border-radius:6px;padding:4px 9px;font-size:11.5px;color:var(--rp-charcoal);}
+  .gm-chip .dot{width:7px;height:7px;background:var(--ti);}
+  .gm-cur{color:var(--rp-e-400);font-style:italic;}
+  .gm-foot{font-size:12px;color:var(--rp-e-400);}
+  .group-alone{margin-top:16px;background:var(--rp-bg-000);border:1px dashed var(--rp-e-200);border-radius:8px;
+    padding:12px 13px;color:var(--rp-e-400);font-size:12.5px;line-height:1.5;display:flex;align-items:flex-start;gap:9px;}
+  .group-alone .ga-glyph{flex:none;width:26px;height:26px;border-radius:100px;background:var(--rp-bg-200);
+    color:var(--rp-e-400);display:inline-flex;align-items:center;justify-content:center;font-size:13px;}
+  .group-alone b{color:var(--rp-charcoal);font-weight:var(--rp-fw-semibold);}
+
+  /* right: agreement banner */
+  .banner{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:11px 14px;
+    border-radius:8px;border:1px solid var(--rp-e-100);background:var(--rp-bg-100);}
+  .banner.unsure{background:var(--rp-sm-warning-line-100);border-color:var(--rp-sm-warning-line-200);}
+  .banner.agree{background:var(--rp-topaz-100);border-color:#bfe6ee;}
+  .headline{font-size:16px;line-height:22px;font-weight:var(--rp-fw-semibold);color:var(--rp-almost-black);}
+  .headline .verd{font-weight:var(--rp-fw-bold);}
+  .headline-help{font-size:12.5px;color:var(--rp-charcoal);}
+  .banner.unsure .headline-help{color:#8a6a12;}
+  .region-cap{font-size:11px;line-height:16px;font-weight:var(--rp-fw-bold);letter-spacing:.8px;text-transform:uppercase;
+    color:var(--rp-e-400);margin:16px 0 10px;}
+
+  /* right: advisor checks (stacked) */
+  .checks{display:flex;flex-direction:column;gap:10px;}
+  .check{position:relative;background:var(--rp-bg-000);border:1px solid var(--rp-e-200);border-radius:8px;
+    padding:11px 13px 11px 15px;box-shadow:var(--rp-shadow);}
+  .check .edge{position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:8px 0 0 8px;}
+  .check.auto .edge{background:var(--rp-status-passed);}
+  .check.suggest .edge{background:linear-gradient(var(--rp-yellow-700) 50%,var(--rp-e-200) 50%);}
+  .check.abstain .edge{background:var(--rp-e-300);}
+  .check.rubric{border-style:dashed;border-color:var(--rp-e-300);}
+  .check.rubric .edge{background:repeating-linear-gradient(180deg,var(--rp-e-300) 0 4px,transparent 4px 8px);}
+  .check.empty{background:var(--rp-bg-100);border-style:dashed;box-shadow:none;}
+  .check .why{position:absolute;top:11px;right:12px;}
+  .check .method{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:13.5px;font-weight:var(--rp-fw-semibold);
+    color:var(--rp-almost-black);padding-right:44px;margin-bottom:3px;}
+  .glyph{width:19px;height:19px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;
+    font-size:11px;background:var(--rp-bg-200);color:var(--rp-e-400);flex:none;}
+  .tag-nc{border:1px solid var(--rp-e-200);color:var(--rp-e-400);border-radius:3px;padding:1px 6px;font-size:9px;
+    font-weight:var(--rp-fw-bold);text-transform:uppercase;letter-spacing:.4px;background:transparent;}
+  .cbody{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;}
+  .role{flex:1;min-width:150px;font-size:12px;color:var(--rp-e-400);line-height:1.45;}
+  .cverdict{flex:1.1;min-width:180px;}
+  .defect-pill{display:inline-flex;align-items:center;gap:6px;background:var(--rp-bg-000);color:var(--rp-almost-black);
+    border:1px solid var(--rp-e-200);border-radius:100px;padding:2px 8px 2px 7px;font-size:13px;line-height:18px;
+    font-weight:var(--rp-fw-semibold);margin-bottom:6px;}
+  .defect-pill .dot{width:12px;height:12px;}
+  .strength{font-size:12px;color:var(--rp-charcoal);line-height:1.45;}
+  .strength b{font-weight:var(--rp-fw-bold);}
+  .prov{font-size:11px;color:var(--rp-e-400);margin-top:7px;line-height:1.4;}
+  .cverdict .cact{margin-top:9px;}
+
+  /* right: the line + dock */
+  .line-sep{display:flex;align-items:center;gap:12px;margin:14px 0 10px;}
+  .line-sep .rule{flex:1;height:0;border-top:2px dotted var(--rp-e-300);}
+  .line-sep .lbl{font-size:10px;color:var(--rp-e-400);text-transform:uppercase;letter-spacing:.5px;cursor:help;}
+  .dock{background:var(--rp-bg-200);border:1px dashed var(--rp-e-300);border-radius:8px;padding:11px 13px;}
+  .dock-toggle{display:flex;align-items:center;gap:8px;background:none;border:none;color:var(--rp-e-400);font-size:12.5px;
+    cursor:pointer;width:100%;text-align:left;padding:2px;font-weight:var(--rp-fw-semibold);font-family:inherit;}
+  .dock-toggle .chev{font-size:11px;transition:transform .15s;}
+  .dock-toggle.open .chev{transform:rotate(90deg);}
+  .dock-body{display:none;margin-top:10px;}
+  .dock-body.open{display:block;}
+  .dock-note{font-size:11.5px;color:var(--rp-e-400);margin-bottom:10px;line-height:1.45;}
+  .dock-item{border:1px dashed var(--rp-e-200);border-radius:6px;padding:9px 11px;margin-bottom:8px;
+    background:var(--rp-bg-000);cursor:pointer;transition:border-color .15s;}
+  .dock-item:hover{border-color:var(--rp-e-300);}
+  .dock-item.focus{border-color:var(--rp-e-400);background:#fff;}
+  .dock-item .dn{color:var(--rp-charcoal);font-size:12.5px;font-weight:var(--rp-fw-semibold);}
+  .dock-item .dd{font-size:12px;color:var(--rp-e-400);margin-top:4px;}
+  .dock-item .dd .strike{text-decoration:line-through;text-decoration-color:var(--rp-e-300);color:var(--rp-e-400);}
+  .dock-item .dact{margin-top:9px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+
+  /* right: AI why */
+  .aiwhy{border:1px solid var(--rp-sm-warning-line-200);border-left:3px solid var(--rp-yellow-700);
+    background:var(--rp-sm-warning-line-100);border-radius:0 8px 8px 0;padding:11px 14px;margin-top:16px;
+    box-shadow:var(--rp-shadow);}
+  .ai-cap{font-size:11px;font-weight:var(--rp-fw-bold);letter-spacing:.4px;text-transform:uppercase;
+    color:var(--rp-sm-warning);margin-bottom:7px;display:flex;justify-content:space-between;align-items:center;
+    gap:12px;flex-wrap:wrap;}
+  .ai-text{font-size:12.5px;color:var(--rp-charcoal);line-height:1.55;}
+
+  /* ---- footer verdict bar ---- */
+  .footer{padding:14px 20px;background:var(--rp-bg-000);border-top:1px solid var(--rp-e-100);}
+  .vb-top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap;}
+  .vb-left{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  .vb-field{display:flex;align-items:center;gap:9px;position:relative;}
+  .flabel{font-size:13px;color:var(--rp-e-400);}
+  .prov-tag{font-size:12px;color:var(--rp-e-400);font-style:italic;}
+  .prov-tag.picked{color:var(--rp-topaz);font-style:normal;font-weight:var(--rp-fw-semibold);}
+
+  /* themed light DefectTypeSelector */
+  .rp-select{position:relative;}
+  .rp-select-btn{display:inline-flex;align-items:center;gap:8px;background:var(--rp-bg-000);color:var(--rp-almost-black);
+    border:1px solid var(--rp-e-200);border-radius:3px;padding:7px 12px;font-size:13px;font-weight:var(--rp-fw-semibold);
+    cursor:pointer;min-height:36px;font-family:inherit;}
+  .rp-select-btn:hover{border-color:var(--rp-e-300);}
+  .rp-select-btn.empty{border-style:dashed;color:var(--rp-e-400);font-weight:var(--rp-fw-regular);}
+  .rp-select-btn .caret{color:var(--rp-e-300);font-size:11px;margin-left:2px;}
+  .rp-select-btn.open{border-color:var(--rp-topaz-focused);box-shadow:inset 0 0 0 1px var(--rp-topaz-focused);}
+  .rp-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:220px;background:var(--rp-bg-000);
+    border:1px solid var(--rp-e-100);border-radius:8px;box-shadow:var(--rp-shadow-secondary);padding:6px;display:none;}
+  .rp-menu.open{display:block;}
+  .rp-menu-cap{font-size:11px;color:var(--rp-e-400);padding:4px 8px 6px;}
+  .rp-menu-item{display:flex;align-items:center;gap:9px;width:100%;background:none;border:none;border-radius:4px;
+    padding:8px 9px;font-size:13px;color:var(--rp-almost-black);cursor:pointer;font-family:inherit;text-align:left;
+    font-weight:var(--rp-fw-medium);}
+  .rp-menu-item:hover{background:var(--rp-topaz-100);}
+  .rp-menu-item.sel{background:var(--rp-topaz-100);}
+  .rp-menu-item .dot{width:12px;height:12px;}
+  .rp-menu-item .chk{margin-left:auto;color:var(--rp-topaz);font-weight:var(--rp-fw-bold);opacity:0;}
+  .rp-menu-item.sel .chk{opacity:1;}
+
+  .scope-select{display:inline-flex;align-items:center;gap:7px;background:var(--rp-bg-000);border:1px solid var(--rp-e-200);
+    color:var(--rp-almost-black);border-radius:3px;padding:7px 11px;font-size:12.5px;cursor:pointer;min-height:36px;}
+  .scope-select:hover{border-color:var(--rp-e-300);}
+  .scope-select.locked{cursor:default;color:var(--rp-e-400);}
+  .scope-select .caret{color:var(--rp-e-300);font-size:11px;}
+
+  .vb-actions{display:flex;flex-direction:column;align-items:flex-end;gap:7px;}
+  .vb-btns{display:flex;gap:10px;}
+  .btn{border-radius:3px;font-size:13px;line-height:20px;font-weight:var(--rp-fw-medium);padding:7px 14px;cursor:pointer;
+    border:1px solid transparent;font-family:inherit;}
+  .btn-sm{padding:5px 11px;font-size:12px;}
+  .btn-teal{background:var(--rp-topaz);color:#fff;border-color:var(--rp-topaz);}
+  .btn-teal:hover{background:var(--rp-topaz-hover);border-color:var(--rp-topaz-hover);}
+  .btn-teal:disabled{opacity:.4;cursor:default;}
+  .btn-ghost{background:transparent;border-color:var(--rp-topaz);color:var(--rp-topaz);}
+  .btn-ghost:hover{background:var(--rp-topaz-100);}
+  .vb-keys{color:var(--rp-e-400);font-size:11.5px;}
+  .vb-keys .kbd{font-family:var(--rp-mono);background:var(--rp-bg-200);border:1px solid var(--rp-e-200);border-radius:3px;
+    padding:1px 6px;font-size:11px;color:var(--rp-charcoal);}
+
+  .cmt-wrap{margin-top:13px;padding-top:13px;border-top:1px solid var(--rp-e-100);}
+  .cmt-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap;}
+  .cmt-label{font-size:12.5px;color:var(--rp-almost-black);font-weight:var(--rp-fw-semibold);}
+  .cmt-check{display:flex;align-items:center;gap:8px;color:var(--rp-charcoal);font-size:12.5px;cursor:pointer;}
+  .cmt-check .box{width:16px;height:16px;border:1px solid var(--rp-topaz);border-radius:3px;background:var(--rp-topaz);
+    color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center;font-weight:var(--rp-fw-bold);flex:none;}
+  .cmt-check.off .box{background:var(--rp-bg-000);border-color:var(--rp-e-200);color:transparent;}
+  .cmt-note{font-size:11.5px;color:var(--rp-sm-warning);margin-bottom:8px;display:none;}
+  .cmt-note.on{display:block;}
+  .cmt-editor{width:100%;background:var(--rp-bg-000);border:1px solid var(--rp-e-200);border-radius:3px;
+    color:var(--rp-almost-black);font-family:var(--rp-font);font-size:13px;line-height:1.55;padding:11px 13px;
+    min-height:62px;resize:vertical;}
+  .cmt-editor:hover{border-color:var(--rp-e-300);}
+  .cmt-editor:focus{outline:none;border-color:var(--rp-topaz-focused);box-shadow:inset 0 0 0 1px var(--rp-topaz-focused);}
+
+  .recap{font-size:12.5px;color:var(--rp-topaz);margin-top:12px;display:none;align-items:center;gap:8px;}
+  .recap.on{display:flex;}
+  .recap.warn{color:var(--rp-sm-warning);}
+  .apply-flash{display:none;margin-top:11px;background:rgba(58,167,109,.12);border:1px solid var(--rp-status-passed);
+    border-radius:8px;padding:10px 14px;color:var(--rp-a-green-800);font-size:13px;font-weight:var(--rp-fw-semibold);}
+  .apply-flash.on{display:block;}
+
+  /* ---- compare overlay (spans both panes) ---- */
+  .compare-overlay{display:none;padding:18px 20px;background:var(--rp-bg-100);}
+  .compare-overlay.on{display:block;}
+  .cmp-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:8px;flex-wrap:wrap;}
+  .cmp-title{font-size:15px;font-weight:var(--rp-fw-semibold);color:var(--rp-almost-black);}
+  .cmp-help{font-size:12px;color:var(--rp-charcoal);margin-bottom:12px;line-height:1.5;}
+  .cmp-legend{display:inline-flex;gap:16px;align-items:center;margin-left:2px;}
+  .cmp-legend span{font-size:11.5px;color:var(--rp-e-400);display:inline-flex;align-items:center;gap:6px;}
+  .lg-swatch{width:11px;height:11px;border-radius:3px;display:inline-block;}
+  .lg-same{background:rgba(58,167,109,.14);border:1px solid rgba(58,167,109,.5);}
+  .lg-diff{background:rgba(255,194,8,.18);border:1px solid var(--rp-yellow-700);}
+  .cmp-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .cmp-col{background:var(--rp-bg-000);border:1px solid var(--rp-e-100);border-radius:8px;overflow:hidden;box-shadow:var(--rp-shadow);}
+  .cmp-col.right{border-color:var(--rp-e-200);}
+  .cmp-col-head{padding:11px 14px;border-bottom:1px solid var(--rp-e-100);}
+  .cmp-col-head .t{font-size:13px;font-weight:var(--rp-fw-semibold);color:var(--rp-almost-black);display:flex;
+    align-items:center;gap:8px;flex-wrap:wrap;}
+  .cmp-col-head .s{font-size:11.5px;color:var(--rp-e-400);margin-top:3px;word-break:break-word;overflow-wrap:anywhere;}
+  .cmp-bodyx{max-height:260px;overflow:auto;padding:12px 14px;}
+  .cmp-line{font-family:var(--rp-mono);font-size:12px;line-height:1.55;padding:3px 8px;border-radius:4px;margin-bottom:3px;
+    white-space:pre-wrap;word-break:break-word;display:flex;gap:8px;align-items:baseline;}
+  .cmp-line .txt{flex:1;min-width:0;}
+  .cmp-line.same{color:#2f6f4c;background:rgba(58,167,109,.12);}
+  .cmp-line.diff{color:#7a5b00;background:rgba(255,194,8,.16);}
+  .cmp-line .sidetag{font-size:10px;color:var(--rp-e-400);white-space:nowrap;font-weight:var(--rp-fw-semibold);
+    text-transform:uppercase;letter-spacing:.4px;}
+  .cmp-line.diff .sidetag{color:var(--rp-yellow-700);}
+  .starwrap{color:var(--rp-yellow-700);font-weight:var(--rp-fw-bold);}
+  .similar-label{font-family:var(--rp-mono);font-size:11px;color:var(--rp-almost-black);font-weight:var(--rp-fw-bold);}
+  .cmp-verdict{margin-top:13px;background:var(--rp-bg-000);border:1px solid var(--rp-e-100);border-radius:8px;
+    padding:12px 15px;box-shadow:var(--rp-shadow);}
+  .cmp-verdict .cv-line{font-size:13px;color:var(--rp-charcoal);line-height:1.55;}
+  .cmp-verdict .cv-line b{color:var(--rp-almost-black);font-weight:var(--rp-fw-bold);}
+  .cmp-foot{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:12px;flex-wrap:wrap;}
+  .cmp-foot-left{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--rp-e-400);}
+
+  .foot-note{max-width:1180px;margin:12px auto 0;color:var(--rp-e-400);font-size:11.5px;font-style:italic;}
+  .tip{border-bottom:1px dotted var(--rp-e-300);cursor:help;}
+</style>
+
+<div class="page">
+  <div class="intro">
+    <h1>Make Decision: the Bench (two-pane, RP light)</h1>
+    <p>The full Make Decision popup, rebuilt as a two-pane light screen in ReportPortal's design language.
+    The <b>left pane</b> is context: the failing test (its name wraps and never clips), this failure's error,
+    and the group of identical failures in this run. The <b>right pane</b> is the decision: the three advisor
+    checks, the AI guess and why, and the verdict controls in the footer. Toggle the two cases below.</p>
+  </div>
+
+  <div class="scn-switch" data-scn>
+    <span class="lbl">Case:</span>
+    <span class="seg">
+      <button data-goto="A" class="on">Long name, AI guess only, on its own (item 3688)</button>
+      <button data-goto="B">Group of 12 identical failures (item 4998)</button>
+    </span>
+  </div>
+
+  <div class="modal-scroll">
+  <div class="modal" data-modal>
+
+    <!-- ===== TOP BAR ===== -->
+    <div class="topbar">
+      <div class="tb-title">Make Decision <span class="tb-id" data-item-id>#3688</span></div>
+      <div class="tb-right">
+        <a class="insp-link" data-insp-item href="#" target="_blank" rel="noopener noreferrer">Open full details in Inspector <span class="arr">&#8599;</span></a>
+        <button class="tb-close" title="Close">&#10005;</button>
+      </div>
+    </div>
+
+    <!-- ===== BODY (two panes) ===== -->
+    <div class="body">
+      <div class="twopane" data-twopane>
+
+        <!-- LEFT: context -->
+        <div class="pane pane-left">
+          <div class="lp-cap">The failing test</div>
+          <div class="test-name" data-test-name></div>
+          <div class="status-row">FAILED &middot; <span class="status-pill"><span class="dot" style="background:var(--ti)"></span><span data-status>To Investigate</span></span></div>
+
+          <div class="fail-block">
+            <div class="fail-line">
+              <div class="fail-bar"></div>
+              <div class="fail-main">
+                <div class="fp-cap">This failure</div>
+                <div class="fp-top" data-fp-top></div>
+                <div class="fp-sub" data-fp-sub></div>
+              </div>
+            </div>
+            <button class="logtoggle" data-logtoggle><span class="chev">&#9654;</span> <span data-logtoggle-txt>Show error log</span></button>
+            <div class="fulllog" data-fulllog>
+              <div class="lg-cap">Stack trace and context (ERROR level)</div>
+              <div data-fulllog-body></div>
+            </div>
+          </div>
+
+          <!-- group of identical failures, or the honest "on its own" state -->
+          <div data-group-slot></div>
+        </div>
+
+        <!-- RIGHT: decision reasoning -->
+        <div class="pane pane-right">
+          <div class="banner" data-banner>
+            <div class="headline" data-headline></div>
+            <div class="headline-help" data-headline-help></div>
+          </div>
+
+          <div class="region-cap">The analyzer checked this three ways, strongest first</div>
+          <div class="checks" data-checks></div>
+
+          <div data-dock-slot></div>
+
+          <div class="aiwhy" data-aiwhy>
+            <div class="ai-cap">
+              <span>Why the AI guessed this (written by AI)</span>
+              <a class="insp-link" data-aiwhy-insp href="#" target="_blank" rel="noopener noreferrer">See the full reason in Inspector <span class="arr">&#8599;</span></a>
+            </div>
+            <div class="ai-text" data-aiwhy-text></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COMPARE overlay (spans both panes) -->
+      <div class="compare-overlay" data-compare>
+        <div class="cmp-head">
+          <div class="cmp-title">Is this the same failure?</div>
+          <button class="btn btn-ghost btn-sm" data-cmp-close>Close compare</button>
+        </div>
+        <div class="cmp-help">
+          Green lines match. Highlighted lines differ. If the key error line matches, it is likely the same failure.
+          <span class="cmp-legend">
+            <span><i class="lg-swatch lg-same"></i> Same in both</span>
+            <span><i class="lg-swatch lg-diff"></i> Different</span>
+          </span>
+        </div>
+        <div class="cmp-cols">
+          <div class="cmp-col left">
+            <div class="cmp-col-head">
+              <div class="t">This failure <span style="font-size:11px;color:var(--rp-e-400);font-weight:400">(the test under analysis)</span></div>
+              <div class="s" data-cmp-left-sub></div>
+            </div>
+            <div class="cmp-bodyx" data-cmp-left></div>
+          </div>
+          <div class="cmp-col right">
+            <div class="cmp-col-head">
+              <div class="t">The one you picked</div>
+              <div class="s" data-cmp-right-sub></div>
+            </div>
+            <div class="cmp-bodyx" data-cmp-right></div>
+          </div>
+        </div>
+        <div class="cmp-verdict"><div class="cv-line" data-cmp-verdict></div></div>
+        <div class="cmp-foot">
+          <div class="cmp-foot-left">
+            <span>Not the same failure?</span>
+            <button class="btn btn-ghost btn-sm" data-cmp-manual>Choose a defect type yourself&hellip;</button>
+          </div>
+          <a class="insp-link" data-cmp-insp href="#" target="_blank" rel="noopener noreferrer">See details in Inspector <span class="arr">&#8599;</span></a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== FOOTER: verdict bar ===== -->
+    <div class="footer">
+      <div class="vb-top">
+        <div class="vb-left">
+          <div class="vb-field">
+            <span class="flabel">Defect:</span>
+            <div class="rp-select">
+              <button class="rp-select-btn empty" data-defect-btn><span data-defect-text>Choose a defect type</span> <span class="caret">&#9662;</span></button>
+              <div class="rp-menu" data-defect-menu>
+                <div class="rp-menu-cap">Pick the defect type that fits this failure</div>
+                <button class="rp-menu-item" data-pick="pb"><span class="dot" style="background:var(--pb)"></span>Product Bug<span class="chk">&#10003;</span></button>
+                <button class="rp-menu-item" data-pick="ab"><span class="dot" style="background:var(--ab)"></span>Automation Bug<span class="chk">&#10003;</span></button>
+                <button class="rp-menu-item" data-pick="si"><span class="dot" style="background:var(--si)"></span>System Issue<span class="chk">&#10003;</span></button>
+                <button class="rp-menu-item" data-pick="nd"><span class="dot" style="background:var(--nd)"></span>No Defect<span class="chk">&#10003;</span></button>
+              </div>
+            </div>
+            <span class="prov-tag" data-prov-tag></span>
+          </div>
+          <div class="vb-field">
+            <span class="flabel">Apply to:</span>
+            <span class="scope-select" data-scope>Just this test <span class="caret">&#9662;</span></span>
+          </div>
+        </div>
+        <div class="vb-actions">
+          <div class="vb-btns">
+            <button class="btn btn-teal" data-apply-btn disabled>Apply</button>
+            <button class="btn btn-ghost" data-choose-btn>Choose myself</button>
+            <button class="btn btn-ghost">Cancel</button>
+          </div>
+          <div class="vb-keys"><span class="kbd">Enter</span> apply &middot; <span class="kbd">M</span> choose myself &middot; <span class="kbd">Esc</span> close compare</div>
+        </div>
+      </div>
+
+      <div class="cmt-wrap">
+        <div class="cmt-head">
+          <span class="cmt-label">Comment</span>
+          <span class="cmt-check" data-cmt-check><span class="box">&#10003;</span> Add the reason as a comment</span>
+        </div>
+        <div class="cmt-note" data-cmt-note>Filled from the AI's reason. Change it if you want.</div>
+        <textarea class="cmt-editor" data-cmt-editor placeholder="Why this defect? (optional)"></textarea>
+      </div>
+
+      <div class="recap" data-recap><span>&#8964;</span> <span data-recap-text>This will apply to this test.</span></div>
+      <div class="apply-flash" data-apply-flash></div>
+    </div>
+
+  </div>
+  </div>
+
+  <p class="foot-note" data-footnote></p>
+</div>
+
+<script>
+(function(){
+  var modal = document.querySelector('[data-modal]');
+  var scn = 'A';
+
+  var DEFECTS = {
+    pb:{name:'Product Bug', color:'var(--pb)'},
+    ab:{name:'Automation Bug', color:'var(--ab)'},
+    si:{name:'System Issue', color:'var(--si)'},
+    nd:{name:'No Defect', color:'var(--nd)'}
+  };
+  function defectPill(k){ var d=DEFECTS[k]; return '<span class="defect-pill"><span class="dot" style="background:'+d.color+'"></span>'+d.name+'</span>'; }
+
+  var CHECK_META = {
+    past:{glyph:'&#9670;', label:'Past decision', role:'A person already decided this exact same failure.'},
+    similar:{glyph:'&#8776;', label:'Similar failures', role:'Failures that look like this one, from a trained model.'},
+    ai:{glyph:'&#10022;', label:'AI guess', role:'With no earlier match, the AI reasons from a set of rules.', tag:'not confirmed'}
+  };
+
+  // ---- real-shaped data for the two scenarios ----
+  var DATA = {
+    A:{
+      itemId:'#3688',
+      name:'tests/integration/api/v2/test_user_profile_attributes_bulk_update.py::TestUserProfileAttributesBulkUpdate::test_update_multiple_attributes_with_special_characters_and_validation[case-42-unicode]',
+      status:'To Investigate',
+      insp:'/inspector/#view=journey&project=5&launch=271&item=3688',
+      fpTop:'selenium.common.exceptions.NoSuchElementException: Unable to locate element: {"method":"css selector","selector":".attributes-submit"}',
+      fpSub:'NoSuchElementException &middot; test_user_profile_attributes_bulk_update.py:214',
+      stack:[
+        {t:'  File "tests/integration/api/v2/test_user_profile_attributes_bulk_update.py", line 214, in test_update_multiple_attributes_with_special_characters_and_validation'},
+        {t:'    submit_btn = driver.find_element(By.CSS_SELECTOR, ".attributes-submit")'},
+        {t:'  selenium.common.exceptions.NoSuchElementException: Unable to locate element: .attributes-submit'},
+        {t:'  the page had no element matching that selector when the step ran.', muted:true}
+      ],
+      group:null,
+      banner:{tone:'unsure', head:'The analyzer is not sure about this one', help:'There is no past match, no look-alikes, and only the AI has a guess.'},
+      checks:{
+        past:{state:'empty', strengthHtml:'No exact match found.', provHtml:'Nothing in history has the same error signature.'},
+        similar:{state:'empty', strengthHtml:'No look-alikes found.', provHtml:'No past failure was close enough to show.'},
+        ai:{state:'rubric', defect:'ab',
+            strengthHtml:'<span class="tip" title="This is the AI\'s own guess about a rule, not how alike two real failures are. Treat it with care.">The AI\'s own guess (65%)</span>. Check it first.',
+            why:'/inspector/#view=journey&project=5&launch=271&item=3688&panel=ai', action:'guess'}
+      },
+      dock:[],
+      aiWhy:{text:'The test looked for a control with the css class attributes-submit and it was not on the page. The most likely cause is that the selector in the test is out of date, for example the class was renamed in the app. That points to a test-code fault, so this reads as an Automation Bug. Open the page source to confirm the control still exists under a new name.',
+             insp:'/inspector/#view=journey&project=5&launch=271&item=3688&panel=ai'},
+      guessComment:'The test could not find the submit control by its css class. The class was most likely renamed in the app, so the selector in the test is out of date. This is an Automation Bug. (Confirm the control still exists under a new name.)',
+      thisFailure:null
+    },
+    B:{
+      itemId:'#4998',
+      name:'com.epam.reportportal.ui.attributes.AttributesTest#attributesCheck',
+      status:'To Investigate',
+      insp:'/inspector/#view=journey&project=5&launch=267&item=4998',
+      fpTop:'org.openqa.selenium.TimeoutException: waiting for element to be clickable: By.id: attributes-submit (tried for 30 seconds)',
+      fpSub:'TimeoutException &middot; AttributesTest.java:41',
+      stack:[
+        {t:'    at org.openqa.selenium.support.ui.WebDriverWait.timeoutException(WebDriverWait.java:95)'},
+        {t:'    at AttributesTest.submitAttributes(AttributesTest.java:74)'},
+        {t:'    at AttributesTest.attributesCheck(AttributesTest.java:41)'},
+        {t:'    Caused by: no such element could be located within the wait time.', muted:true}
+      ],
+      group:{count:12, across:23, insp:'/inspector/#view=journey&project=5&launch=267&group=attributes-submit-timeout',
+        members:['attributes check','attributes bulk update','attributes import','profile attributes','team attributes',
+                 'project attributes','custom fields save','attributes export','attributes reset','attributes filter',
+                 'attributes sort','attributes validation']},
+      banner:{tone:'unsure', head:'The analyzer is not sure about this one', help:'There is no past match, the look-alikes were mixed, and the AI has a guess.'},
+      checks:{
+        past:{state:'empty', strengthHtml:'No exact match found.', provHtml:'Nothing in history has the same error signature.'},
+        similar:{state:'abstain',
+          strengthHtml:'<b>0.44 alike</b>. <span class="tip" title="Below the line the analyzer will not suggest an answer. It only shows these for you to judge.">Not sure, your call.</span>',
+          provHtml:'The look-alikes split between Product Bug and Automation Bug. See them below the line.',
+          why:'/inspector/#view=journey&project=5&launch=267&item=4998&panel=similar'},
+        ai:{state:'rubric', defect:'pb',
+          strengthHtml:'<span class="tip" title="This is the AI\'s own guess about a rule, not how alike two real failures are. Treat it with care.">The AI\'s own guess (65%)</span>. Check it first.',
+          why:'/inspector/#view=journey&project=5&launch=267&item=4998&panel=ai', action:'guess'}
+      },
+      dock:[
+        {key:'dock-pb', name:'EPMRPP-86731. attributes check', defect:'pb', ddHtml:'<span class="strike">Product Bug</span>. Too weak to suggest (0.44).',
+         insp:'/inspector/#view=journey&project=5&launch=266&item=5108'},
+        {key:'dock-ab', name:'EPMRPP-86742. checkout flow', defect:'ab', ddHtml:'<span class="strike">Automation Bug</span>. Too weak to suggest (0.43).',
+         insp:'/inspector/#view=journey&project=5&launch=266&item=5109'}
+      ],
+      aiWhy:{text:'The test waited 30 seconds for the submit control and it never became clickable. The most likely cause is the app under test did not show a working control, so this reads as a Product Bug. If the id "attributes-submit" was renamed in the app, this is a test-code fault instead (Automation Bug). Check the locator before you accept.',
+             insp:'/inspector/#view=journey&project=5&launch=267&item=4998&panel=ai'},
+      guessComment:'The wait timed out because the submit control never became clickable. The app under test did not show a working control, so this is a Product Bug. (Locator "attributes-submit" was verified as correct.)',
+      thisFailure:{
+        sub:'attributesCheck &middot; under analysis',
+        lines:[
+          {t:'org.openqa.selenium.TimeoutException: waiting for element to be clickable', k:'same', star:true},
+          {t:'By.id: attributes-submit (tried for 30 seconds)', k:'diff', side:'only here'},
+          {t:'at AttributesTest.submitAttributes(AttributesTest.java:74)', k:'diff', side:'only here'},
+          {t:'at AttributesTest.attributesCheck(AttributesTest.java:41)', k:'diff', side:'only here'}
+        ]
+      }
+    }
+  };
+
+  // compare candidates (only B has any)
+  var CANDIDATES = {
+    'dock-pb':{ sub:'EPMRPP-86731. attributes check &middot; the analyzer said no (0.44)',
+      insp:'/inspector/#view=journey&project=5&launch=266&item=5108',
+      lines:[
+        {t:'org.openqa.selenium.TimeoutException: waiting for element to be clickable', k:'same', star:true},
+        {t:'By.id: checkout-submit (tried for 30 seconds)', k:'diff', side:'only there'},
+        {t:'at CheckoutTest.pay(CheckoutTest.java:88)', k:'diff', side:'only there'}
+      ],
+      verdict:'<b>Same in both:</b> the timeout error type. <b>Different:</b> it waited for a different control (checkout-submit, not attributes-submit) in a different test. Likely <b>not the same failure</b>.'},
+    'dock-ab':{ sub:'EPMRPP-86742. checkout flow &middot; the analyzer said no (0.43)',
+      insp:'/inspector/#view=journey&project=5&launch=266&item=5109',
+      lines:[
+        {t:'org.openqa.selenium.TimeoutException: waiting for element to be clickable', k:'same', star:true},
+        {t:'By.css: .old-pay-btn (tried for 30 seconds)', k:'diff', side:'only there'},
+        {t:'at CheckoutTest.oldPay(CheckoutTest.java:120)', k:'diff', side:'only there'},
+        {t:'note: later fixed by updating the locator', k:'diff', side:'only there'}
+      ],
+      verdict:'<b>Same in both:</b> the timeout error type. <b>Different:</b> a stale locator that a person later fixed in the test, which made it an Automation Bug. Your locator may be fine, so this is <b>likely not the same failure</b>.'}
+  };
+
+  // ---- element refs ----
+  var q = function(s){ return modal.querySelector(s); };
+  var itemId=q('[data-item-id]'), inspItem=q('[data-insp-item]'), testName=q('[data-test-name]'), statusEl=q('[data-status]');
+  var fpTop=q('[data-fp-top]'), fpSub=q('[data-fp-sub]'), fullBody=q('[data-fulllog-body]');
+  var groupSlot=q('[data-group-slot]'), dockSlot=q('[data-dock-slot]');
+  var banner=q('[data-banner]'), headline=q('[data-headline]'), headHelp=q('[data-headline-help]'), checksEl=q('[data-checks]');
+  var aiwhy=q('[data-aiwhy]'), aiwhyText=q('[data-aiwhy-text]'), aiwhyInsp=q('[data-aiwhy-insp]');
+  var defectBtn=q('[data-defect-btn]'), defectText=q('[data-defect-text]'), defectMenu=q('[data-defect-menu]');
+  var provTag=q('[data-prov-tag]'), scopeSel=q('[data-scope]'), applyBtn=q('[data-apply-btn]');
+  var cmtCheck=q('[data-cmt-check]'), cmtNote=q('[data-cmt-note]'), cmtEditor=q('[data-cmt-editor]');
+  var recap=q('[data-recap]'), recapTx=q('[data-recap-text]'), flash=q('[data-apply-flash]');
+  var footnote=document.querySelector('[data-footnote]');
+  var twopane=q('[data-twopane]'), compare=q('[data-compare]');
+  var cmpLeft=q('[data-cmp-left]'), cmpRight=q('[data-cmp-right]'), cmpLeftSub=q('[data-cmp-left-sub]'),
+      cmpRightSub=q('[data-cmp-right-sub]'), cmpVerdict=q('[data-cmp-verdict]'), cmpInsp=q('[data-cmp-insp]');
+
+  var scopeIdx = 0;
+
+  function currentScopes(){
+    var d=DATA[scn];
+    if(!d.group) return ['Just this test'];
+    return ['Just this test','All '+d.group.count+' matching tests in this run','All '+d.group.across+' matching tests across 10 runs'];
+  }
+  function setScope(idx){
+    scopeIdx=idx;
+    var sc=currentScopes();
+    scopeSel.classList.toggle('locked', sc.length===1);
+    scopeSel.innerHTML = sc[idx] + ' <span class="caret">&#9662;</span>';
+  }
+  function recapText(){
+    var d=DATA[scn];
+    if(d.group && scopeIdx===1) return 'This will apply to all '+d.group.count+' matching tests in this run.';
+    if(d.group && scopeIdx===2) return 'This will apply to all '+d.group.across+' matching tests across 10 runs.';
+    return 'This will apply to this test.';
+  }
+
+  // ---- render helpers ----
+  function renderStack(stack){
+    return stack.map(function(l){ return '<div class="logrow'+(l.muted?' muted':'')+'">'+l.t+'</div>'; }).join('');
+  }
+  function renderGroup(d){
+    if(d.group){
+      var g=d.group;
+      groupSlot.innerHTML =
+        '<div class="group-block">'+
+          '<div class="group-line">'+
+            '<span class="group-badge">'+g.count+'</span>'+
+            '<div class="group-main">'+
+              '<div class="group-head">This exact failure shows up in <b>'+g.count+' tests</b> in this run.</div>'+
+              '<div class="group-sub">Same error signature, this test included. They are all waiting to be investigated, so one decision can cover the whole group.</div>'+
+              '<div class="group-actions">'+
+                '<button class="btn btn-ghost btn-sm" data-group-toggle>Show the tests</button>'+
+                '<button class="btn btn-ghost btn-sm" data-group-apply>Apply my decision to all '+g.count+'</button>'+
+              '</div>'+
+            '</div>'+
+          '</div>'+
+          '<div class="group-members" data-group-members>'+
+            '<div class="gm-list">'+ g.members.map(function(m,i){
+              return '<span class="gm-chip"><span class="dot"></span>'+m+(i===0?' <span class="gm-cur">(this test)</span>':'')+'</span>';
+            }).join('') +'</div>'+
+            '<div class="gm-foot"><a class="insp-link" href="'+g.insp+'" target="_blank" rel="noopener noreferrer">See the group in Inspector <span class="arr">&#8599;</span></a></div>'+
+          '</div>'+
+        '</div>';
+    } else {
+      groupSlot.innerHTML =
+        '<div class="group-alone">'+
+          '<span class="ga-glyph">&#9679;</span>'+
+          '<div><b>This failure is on its own in this run.</b><br>No other test failed with the same error signature, so there is no group to apply a decision to.</div>'+
+        '</div>';
+    }
+  }
+  function renderCheck(kind, c){
+    var m=CHECK_META[kind];
+    var cls = 'check '+c.state;
+    var why = c.why ? '<a class="why insp-link" href="'+c.why+'" target="_blank" rel="noopener noreferrer">why? <span class="arr">&#8599;</span></a>' : '';
+    var tag = m.tag ? ' <span class="tag-nc">'+m.tag+'</span>' : '';
+    var pill = c.defect ? defectPill(c.defect) : '';
+    var prov = c.provHtml ? '<div class="prov">'+c.provHtml+'</div>' : '';
+    var act = '';
+    if(c.action==='guess') act = '<div class="cact"><button class="btn btn-ghost btn-sm" data-use-guess>Use this guess&hellip;</button></div>';
+    return '<div class="'+cls+'" data-check="'+kind+'">'+
+      '<div class="edge"></div>'+ why +
+      '<div class="method"><span class="glyph">'+m.glyph+'</span>'+m.label+tag+'</div>'+
+      '<div class="cbody">'+
+        '<div class="role">'+m.role+'</div>'+
+        '<div class="cverdict">'+ pill +'<div class="strength">'+c.strengthHtml+'</div>'+ prov + act +'</div>'+
+      '</div>'+
+    '</div>';
+  }
+  function renderDock(d){
+    if(!d.dock || !d.dock.length){ dockSlot.innerHTML=''; return; }
+    var items = d.dock.map(function(it){
+      return '<div class="dock-item" data-compare="'+it.key+'">'+
+        '<div class="dn">'+it.name+'</div>'+
+        '<div class="dd">'+it.ddHtml+'</div>'+
+        '<div class="dact">'+
+          '<button class="btn btn-ghost btn-sm" data-dock-adopt="'+it.defect+'">Choose this myself&hellip;</button>'+
+          '<a class="insp-link" href="'+it.insp+'" target="_blank" rel="noopener noreferrer">why? <span class="arr">&#8599;</span></a>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+    dockSlot.innerHTML =
+      '<div class="line-sep"><span class="rule"></span>'+
+        '<span class="lbl tip" title="Below this line the analyzer will not suggest an answer. It only shows these for you to judge.">the line the analyzer must clear</span>'+
+        '<span class="rule"></span></div>'+
+      '<div class="dock">'+
+        '<button class="dock-toggle open" data-dock><span class="chev">&#9660;</span> The analyzer said no to these ('+d.dock.length+')</button>'+
+        '<div class="dock-body open" data-dock-body>'+
+          '<div class="dock-note">The analyzer looked at these and said no. Shown only so you can decide.</div>'+ items +
+        '</div>'+
+      '</div>';
+  }
+
+  // ---- verdict / comment ----
+  function setVerdict(k, prov){
+    if(k){
+      var d=DEFECTS[k];
+      defectBtn.classList.remove('empty');
+      defectText.innerHTML = '<span class="dot" style="background:'+d.color+';width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:-1px"></span>'+d.name;
+      applyBtn.disabled=false;
+      recap.classList.add('on');
+    } else {
+      defectBtn.classList.add('empty');
+      defectText.textContent='Choose a defect type';
+      applyBtn.disabled=true;
+      recap.classList.remove('on');
+    }
+    provTag.textContent = prov||'';
+    provTag.classList.toggle('picked', prov==='you picked this');
+    defectMenu.querySelectorAll('.rp-menu-item').forEach(function(mi){ mi.classList.toggle('sel', mi.getAttribute('data-pick')===k); });
+    flash.classList.remove('on');
+    recap.classList.remove('warn');
+    if(recap.classList.contains('on')) recapTx.textContent=recapText();
+  }
+  function openComment(prefill, checked){
+    cmtEditor.value = prefill||'';
+    cmtNote.classList.toggle('on', !!prefill);
+    cmtCheck.classList.toggle('off', !checked);
+    cmtCheck.querySelector('.box').innerHTML = checked ? '&#10003;' : '';
+  }
+  function closeDefectMenu(){ defectMenu.classList.remove('open'); defectBtn.classList.remove('open'); }
+
+  // ---- scenario switch ----
+  function showCase(key){
+    scn=key;
+    var d=DATA[key];
+    itemId.textContent=d.itemId;
+    inspItem.href=d.insp;
+    testName.textContent=d.name;
+    statusEl.textContent=d.status;
+    fpTop.textContent=d.fpTop;
+    fpSub.innerHTML=d.fpSub;
+    fullBody.innerHTML=renderStack(d.stack);
+    q('[data-fulllog]').classList.remove('open');
+    q('[data-logtoggle]').classList.remove('open');
+    q('[data-logtoggle-txt]').textContent='Show error log';
+
+    renderGroup(d);
+
+    banner.className='banner '+d.banner.tone;
+    headline.innerHTML=d.banner.head;
+    headHelp.innerHTML=d.banner.help;
+    checksEl.innerHTML = renderCheck('past',d.checks.past)+renderCheck('similar',d.checks.similar)+renderCheck('ai',d.checks.ai);
+    renderDock(d);
+    aiwhyText.textContent=d.aiWhy.text;
+    aiwhyInsp.href=d.aiWhy.insp;
+
+    closeCompare();
+    closeDefectMenu();
+    setVerdict(null,'');
+    openComment('', true);
+    cmtNote.classList.remove('on');
+    setScope(0);
+
+    footnote.textContent = d.group
+      ? 'Case B: a group of '+d.group.count+' identical failures. The left pane shows the group as context; pick a defect, then the footer scope can fan the decision out to all '+d.group.count+'. Nothing below the line is ever pre-picked.'
+      : 'Case A: a long test name that wraps and never clips, an AI-guess-only result, and no identical failures, so the left pane shows the honest "on its own" state and there is no fan-out.';
+  }
+
+  // ---- compare ----
+  function renderLogLines(target, lines){
+    target.innerHTML = lines.map(function(l){
+      var star = l.star ? '<span class="starwrap">&#9733;</span><span class="similar-label">Similar&nbsp;Log</span>&nbsp; ' : '';
+      var side = l.side ? '<span class="sidetag">'+l.side+'</span>' : '';
+      return '<div class="cmp-line '+l.k+'"><span class="txt">'+star+l.t+'</span>'+side+'</div>';
+    }).join('');
+  }
+  function openCompare(key){
+    var d=DATA[scn]; var c=CANDIDATES[key]; if(!c||!d.thisFailure) return;
+    cmpLeftSub.innerHTML=d.thisFailure.sub;
+    renderLogLines(cmpLeft, d.thisFailure.lines);
+    cmpRightSub.innerHTML=c.sub;
+    renderLogLines(cmpRight, c.lines);
+    cmpVerdict.innerHTML=c.verdict;
+    cmpInsp.href=c.insp;
+    twopane.style.display='none';
+    compare.classList.add('on');
+    compare.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+  function closeCompare(){
+    compare.classList.remove('on');
+    twopane.style.display='';
+    modal.querySelectorAll('.dock-item.focus').forEach(function(e){e.classList.remove('focus');});
+  }
+
+  // ---- wire (event delegation on modal for rendered content) ----
+  document.querySelectorAll('[data-scn] button').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.querySelectorAll('[data-scn] button').forEach(function(x){x.classList.remove('on');});
+      b.classList.add('on');
+      showCase(b.getAttribute('data-goto'));
+    });
+  });
+
+  q('[data-logtoggle]').addEventListener('click', function(){
+    var fl=q('[data-fulllog]'), open=!fl.classList.contains('open');
+    fl.classList.toggle('open', open);
+    this.classList.toggle('open', open);
+    q('[data-logtoggle-txt]').textContent = open ? 'Hide error log' : 'Show error log';
+  });
+
+  modal.addEventListener('click', function(e){
+    // group toggle / apply
+    if(e.target.closest('[data-group-toggle]')){
+      var gm=modal.querySelector('[data-group-members]');
+      var open=gm.classList.toggle('open');
+      e.target.closest('[data-group-toggle]').textContent = open ? 'Hide the tests' : 'Show the tests';
+      return;
+    }
+    if(e.target.closest('[data-group-apply]')){
+      setScope(1);
+      if(recap.classList.contains('on') && !recap.classList.contains('warn')) recapTx.textContent=recapText();
+      modal.querySelector('.footer').scrollIntoView({behavior:'smooth', block:'nearest'});
+      return;
+    }
+    // use the AI guess
+    if(e.target.closest('[data-use-guess]')){
+      var d=DATA[scn];
+      setVerdict(d.checks.ai.defect, 'from the AI guess (not confirmed)');
+      openComment(d.guessComment, true);
+      recap.classList.remove('warn'); recapTx.textContent=recapText();
+      cmtEditor.focus();
+      return;
+    }
+    // dock adopt (highlight only — analyzer said no)
+    var adopt=e.target.closest('[data-dock-adopt]');
+    if(adopt){
+      e.stopPropagation();
+      openDefectMenu();
+      var k=adopt.getAttribute('data-dock-adopt');
+      defectMenu.querySelectorAll('.rp-menu-item').forEach(function(mi){ mi.classList.toggle('sel', mi.getAttribute('data-pick')===k); });
+      applyBtn.disabled=true;
+      recap.classList.add('on','warn');
+      recapTx.textContent='Your own choice (the analyzer said no). Click the highlighted type to confirm.';
+      return;
+    }
+    // dock item / candidate -> compare
+    var cmp=e.target.closest('[data-compare]');
+    if(cmp && !e.target.closest('a') && !e.target.closest('[data-dock-adopt]')){
+      modal.querySelectorAll('.dock-item.focus').forEach(function(el){el.classList.remove('focus');});
+      cmp.classList.add('focus');
+      openCompare(cmp.getAttribute('data-compare'));
+      return;
+    }
+    // dock collapse
+    if(e.target.closest('[data-dock]')){
+      var dt=e.target.closest('[data-dock]');
+      dt.classList.toggle('open');
+      modal.querySelector('[data-dock-body]').classList.toggle('open');
+      return;
+    }
+  });
+
+  // defect selector menu
+  function openDefectMenu(){ defectMenu.classList.add('open'); defectBtn.classList.add('open'); }
+  defectBtn.addEventListener('click', function(e){ e.stopPropagation(); defectMenu.classList.toggle('open'); defectBtn.classList.toggle('open'); });
+  q('[data-choose-btn]').addEventListener('click', function(){ openDefectMenu(); });
+  defectMenu.querySelectorAll('.rp-menu-item').forEach(function(mi){
+    mi.addEventListener('click', function(){
+      var k=mi.getAttribute('data-pick');
+      setVerdict(k,'you picked this');
+      openComment(cmtEditor.value, cmtEditor.value.trim().length>0);
+      if(!cmtEditor.value) cmtNote.classList.remove('on');
+      closeDefectMenu();
+    });
+  });
+  document.addEventListener('click', function(e){ if(!e.target.closest('.rp-select')) closeDefectMenu(); });
+
+  // scope cycle
+  scopeSel.addEventListener('click', function(){
+    var sc=currentScopes();
+    if(sc.length===1) return;
+    setScope((scopeIdx+1)%sc.length);
+    if(recap.classList.contains('warn')){
+      var d=DATA[scn];
+      var covers = scopeIdx===0?'this test':(scopeIdx===1?d.group.count+' tests':d.group.across+' tests');
+      recapTx.textContent='Your own choice (the analyzer said no). Covers '+covers+'.';
+    } else if(recap.classList.contains('on')){
+      recapTx.textContent=recapText();
+    }
+  });
+
+  // comment checkbox
+  cmtCheck.addEventListener('click', function(){
+    var off=cmtCheck.classList.toggle('off');
+    cmtCheck.querySelector('.box').innerHTML = off ? '' : '&#10003;';
+  });
+
+  // compare footer
+  q('[data-cmp-close]').addEventListener('click', closeCompare);
+  q('[data-cmp-manual]').addEventListener('click', function(){ closeCompare(); openDefectMenu(); modal.querySelector('.footer').scrollIntoView({behavior:'smooth',block:'nearest'}); });
+
+  // apply
+  function doApply(){
+    if(applyBtn.disabled) return;
+    var d=DATA[scn];
+    var label=defectText.textContent.trim();
+    var target = scopeIdx===0 ? 'this test' : (scopeIdx===1 ? 'all '+d.group.count+' matching tests in this run' : 'all '+d.group.across+' matching tests across 10 runs');
+    flash.classList.add('on');
+    flash.innerHTML = '&#10003; Applied <b>'+label+'</b> to '+target+(cmtCheck.classList.contains('off')?'':' with your comment')+'. (demo)';
+  }
+  applyBtn.addEventListener('click', doApply);
+
+  document.addEventListener('keydown', function(e){
+    if(e.target===cmtEditor){ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); doApply(); } return; }
+    if(e.key==='Enter'){ doApply(); }
+    else if(e.key==='m'||e.key==='M'){ openDefectMenu(); }
+    else if(e.key==='Escape'){ if(compare.classList.contains('on')) closeCompare(); else closeDefectMenu(); }
+  });
+
+  // init
+  showCase('A');
+})();
+</script>
