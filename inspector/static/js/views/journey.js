@@ -54,7 +54,8 @@ export async function renderJourney(root, app) {
       h('div', { class: 'li-main' },
         h('div', { class: 'li-title' }, l.launch_name || `launch ${l.launch_id}`),
         h('div', { class: 'li-sub' }, `#${l.launch_number ?? '—'} · id ${l.launch_id} · ${l.item_count} items`)),
-      h('span', { class: 'chip' }, `${l.labeled_count} labeled`));
+      h('span', { class: 'chip', title: `${l.labeled_count} of ${l.item_count} indexed items carry a defect label` },
+        `${l.labeled_count}/${l.item_count} labeled`));
     launchList.appendChild(el);
     if (jstate.launch === l.launch_id) { selectLaunch(l, el); matched = true; }
   }
