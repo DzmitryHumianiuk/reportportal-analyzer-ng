@@ -23,6 +23,26 @@ cd tools/rp-migrate
 cp .env.example .env   # fill in both instances (URL, project key, API key)
 ```
 
+### Auth and long runs (token refresh)
+
+Each side authenticates either by **API key** (`SRC_API_KEY` / `DST_API_KEY`,
+used directly as the bearer) or by **password grant** (`SRC_PASSWORD` /
+`DST_PASSWORD` with the matching `*_USER`, exchanged for a token at
+`POST /uat/sso/oauth/token`). At least one credential per side is required;
+`*_PASSWORD` wins when both are set.
+
+RP **access tokens are short-lived** (minutes–1h). A long migration (many items
+and attachments) can outlive the token obtained at start, after which every
+request would 401 with `invalid_token`. The client now handles this
+transparently: on any 401 it **re-authenticates once and retries the same
+request once** (printing `re-authenticated (token refreshed)`); a second 401
+after a fresh login is raised as a real auth error. For a token that genuinely
+expires mid-run this only self-heals in password-grant mode (a fresh token is
+obtained) — API-key mode simply re-sets the same non-expiring key. The target
+therefore uses password grant (`superadmin`/`superadmin`), the source an API
+key. Uploads (item POSTs and attachment multipart) go through the same path, so
+they survive expiry too.
+
 ## Usage
 
 ```sh

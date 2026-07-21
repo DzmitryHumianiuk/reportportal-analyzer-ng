@@ -67,12 +67,41 @@ def load_env(path: Path) -> dict[str, str]:
 
 
 class RP:
-    """Minimal RP API client (API-key auth, retrying session)."""
+    """Minimal RP API client (retrying session, transparent re-auth on 401).
 
-    def __init__(self, base_url: str, project: str, api_key: str, tag: str) -> None:
+    Two auth modes, chosen per client:
+
+    * **password grant** — when a ``password`` is configured, ``login()`` obtains
+      a fresh bearer from RP's ``POST /uat/sso/oauth/token`` (the default ``ui``
+      OAuth client). This is what the target uses (``superadmin``/``superadmin``);
+      its access token is short-lived, so a long migration outlives it.
+    * **API key** — otherwise the stored key is used directly as the bearer.
+      This is what the source uses; API keys do not expire, so ``login()`` just
+      re-sets the header.
+
+    RP access tokens are short-lived (minutes–1h), so a long run (many items +
+    attachments) can outlive the token obtained at start and every subsequent
+    request 401s. Every request therefore goes through :meth:`_send`, which, on a
+    401, re-authenticates once (``login()``) and retries the *same* request once;
+    a second 401 after a fresh login is a real auth error and is raised.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        project: str,
+        tag: str,
+        *,
+        api_key: str | None = None,
+        user: str | None = None,
+        password: str | None = None,
+    ) -> None:
         self.base = base_url.rstrip("/")
         self.project = project
         self.tag = tag
+        self.api_key = api_key
+        self.user = user
+        self.password = password
         self.s = requests.Session()
         retry = Retry(
             total=5, backoff_factor=2,
@@ -81,30 +110,96 @@ class RP:
         )
         self.s.mount("http://", HTTPAdapter(max_retries=retry))
         self.s.mount("https://", HTTPAdapter(max_retries=retry))
-        self.s.headers["Authorization"] = f"Bearer {api_key}"
+        # Establish the initial bearer. For API-key mode this only sets a header
+        # (no network); for password mode this performs the first token grant.
+        self.login()
+
+    # -- auth -------------------------------------------------------------- #
+    def login(self) -> None:
+        """(Re-)obtain the bearer token and set it on the session.
+
+        Password mode does an RP password grant; API-key mode re-sets the header
+        from the stored key (a no-op refresh — keys do not expire). Raises if the
+        client has no usable credentials, so the 401 path degrades to raising.
+        """
+        if self.password:
+            # RP's UI OAuth client is ``ui``/``uiman``; the token endpoint takes
+            # the grant as query params and returns {"access_token": ...}.
+            resp = self.s.post(
+                f"{self.base}/uat/sso/oauth/token",
+                params={
+                    "grant_type": "password",
+                    "username": self.user or "",
+                    "password": self.password,
+                },
+                auth=("ui", "uiman"),
+                timeout=60,
+            )
+            if resp.status_code >= 400:
+                raise RuntimeError(
+                    f"[{self.tag}] login -> {resp.status_code}: {resp.text[:300]}"
+                )
+            token = (resp.json() or {}).get("access_token")
+            if not token:
+                raise RuntimeError(f"[{self.tag}] login: no access_token in response")
+            self.s.headers["Authorization"] = f"Bearer {token}"
+        elif self.api_key:
+            self.s.headers["Authorization"] = f"Bearer {self.api_key}"
+        else:
+            raise RuntimeError(f"[{self.tag}] no credentials configured to authenticate")
+
+    def _reauth(self) -> bool:
+        """Refresh the token after a 401. Returns True on success (and prints a
+        one-line, flushed notice so long runs show it happened), False if the
+        re-login itself fails (e.g. API-key mode with a genuinely bad key)."""
+        try:
+            self.login()
+        except Exception as exc:  # noqa: BLE001 - degrade to raising the original 401
+            print(f"[{self.tag}] re-auth failed ({exc}); not retrying", flush=True)
+            return False
+        print(f"[{self.tag}] re-authenticated (token refreshed)", flush=True)
+        return True
+
+    def _send(self, method: str, url: str, **kw: Any) -> requests.Response:
+        """Send one request; on a 401, re-auth once and retry the same request
+        once. Shared by every request path (get/get_bytes/post/put/post_file) so
+        uploads — the long-run requests that outlive the token — are covered too.
+        Non-recursive: the token grant in ``login()`` bypasses this wrapper."""
+        r = self.s.request(method, url, **kw)
+        if r.status_code == 401 and self._reauth():
+            r = self.s.request(method, url, **kw)
+        return r
 
     # -- plumbing ---------------------------------------------------------- #
     def get(self, path: str, **params: Any) -> dict:
-        r = self.s.get(f"{self.base}{path}", params=params, timeout=60)
+        r = self._send("GET", f"{self.base}{path}", params=params, timeout=60)
         if r.status_code >= 400:
             # RP error bodies name the offending parameter ({"errorCode","message"})
             raise RuntimeError(f"[{self.tag}] GET {path} -> {r.status_code}: {r.text[:300]}")
         return r.json()
 
     def get_bytes(self, path: str) -> tuple[bytes, str]:
-        r = self.s.get(f"{self.base}{path}", timeout=120)
+        r = self._send("GET", f"{self.base}{path}", timeout=120)
         if r.status_code >= 400:
             raise RuntimeError(f"[{self.tag}] GET {path} -> {r.status_code}: {r.text[:300]}")
         return r.content, r.headers.get("Content-Type", "application/octet-stream")
 
     def post(self, path: str, body: dict, **kw: Any) -> dict:
-        r = self.s.post(f"{self.base}{path}", json=body, timeout=120, **kw)
+        r = self._send("POST", f"{self.base}{path}", json=body, timeout=120, **kw)
         if r.status_code >= 400:
             raise RuntimeError(f"[{self.tag}] POST {path} -> {r.status_code}: {r.text[:300]}")
         return r.json() if r.text else {}
 
+    def post_file(self, path: str, files: dict, timeout: int = 120) -> requests.Response:
+        """Multipart POST returning the raw response (re-auth on 401 applied).
+
+        Used by the attachment upload, which inspects the status itself to
+        degrade to text-only on 413 — so this returns the response rather than
+        raising, leaving that fallback untouched."""
+        return self._send("POST", f"{self.base}{path}", files=files, timeout=timeout)
+
     def put(self, path: str, body: dict) -> dict:
-        r = self.s.put(f"{self.base}{path}", json=body, timeout=120)
+        r = self._send("PUT", f"{self.base}{path}", json=body, timeout=120)
         if r.status_code >= 400:
             raise RuntimeError(f"[{self.tag}] PUT {path} -> {r.status_code}: {r.text[:300]}")
         return r.json() if r.text else {}
@@ -423,13 +518,12 @@ def replay_log(
             blob, ctype = src.get_bytes(f"/api/v1/data/{src.project}/{binary['id']}")
             fname = f"attachment-{binary['id']}"
             body["file"] = {"name": fname}
-            r = dst.s.post(
-                f"{dst.base}/api/v2/{dst.project}/log",
+            r = dst.post_file(
+                f"/api/v2/{dst.project}/log",
                 files={
                     "json_request_part": (None, json.dumps([body]), "application/json"),
                     "file": (fname, blob, ctype),
                 },
-                timeout=120,
             )
             if r.status_code < 400:
                 return
@@ -539,11 +633,25 @@ def main() -> None:
     args = ap.parse_args()
 
     env = load_env(Path(args.env))
-    for req in ("SRC_URL", "SRC_PROJECT", "SRC_API_KEY", "DST_URL", "DST_PROJECT", "DST_API_KEY"):
+    for req in ("SRC_URL", "SRC_PROJECT", "DST_URL", "DST_PROJECT"):
         if not env.get(req):
             sys.exit(f"missing {req} in {args.env}")
-    src = RP(env["SRC_URL"], env["SRC_PROJECT"], env["SRC_API_KEY"], "src")
-    dst = RP(env["DST_URL"], env["DST_PROJECT"], env["DST_API_KEY"], "dst")
+    # Each side authenticates by API key (SRC_API_KEY/DST_API_KEY) or, for a real
+    # short-lived-token refresh on 401, by password grant (SRC_PASSWORD/
+    # DST_PASSWORD via superadmin). At least one credential per side is required.
+    for side in ("SRC", "DST"):
+        if not env.get(f"{side}_API_KEY") and not env.get(f"{side}_PASSWORD"):
+            sys.exit(f"missing {side}_API_KEY or {side}_PASSWORD in {args.env}")
+    src = RP(
+        env["SRC_URL"], env["SRC_PROJECT"], "src",
+        api_key=env.get("SRC_API_KEY"), user=env.get("SRC_USER"),
+        password=env.get("SRC_PASSWORD"),
+    )
+    dst = RP(
+        env["DST_URL"], env["DST_PROJECT"], "dst",
+        api_key=env.get("DST_API_KEY"), user=env.get("DST_USER"),
+        password=env.get("DST_PASSWORD"),
+    )
     index_wait = int(env.get("INDEX_WAIT_S", "20"))
     pg_exec = env.get("ANALYZER_PG_EXEC", "").strip()
 
