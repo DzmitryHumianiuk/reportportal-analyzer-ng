@@ -1,0 +1,3220 @@
+diff --git a/app/Dockerfile.ng b/app/Dockerfile.ng
+new file mode 100644
+index 0000000..278a868
+--- /dev/null
++++ b/app/Dockerfile.ng
+@@ -0,0 +1,5 @@
++# Thin overlay: analyzer-ng Make Decision suggestion-card patch on top of the
++# stock service-ui 5.15.3 image. The host-built `build/` dir is copied over the
++# nginx docroot; buildInfo.json is preserved from the base (footer stays 5.15.3).
++FROM reportportal/service-ui:5.15.3
++COPY build/ /usr/share/nginx/html/
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
+new file mode 100644
+index 0000000..dbbf931
+--- /dev/null
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
+@@ -0,0 +1,198 @@
++/*
++ * Copyright 2021 EPAM Systems
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++/*
++ * Helpers that read the analyzer-ng metadata carried on a suggestion's `suggestRs`
++ * object (RP's SuggestInfo). All parsing is deliberately defensive: a legacy /
++ * stock analyzer emits a `modelInfo` that does not match these shapes, in which
++ * case every helper returns an empty / null value and the UI renders nothing extra.
++ *
++ * Cold-start rubric provisional row (analyzer-ng, image mk18):
++ *   methodName = 'coldstart_rubric'
++ *   issueType  = <rubric locator> (proposed defect type)
++ *   matchScore = rubric pseudo-confidence (NOT a similarity score)
++ *   modelInfo  = "coldstart_rubric;{model_ver};why={explanation}"
++ *
++ * Classical row:
++ *   methodName = 'suggestion' | 'auto_analysis'
++ *   modelInfo  = "analyzer-ng;gbm=..;emb=..;kb_mode=..;src=<provenance>"
++ *                where src = human-confirmed | auto-analyzed | ...
++ */
++
++export const COLDSTART_RUBRIC_METHOD = 'coldstart_rubric';
++
++export const PROVENANCE = {
++  RUBRIC: 'rubric',
++  HUMAN: 'human',
++  AUTO: 'auto',
++};
++
++// analyzer-ng confidence bands (lens-contract §2.1 / §5). Ride inside modelInfo as a
++// `band=` token (stripped by stock service-api if sent as a first-class key). The Bench
++// renders each band with its own plain-English phrase and card accent.
++export const BANDS = {
++  AUTO: 'auto',
++  SUGGEST: 'suggest',
++  BELOW_SUGGEST: 'below_suggest',
++  RUBRIC: 'rubric',
++};
++
++// decision.py thresholds (lens-contract §3.2). Used only for the legacy fallback below,
++// never to fabricate a below_suggest verdict from a stock analyzer.
++const TAU_SUGGEST = 0.45;
++
++export const isRubricHypothesis = (suggestRs) =>
++  !!suggestRs && suggestRs.methodName === COLDSTART_RUBRIC_METHOD;
++
++// True only for an analyzer-ng v1 reply (`ng=1` token present in modelInfo). Lets the
++// Bench light up below_suggest chrome ONLY when the analyzer actually spoke the v1
++// contract — a legacy/stock reply never gets the new below-band section (defensive).
++export const parseNgVersion = (suggestRs) => {
++  const modelInfo = suggestRs && suggestRs.modelInfo;
++  return typeof modelInfo === 'string' && /(?:^|;)ng=1(?:;|$)/.test(modelInfo);
++};
++
++// The per-row confidence band. Rubric wins by methodName. For a v1 reply we read the
++// explicit `band=` token. For a legacy reply we NEVER guess `below_suggest`: we return
++// 'suggest' when matchScore clears the bar, else null (renders as a plain stock card).
++export const parseBand = (suggestRs) => {
++  if (isRubricHypothesis(suggestRs)) {
++    return BANDS.RUBRIC;
++  }
++  const modelInfo = suggestRs && suggestRs.modelInfo;
++  if (typeof modelInfo === 'string') {
++    const match = modelInfo.match(/(?:^|;)band=([a-z_]+)(?:;|$)/);
++    if (match) {
++      const band = match[1];
++      if (
++        band === BANDS.AUTO ||
++        band === BANDS.SUGGEST ||
++        band === BANDS.BELOW_SUGGEST ||
++        band === BANDS.RUBRIC
++      ) {
++        return band;
++      }
++    }
++  }
++  // Legacy fallback: only distinguish suggest vs unknown by the displayed matchScore.
++  const score = suggestRs && suggestRs.matchScore;
++  if (typeof score === 'number') {
++    return score / 100 >= TAU_SUGGEST ? BANDS.SUGGEST : null;
++  }
++  return null;
++};
++
++export const isBelowSuggest = (suggestRs) => parseBand(suggestRs) === BANDS.BELOW_SUGGEST;
++
++// Row-0 calibrated probability (`conf=` token, 0..1). Distinct from matchScore. Returns
++// null when absent (secondary/below rows omit it — do not invent one).
++export const parseConfidence = (suggestRs) => {
++  const modelInfo = suggestRs && suggestRs.modelInfo;
++  if (typeof modelInfo !== 'string') {
++    return null;
++  }
++  const match = modelInfo.match(/(?:^|;)conf=([0-9.]+)(?:;|$)/);
++  if (!match) {
++    return null;
++  }
++  const value = Number.parseFloat(match[1]);
++  return Number.isFinite(value) ? value : null;
++};
++
++// Explanation kind: match | decline | rubric (`ek=` token). Drives the tone of the
++// explanation block (a `decline` explanation is warning-toned "why the analyzer said no").
++export const parseExplKind = (suggestRs) => {
++  const modelInfo = suggestRs && suggestRs.modelInfo;
++  if (typeof modelInfo !== 'string') {
++    return null;
++  }
++  const match = modelInfo.match(/(?:^|;)ek=([a-z]+)(?:;|$)/);
++  return match ? match[1] : null;
++};
++
++// Grounded explanation text. Rubric carries it as the `why=` remainder; classical rows
++// carry it the same way (why= is always the last token). Shared with parseRubricWhy.
++export const parseExplanation = (suggestRs) => parseRubricWhy(suggestRs && suggestRs.modelInfo);
++
++// Everything after the first `why=` token in modelInfo — the free-text rationale
++// may itself contain `;` or `=`, so we take the remainder verbatim.
++export const parseRubricWhy = (modelInfo) => {
++  if (typeof modelInfo !== 'string') {
++    return '';
++  }
++  const marker = 'why=';
++  const idx = modelInfo.indexOf(marker);
++  if (idx === -1) {
++    return '';
++  }
++  return modelInfo.slice(idx + marker.length).trim();
++};
++
++// The model version token (2nd `;`-separated segment) of a rubric modelInfo, e.g.
++// "coldstart_rubric;rubric+2026.07;why=..." -> "rubric+2026.07". Used only for a tooltip.
++export const parseRubricModelVer = (modelInfo) => {
++  if (typeof modelInfo !== 'string') {
++    return '';
++  }
++  const parts = modelInfo.split(';');
++  return parts.length > 1 ? parts[1].trim() : '';
++};
++
++// One of PROVENANCE.* or null. Rubric wins by methodName; classical rows are read
++// from the `src=` token of modelInfo. Unknown / legacy shapes -> null (render nothing).
++export const parseProvenance = (suggestRs) => {
++  if (isRubricHypothesis(suggestRs)) {
++    return PROVENANCE.RUBRIC;
++  }
++  const modelInfo = suggestRs && suggestRs.modelInfo;
++  if (typeof modelInfo !== 'string') {
++    return null;
++  }
++  const match = modelInfo.match(/src=([^;]+)/);
++  if (!match) {
++    return null;
++  }
++  const src = match[1].trim();
++  if (src === 'human-confirmed') {
++    return PROVENANCE.HUMAN;
++  }
++  if (src === 'auto-analyzed') {
++    return PROVENANCE.AUTO;
++  }
++  return null;
++};
++
++// Inspector "journey" deep link built from fields already present on every suggestRs
++// (numeric `project` id, `launchId`, `testItem`). Returns null when a required id is
++// missing so the UI can hide the link rather than emit a broken permalink
++// (lens-contract §4.2). Opened in a new window with rel="noopener noreferrer".
++export const getInspectorJourneyUrl = ({ project, launchId, testItem } = {}) => {
++  if (!project || !launchId || !testItem) {
++    return null;
++  }
++  return `/inspector/#view=journey&project=${project}&launch=${launchId}&item=${testItem}`;
++};
++
++// Same journey link, addressed from the current test item under analysis. The numeric
++// project id must come from projectInfoIdSelector (activeProjectSelector is the name).
++export const getInspectorJourneyUrlForItem = (projectId, item) => {
++  if (!projectId || !item || !item.launchId || !(item.id || item.itemId)) {
++    return null;
++  }
++  return `/inspector/#view=journey&project=${projectId}&launch=${item.launchId}&item=${
++    item.id || item.itemId
++  }`;
++};
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
+new file mode 100644
+index 0000000..ab5b516
+--- /dev/null
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
+@@ -0,0 +1,952 @@
++/*
++ * Copyright 2025 EPAM Systems
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++/*
++ * The Bench: a data-driven re-skin of the Make Decision execution/suggestions area.
++ * It reads the SAME live data the stock modal already loads (currentTestItems[0].logs
++ * from bulkLastLogs, suggestedItems from URLS.MLSuggestions) and commits through the
++ * SAME wire-identical path (selectManualChoice / suggestChoice + applyChanges), so no
++ * analyzer round-trip or save behaviour changes. Only the presentation and the way a
++ * decision is reached are new. See docs/consilium-make-decision/mockup-bench-rp.html.
++ */
++
++import React, { useEffect, useMemo, useRef, useState } from 'react';
++import PropTypes from 'prop-types';
++import classNames from 'classnames/bind';
++import { useIntl } from 'react-intl';
++import { useSelector } from 'react-redux';
++import { getDefectTypeSelector } from 'controllers/project';
++import { projectInfoIdSelector } from 'controllers/project/selectors';
++import { DefectTypeItem } from 'pages/inside/common/defectTypeItem';
++import { DefectTypeSelector } from 'pages/inside/common/defectTypeSelector';
++import { MarkdownEditor } from 'components/main/markdown';
++import { ENTER_KEY_CODE, ESCAPE_KEY_CODE } from 'common/constants/keyCodes';
++import { messages } from '../messages';
++import {
++  ACTIVE_TAB_MAP,
++  ERROR_LOGS_SIZE,
++  MACHINE_LEARNING_SUGGESTIONS,
++  SELECT_DEFECT_MANUALLY,
++} from '../constants';
++import {
++  BANDS,
++  getInspectorJourneyUrl,
++  getInspectorJourneyUrlForItem,
++  isRubricHypothesis,
++  parseBand,
++  parseConfidence,
++  parseExplanation,
++  parseExplKind,
++  parseNgVersion,
++  parseProvenance,
++} from '../analyzerSuggestionMeta';
++import styles from './bench.scss';
++
++const cx = classNames.bind(styles);
++
++// ---- log helpers (client-side v1 raw-line diff, tokens masked for ALIGNMENT only) ----
++const toLines = (logs) =>
++  (logs || [])
++    .slice(0, ERROR_LOGS_SIZE)
++    .flatMap((log) =>
++      (log.message || '')
++        .split('\n')
++        .filter((t) => t.length)
++        .map((text) => ({ text, id: log.id })),
++    );
++
++const normalizeLine = (line) =>
++  line
++    .replace(/\b0x[0-9a-f]+\b/gi, '0xHEX')
++    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, 'UUID')
++    .replace(/\d{4}-\d{2}-\d{2}[ t]\d{2}:\d{2}:\d{2}[.\d]*/gi, 'TS')
++    .replace(/:\d+/g, ':N')
++    .replace(/\d+/g, 'N')
++    .replace(/\s+/g, ' ')
++    .trim();
++
++const scoreToAlike = (matchScore) =>
++  typeof matchScore === 'number' ? (matchScore / 100).toFixed(2) : '';
++
++const InspectorLink = ({ href, label }) =>
++  href ? (
++    <a className={cx('insp-link')} href={href} target="_blank" rel="noopener noreferrer">
++      {label} <span aria-hidden>↗</span>
++    </a>
++  ) : null;
++InspectorLink.propTypes = { href: PropTypes.string, label: PropTypes.string };
++InspectorLink.defaultProps = { href: null, label: '' };
++
++export const Bench = ({
++  suggestedItems,
++  currentItem,
++  modalState,
++  setModalState,
++  activeTab,
++  setActiveTab,
++  onApply,
++  modalHasChanges,
++  onAdoptRubric,
++  scopeSection,
++  scopeRef,
++  isBulkOperation,
++}) => {
++  const { formatMessage } = useIntl();
++  const getDefectType = useSelector(getDefectTypeSelector);
++  const projectId = useSelector(projectInfoIdSelector);
++
++  const [compare, setCompare] = useState(null); // { res, logs, suggestRs } | null
++  const [logOpen, setLogOpen] = useState(false);
++  const [groupOpen, setGroupOpen] = useState(false);
++  const [dockOpen, setDockOpen] = useState(true);
++  const [focusDock, setFocusDock] = useState(null);
++  const [dockHighlight, setDockHighlight] = useState(''); // defect longName (lower) or ''
++  const [verdictProv, setVerdictProv] = useState(null); // {key, params}
++  const [commentChecked, setCommentChecked] = useState(true);
++  const [prefillNote, setPrefillNote] = useState(false);
++  const [commentKey, setCommentKey] = useState(0); // forces MarkdownEditor re-mount on prefill
++
++  const defectName = (locator) => getDefectType(locator)?.longName || locator || '';
++  const defectColor = (locator) => getDefectType(locator)?.color || '#76839b';
++
++  // ---- classify the analyzer rows into the three checks --------------------
++  const parsed = useMemo(
++    () =>
++      (suggestedItems || []).map((s) => ({
++        res: s.testItemResource,
++        logs: s.logs,
++        suggestRs: s.suggestRs,
++        band: parseBand(s.suggestRs),
++        rubric: isRubricHypothesis(s.suggestRs),
++        issueType: s.suggestRs.issueType,
++        score: s.suggestRs.matchScore,
++        conf: parseConfidence(s.suggestRs),
++        explanation: parseExplanation(s.suggestRs),
++        explKind: parseExplKind(s.suggestRs),
++        provenance: parseProvenance(s.suggestRs),
++        ng: parseNgVersion(s.suggestRs),
++      })),
++    [suggestedItems],
++  );
++
++  const rubricRow = parsed.find((p) => p.rubric) || null;
++  const classical = parsed.filter((p) => !p.rubric);
++  const autoRow = classical.find((p) => p.band === BANDS.AUTO) || null;
++  const suggestRows = classical.filter((p) => p.band === BANDS.SUGGEST);
++  const belowRows = classical.filter((p) => p.band === BANDS.BELOW_SUGGEST);
++  const precedentRow = autoRow;
++  const topSuggest = suggestRows[0] || null;
++
++  // agreement state (S1 agree / S2 disagree / S3 cold-start / S4 not sure)
++  const classicalAnswer = autoRow ? autoRow.issueType : topSuggest ? topSuggest.issueType : null;
++  let state;
++  if (classicalAnswer) {
++    const suggestDefects = new Set(suggestRows.map((r) => r.issueType));
++    const split =
++      suggestDefects.size > 1 || (rubricRow && rubricRow.issueType !== classicalAnswer);
++    state = split ? 'disagree' : 'agree';
++  } else if (rubricRow && belowRows.length === 0) {
++    state = 'coldstart';
++  } else {
++    state = 'notsure';
++  }
++
++  // ---- the current verdict (the choice that Apply will send) ---------------
++  const activeChoice = modalState[ACTIVE_TAB_MAP[activeTab]] || {};
++  const currentIssue = activeChoice.issue || {};
++
++  // ---- group of identical failures (same-signature TI twins in this run) ---
++  const groupMembers = modalState.testItems || [];
++  const groupCount = groupMembers.length + 1;
++  const showGroup = !isBulkOperation && groupCount > 1;
++
++  // ---- gestures ------------------------------------------------------------
++  const bumpComment = () => setCommentKey((k) => k + 1);
++
++  const adoptClassical = (row) => {
++    const explanation = row.explanation || '';
++    setModalState({
++      ...modalState,
++      decisionType: MACHINE_LEARNING_SUGGESTIONS,
++      issueActionType: '',
++      suggestChoice: {
++        ...row.res,
++        logs: row.logs,
++        suggestRs: row.suggestRs,
++        issue: {
++          ...(row.res.issue || {}),
++          issueType: row.issueType,
++          comment: explanation || row.res.issue?.comment || '',
++        },
++      },
++    });
++    setActiveTab(MACHINE_LEARNING_SUGGESTIONS);
++    setDockHighlight('');
++    setCommentChecked(!!explanation);
++    setPrefillNote(!!explanation);
++    setVerdictProv(
++      row.band === BANDS.AUTO
++        ? { key: 'benchProvFromPrecedent' }
++        : { key: 'benchProvFromSimilarity', params: { score: scoreToAlike(row.score) } },
++    );
++    bumpComment();
++  };
++
++  const adoptRubric = (row) => {
++    onAdoptRubric({ issueType: row.issueType, comment: row.explanation || '' });
++    setActiveTab(SELECT_DEFECT_MANUALLY);
++    setDockHighlight('');
++    setCommentChecked(true);
++    setPrefillNote(!!row.explanation);
++    setVerdictProv({ key: 'benchProvFromAi' });
++    bumpComment();
++  };
++
++  const selectManual = (issueType) => {
++    const base =
++      modalState.decisionType === SELECT_DEFECT_MANUALLY
++        ? modalState.selectManualChoice.issue
++        : currentItem?.issue || {};
++    setModalState({
++      ...modalState,
++      decisionType: SELECT_DEFECT_MANUALLY,
++      issueActionType: '',
++      selectManualChoice: { issue: { ...base, issueType } },
++    });
++    setActiveTab(SELECT_DEFECT_MANUALLY);
++    setDockHighlight('');
++    setPrefillNote(false);
++    setVerdictProv({ key: 'benchProvYouPicked', picked: true });
++  };
++
++  const dockAdopt = (row, e) => {
++    e && e.stopPropagation();
++    // highlight-only: never selects a defect the analyzer said no to. Apply stays
++    // disabled until the human explicitly clicks the highlighted type (Enter can't fire).
++    setModalState({
++      ...modalState,
++      decisionType: SELECT_DEFECT_MANUALLY,
++      issueActionType: '',
++      selectManualChoice: { issue: { ...(currentItem?.issue || {}) } },
++    });
++    setActiveTab(SELECT_DEFECT_MANUALLY);
++    setDockHighlight(defectName(row.issueType).toLowerCase());
++    setPrefillNote(false);
++    setVerdictProv({ key: 'benchProvDockAdopt' });
++  };
++
++  const setComment = (value) => {
++    const comment = (value || '').trim();
++    if (activeTab === MACHINE_LEARNING_SUGGESTIONS) {
++      setModalState({
++        suggestChoice: {
++          ...modalState.suggestChoice,
++          issue: { ...(modalState.suggestChoice.issue || {}), comment },
++        },
++      });
++    } else {
++      setModalState({
++        decisionType: SELECT_DEFECT_MANUALLY,
++        selectManualChoice: {
++          issue: { ...(modalState.selectManualChoice.issue || {}), comment },
++        },
++      });
++    }
++  };
++
++  const openCompare = (row) => {
++    setFocusDock(null);
++    setCompare(row);
++  };
++  const closeCompare = () => setCompare(null);
++
++  // ---- keyboard: Enter applies (outside editor); Esc closes compare first ---
++  useEffect(() => {
++    const handler = (e) => {
++      const inEditor =
++        e.target &&
++        (['INPUT', 'TEXTAREA'].includes(e.target.tagName) ||
++          e.target.isContentEditable ||
++          (e.target.closest && e.target.closest('.CodeMirror')));
++      if (e.keyCode === ESCAPE_KEY_CODE && compare) {
++        // Esc closes the compare view, NOT the modal. Beat DarkModalLayout's
++        // bubble-phase document handler by stopping the event in the capture phase.
++        e.stopImmediatePropagation();
++        e.preventDefault();
++        closeCompare();
++        return;
++      }
++      if (
++        e.keyCode === ENTER_KEY_CODE &&
++        !e.ctrlKey &&
++        !e.metaKey &&
++        !e.shiftKey &&
++        !inEditor &&
++        modalHasChanges
++      ) {
++        e.preventDefault();
++        onApply();
++      }
++    };
++    document.addEventListener('keydown', handler, true);
++    return () => document.removeEventListener('keydown', handler, true);
++  }, [compare, modalHasChanges, onApply]);
++
++  const pulseScope = () => {
++    const node = scopeRef && scopeRef.current;
++    if (!node) return;
++    node.classList.remove(cx('pulse'));
++    // force reflow so the animation restarts
++    // eslint-disable-next-line no-unused-expressions
++    node.offsetWidth;
++    node.classList.add(cx('pulse'));
++    node.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
++    setTimeout(() => node.classList.remove(cx('pulse')), 1700);
++  };
++
++  // ---- render helpers ------------------------------------------------------
++  const errorLines = toLines(currentItem?.logs);
++  const headerLine = errorLines[0]?.text || '';
++  const restLines = errorLines.slice(1);
++
++  const renderPill = (locator) =>
++    locator ? <DefectTypeItem type={locator} className={cx('defect-pill')} /> : null;
++
++  const renderCheck = ({ kind }) => {
++    if (kind === 'past') {
++      if (precedentRow) {
++        return (
++          <div className={cx('check', 'auto')}>
++            <span className={cx('edge')} />
++            <div className={cx('method')}>
++              <span className={cx('gl')}>◆</span> {formatMessage(messages.benchCheckPast)}
++            </div>
++            <div className={cx('role')}>{formatMessage(messages.benchCheckPastRole)}</div>
++            <div className={cx('verd-pill')}>{renderPill(precedentRow.issueType)}</div>
++            <div className={cx('strength')}>{formatMessage(messages.benchCheckPastStrong)}</div>
++            <button
++              type="button"
++              className={cx('btn', 'btn-ghost', 'btn-sm', 'compare-btn')}
++              onClick={() => openCompare(precedentRow)}
++            >
++              {formatMessage(messages.benchCompareLogs)}
++            </button>
++          </div>
++        );
++      }
++      return (
++        <div className={cx('check', 'empty')}>
++          <span className={cx('edge')} />
++          <div className={cx('method')}>
++            <span className={cx('gl')}>◆</span> {formatMessage(messages.benchCheckPast)}
++          </div>
++          <div className={cx('strength')}>{formatMessage(messages.benchCheckPastNoMatch)}</div>
++          <div className={cx('prov')}>{formatMessage(messages.benchCheckPastNoMatchProv)}</div>
++        </div>
++      );
++    }
++    if (kind === 'similar') {
++      if (topSuggest) {
++        return (
++          <div className={cx('check', 'suggest')}>
++            <span className={cx('edge')} />
++            <InspectorLink
++              href={getInspectorJourneyUrl(topSuggest.suggestRs)}
++              label={formatMessage(messages.benchWhy)}
++            />
++            <div className={cx('method')}>
++              <span className={cx('gl')}>≈</span> {formatMessage(messages.benchCheckSimilar)}
++            </div>
++            <div className={cx('role')}>{formatMessage(messages.benchCheckSimilarRole)}</div>
++            <div className={cx('verd-pill')}>{renderPill(topSuggest.issueType)}</div>
++            <div className={cx('strength')}>
++              <b>{formatMessage(messages.benchAlike, { score: scoreToAlike(topSuggest.score) })}</b>{' '}
++              {formatMessage(messages.benchBandSuggest)}
++            </div>
++            <button
++              type="button"
++              className={cx('btn', 'btn-ghost', 'btn-sm', 'compare-btn')}
++              onClick={() => openCompare(topSuggest)}
++            >
++              {formatMessage(messages.benchCompareLogs)}
++            </button>
++          </div>
++        );
++      }
++      if (belowRows.length) {
++        return (
++          <div className={cx('check', 'abstain')}>
++            <span className={cx('edge')} />
++            <div className={cx('method')}>
++              <span className={cx('gl')}>≈</span> {formatMessage(messages.benchCheckSimilar)}
++            </div>
++            <div className={cx('role')}>{formatMessage(messages.benchCheckSimilarRole)}</div>
++            <div className={cx('strength')}>
++              <b>{formatMessage(messages.benchAlike, { score: scoreToAlike(belowRows[0].score) })}</b>{' '}
++              {formatMessage(messages.benchBandAbstain)}
++            </div>
++            <div className={cx('prov')}>{formatMessage(messages.benchDockNote)}</div>
++          </div>
++        );
++      }
++      return (
++        <div className={cx('check', 'empty')}>
++          <span className={cx('edge')} />
++          <div className={cx('method')}>
++            <span className={cx('gl')}>≈</span> {formatMessage(messages.benchCheckSimilar)}
++          </div>
++          <div className={cx('strength')}>{formatMessage(messages.benchCheckSimilarNone)}</div>
++        </div>
++      );
++    }
++    // AI guess
++    if (rubricRow) {
++      const pct = rubricRow.conf != null ? Math.round(rubricRow.conf * 100) : Math.round(rubricRow.score);
++      return (
++        <div className={cx('check', 'rubric')}>
++          <span className={cx('edge')} />
++          <InspectorLink
++            href={getInspectorJourneyUrl(rubricRow.suggestRs)}
++            label={formatMessage(messages.benchWhy)}
++          />
++          <div className={cx('method')}>
++            <span className={cx('gl')}>✦</span> {formatMessage(messages.benchCheckAi)}
++            <span className={cx('tag-nc')}>{formatMessage(messages.benchNotConfirmed)}</span>
++          </div>
++          <div className={cx('role')}>{formatMessage(messages.benchCheckAiRole)}</div>
++          <div className={cx('verd-pill')}>{renderPill(rubricRow.issueType)}</div>
++          <div className={cx('strength')}>{formatMessage(messages.benchAiGuessPct, { pct })}</div>
++          <button
++            type="button"
++            className={cx('btn', 'btn-ghost', 'btn-sm', 'compare-btn')}
++            onClick={() => adoptRubric(rubricRow)}
++          >
++            {formatMessage(messages.benchUseThisGuess)}
++          </button>
++        </div>
++      );
++    }
++    return (
++      <div className={cx('check', 'empty')}>
++        <span className={cx('edge')} />
++        <div className={cx('method')}>
++          <span className={cx('gl')}>✦</span> {formatMessage(messages.benchCheckAi)}
++        </div>
++        <div className={cx('strength')}>{formatMessage(messages.benchCheckAiNone)}</div>
++      </div>
++    );
++  };
++
++  const renderDock = () => {
++    if (!belowRows.length) return null;
++    return (
++      <div className={cx('dock')}>
++        <div
++          className={cx('dock-toggle', { open: dockOpen })}
++          onClick={() => setDockOpen((o) => !o)}
++          role="button"
++          tabIndex={0}
++        >
++          <span className={cx('chev')}>▼</span>
++          {formatMessage(messages.benchDockToggle, { count: belowRows.length })}
++        </div>
++        {dockOpen && (
++          <>
++            <div className={cx('dock-note')}>{formatMessage(messages.benchDockNote)}</div>
++            {belowRows.map((row) => (
++              <div
++                key={row.res.id}
++                className={cx('dock-item', { focus: focusDock === row.res.id })}
++                onClick={() => {
++                  setFocusDock(row.res.id);
++                  openCompare(row);
++                }}
++                role="button"
++                tabIndex={0}
++              >
++                <div className={cx('dn')}>{row.res.name}</div>
++                <div className={cx('dd')}>
++                  <span className={cx('strike')}>{defectName(row.issueType)}</span>{' '}
++                  {formatMessage(messages.benchDockTooWeak, { score: scoreToAlike(row.score) })}
++                </div>
++                <div className={cx('dact')}>
++                  <button
++                    type="button"
++                    className={cx('dock-adopt')}
++                    onClick={(e) => dockAdopt(row, e)}
++                  >
++                    {formatMessage(messages.benchDockChoose)}
++                  </button>
++                  <InspectorLink
++                    href={getInspectorJourneyUrl(row.suggestRs)}
++                    label={formatMessage(messages.benchWhy)}
++                  />
++                </div>
++              </div>
++            ))}
++          </>
++        )}
++      </div>
++    );
++  };
++
++  const renderAiStrip = (row, capMessage, guess) => {
++    if (!row || !row.explanation) return null;
++    return (
++      <div className={cx('ai-strip', { guess })}>
++        <div className={cx('ai-cap')}>
++          <span>{formatMessage(capMessage)}</span>
++          <InspectorLink
++            href={getInspectorJourneyUrl(row.suggestRs)}
++            label={formatMessage(messages.benchInspectorReason)}
++          />
++        </div>
++        <div className={cx('ai-text')}>{row.explanation}</div>
++        {guess && (
++          <div className={cx('review-note')}>{formatMessage(messages.benchStageReviewNote)}</div>
++        )}
++      </div>
++    );
++  };
++
++  const renderStage = () => {
++    if (compare) return renderCompare();
++    if (state === 'agree') {
++      const winner = precedentRow || topSuggest;
++      const matchLine = toLines(winner?.logs)[0]?.text;
++      return (
++        <>
++          <div className={cx('region-cap')}>{formatMessage(messages.benchStageCap)}</div>
++          <div className={cx('verdict-line')}>
++            <b>{defectName(classicalAnswer)}</b>.
++          </div>
++          {matchLine && (
++            <div className={cx('vcol')}>
++              <h4>{formatMessage(messages.benchStageMatched)}</h4>
++              <div className={cx('difflog')}>{matchLine}</div>
++              <div className={cx('prov-line')}>
++                <InspectorLink
++                  href={getInspectorJourneyUrl(winner.suggestRs)}
++                  label={formatMessage(messages.benchWhy)}
++                />
++              </div>
++            </div>
++          )}
++          {renderAiStrip(winner, messages.benchStageAgreeCap, false)}
++        </>
++      );
++    }
++    if (state === 'coldstart') {
++      return (
++        <>
++          <div className={cx('region-cap')}>{formatMessage(messages.benchStageCap)}</div>
++          <div className={cx('verdict-line')}>
++            {formatMessage(messages.benchStageColdStartLine)}
++          </div>
++          {renderAiStrip(rubricRow, messages.benchStageAiGuessCap, true)}
++        </>
++      );
++    }
++    if (state === 'disagree') {
++      return (
++        <>
++          <div className={cx('region-cap')}>{formatMessage(messages.benchStageCap)}</div>
++          {renderAiStrip(topSuggest || precedentRow, messages.benchStageAgreeCap, false)}
++          {renderAiStrip(rubricRow, messages.benchStageAiGuessCap, true)}
++        </>
++      );
++    }
++    // not sure
++    return (
++      <>
++        <div className={cx('region-cap')}>{formatMessage(messages.benchStageCap)}</div>
++        <div className={cx('ns-big')}>{formatMessage(messages.benchStageNotSureBig)}</div>
++        <div className={cx('ns-sub')}>{formatMessage(messages.benchStageNotSureSub)}</div>
++        {renderAiStrip(rubricRow, messages.benchStageAiGuessCap, true)}
++        {belowRows[0] &&
++          belowRows[0].explKind === 'decline' &&
++          renderAiStrip(belowRows[0], messages.benchStageDeclineCap, true)}
++      </>
++    );
++  };
++
++  const renderCompare = () => {
++    const leftLines = toLines(currentItem?.logs);
++    const rightLines = toLines(compare.logs);
++    const relevantLogId = compare.suggestRs?.relevantLogId;
++    const leftNorms = new Set(leftLines.map((l) => normalizeLine(l.text)));
++    const rightNorms = new Set(rightLines.map((l) => normalizeLine(l.text)));
++    const left = leftLines.map((l) => ({ ...l, same: rightNorms.has(normalizeLine(l.text)) }));
++    const right = rightLines.map((l) => ({
++      ...l,
++      same: leftNorms.has(normalizeLine(l.text)),
++      star: relevantLogId != null && l.id === relevantLogId,
++    }));
++    const sameCount = right.filter((l) => l.same).length;
++    const diffCount = right.length - sameCount;
++    return (
++      <div className={cx('compare')}>
++        <div className={cx('cmp-head')}>
++          <span className={cx('cmp-title')}>{formatMessage(messages.benchCmpTitle)}</span>
++          <button type="button" className={cx('btn', 'btn-ghost', 'btn-sm')} onClick={closeCompare}>
++            {formatMessage(messages.benchCmpClose)}
++          </button>
++        </div>
++        <div className={cx('cmp-help')}>
++          <span>{formatMessage(messages.benchCmpHelp)}</span>
++          <span className={cx('cmp-legend')}>
++            <span className={cx('lg')}>
++              <span className={cx('sw', 'lg-same')} /> {formatMessage(messages.benchCmpSame)}
++            </span>
++            <span className={cx('lg')}>
++              <span className={cx('sw', 'lg-diff')} /> {formatMessage(messages.benchCmpDiff)}
++            </span>
++          </span>
++        </div>
++        <div className={cx('cmp-cols')}>
++          <div className={cx('cmp-col', 'left')}>
++            <div className={cx('cmp-col-head')}>
++              {formatMessage(messages.benchCmpLeft)}
++              <span className={cx('s')}>{formatMessage(messages.benchCmpLeftSuffix)}</span>
++            </div>
++            <div className={cx('cmp-body')}>
++              {left.map((l, i) => (
++                <div key={i} className={cx('cmp-line', l.same ? 'same' : 'diff')}>
++                  {l.text}
++                  {!l.same && (
++                    <span className={cx('sidetag')}>
++                      {formatMessage(messages.benchCmpOnlyHere)}
++                    </span>
++                  )}
++                </div>
++              ))}
++            </div>
++          </div>
++          <div className={cx('cmp-col', 'right')}>
++            <div className={cx('cmp-col-head')}>
++              {formatMessage(messages.benchCmpRight)}
++              <span className={cx('s')}>{compare.res?.name}</span>
++            </div>
++            <div className={cx('cmp-body')}>
++              {right.length === 0 && (
++                <div className={cx('cmp-nolog')}>{formatMessage(messages.benchCmpNoLog)}</div>
++              )}
++              {right.map((l, i) => (
++                <div key={i} className={cx('cmp-line', l.same ? 'same' : 'diff')}>
++                  {l.star && <span className={cx('starwrap')}>★ {formatMessage(messages.similarLog)}: </span>}
++                  {l.text}
++                  {!l.same && (
++                    <span className={cx('sidetag')}>
++                      {formatMessage(messages.benchCmpOnlyThere)}
++                    </span>
++                  )}
++                </div>
++              ))}
++            </div>
++          </div>
++        </div>
++        <div className={cx('cmp-verdict')}>
++          <div className={cx('cv-line')}>
++            {formatMessage(messages.benchCmpSame)}: {sameCount}. {formatMessage(messages.benchCmpDiff)}: {diffCount}.
++          </div>
++        </div>
++        <div className={cx('cmp-foot')}>
++          <div className={cx('cmp-foot-left')}>
++            <span>{formatMessage(messages.benchCmpNotSame)}</span>
++            <button
++              type="button"
++              className={cx('btn', 'btn-ghost', 'btn-sm')}
++              onClick={() => {
++                closeCompare();
++              }}
++            >
++              {formatMessage(messages.benchCmpManual)}
++            </button>
++          </div>
++          <InspectorLink
++            href={getInspectorJourneyUrl(compare.suggestRs)}
++            label={formatMessage(messages.benchInspectorDetails)}
++          />
++        </div>
++      </div>
++    );
++  };
++
++  // ---- provenance tag ------------------------------------------------------
++  const provTag = verdictProv ? (
++    <span className={cx('prov-tag', { picked: verdictProv.picked })}>
++      {formatMessage(messages[verdictProv.key], verdictProv.params || {})}
++    </span>
++  ) : null;
++
++  const recap =
++    verdictProv && verdictProv.key === 'benchProvDockAdopt'
++      ? { warn: true, text: formatMessage(messages.benchRecapWarnConfirm) }
++      : modalHasChanges
++      ? { warn: false, text: formatMessage(messages.benchRecapThisItem) }
++      : null;
++
++  const bannerClass = state === 'agree' ? 'agree' : 'unsure';
++  const headlineByState = {
++    agree: {
++      main: (
++        <>
++          {formatMessage(messages.benchHeadAgree, { defect: '' })}
++          <span className={cx('verd')}>{defectName(classicalAnswer)}</span>
++        </>
++      ),
++      help: (
++        <>
++          <span className={cx('kbd')}>Enter</span> {formatMessage(messages.benchHeadAgreeHelp)}
++        </>
++      ),
++    },
++    disagree: {
++      main: formatMessage(messages.benchHeadDisagree),
++      help: formatMessage(messages.benchHeadDisagreeHelp),
++    },
++    coldstart: {
++      main: formatMessage(messages.benchHeadColdStart),
++      help: formatMessage(messages.benchHeadColdStartHelp),
++    },
++    notsure: {
++      main: formatMessage(messages.benchHeadNotSure),
++      help: formatMessage(messages.benchHeadNotSureHelp),
++    },
++  };
++
++  const itemInspector = getInspectorJourneyUrlForItem(projectId, currentItem);
++
++  return (
++    <div className={cx('bench-modal')}>
++      {/* item stripe */}
++      <div className={cx('band', 'band-white', 'stripe')}>
++        <div className={cx('stripe-left')}>
++          <div className={cx('name')} title={currentItem?.name}>
++            {currentItem?.name}
++          </div>
++          <div className={cx('meta')}>
++            <span>· FAILED ·</span>
++            <span className={cx('status-pill')}>
++              <span className={cx('dot')} style={{ background: defectColor(currentIssue.issueType) }} />
++              {defectName(currentIssue.issueType)}
++            </span>
++          </div>
++        </div>
++        <div className={cx('stripe-right')}>
++          <span
++            className={cx('logtoggle', { open: logOpen })}
++            onClick={() => setLogOpen((o) => !o)}
++            role="button"
++            tabIndex={0}
++          >
++            <span className={cx('chev')}>▶</span>
++            {formatMessage(logOpen ? messages.benchHideErrorLog : messages.benchShowErrorLog)}
++          </span>
++          <InspectorLink href={itemInspector} label={formatMessage(messages.benchInspectorItem)} />
++        </div>
++      </div>
++
++      {/* R1 this failure */}
++      <div className={cx('band', 'band-grey', 'failure-panel')}>
++        <div className={cx('fp-line')}>
++          <span className={cx('fp-bar')} />
++          <div className={cx('fp-main')}>
++            <div className={cx('fp-cap')}>{formatMessage(messages.benchThisFailure)}</div>
++            <div className={cx('fp-top')} title={headerLine}>
++              {headerLine || '—'}
++            </div>
++          </div>
++        </div>
++        {logOpen && (
++          <div className={cx('fulllog')}>
++            <div className={cx('lg-cap')}>{formatMessage(messages.benchStackAndContext)}</div>
++            {restLines.length ? (
++              restLines.map((l, i) => (
++                <div key={i} className={cx('logrow')}>
++                  {l.text}
++                </div>
++              ))
++            ) : (
++              <div className={cx('logrow')}>{formatMessage(messages.noLogs)}</div>
++            )}
++          </div>
++        )}
++      </div>
++
++      {/* group of identical failures (HYBRID: top context cue) */}
++      {showGroup && (
++        <div className={cx('band', 'band-white', 'group-band')}>
++          <div className={cx('group-line')}>
++            <span className={cx('group-badge')}>{groupCount}</span>
++            <div className={cx('group-main')}>
++              <div className={cx('group-head')}>
++                {formatMessage(messages.benchGroupHead, {
++                  count: <b key="c">{groupCount}</b>,
++                })}
++              </div>
++              <div className={cx('group-sub')}>{formatMessage(messages.benchGroupSub)}</div>
++            </div>
++            <div className={cx('group-actions')}>
++              <button
++                type="button"
++                className={cx('btn', 'btn-ghost', 'btn-sm')}
++                onClick={() => setGroupOpen((o) => !o)}
++              >
++                {formatMessage(groupOpen ? messages.benchGroupHideTests : messages.benchGroupShowTests)}
++              </button>
++            </div>
++          </div>
++          <button type="button" className={cx('group-pointer')} onClick={pulseScope}>
++            {formatMessage(messages.benchGroupPointer, { count: groupCount })} <span aria-hidden>↓</span>
++          </button>
++          {groupOpen && (
++            <div className={cx('group-members')}>
++              <div className={cx('gm-list')}>
++                <span className={cx('gm-chip')}>
++                  <span className={cx('dot')} style={{ background: defectColor(currentIssue.issueType) }} />
++                  {currentItem?.name} <span className={cx('gm-cur')}>{formatMessage(messages.benchGroupThisTest)}</span>
++                </span>
++                {groupMembers.map((m) => (
++                  <span key={m.id || m.itemId} className={cx('gm-chip')}>
++                    <span className={cx('dot')} style={{ background: defectColor(m.issue?.issueType) }} />
++                    {m.name}
++                  </span>
++                ))}
++              </div>
++              <div className={cx('gm-foot')}>
++                <span>{formatMessage(messages.benchGroupNote, { count: groupCount })}</span>
++                <InspectorLink href={itemInspector} label={formatMessage(messages.benchGroupInspector)} />
++              </div>
++            </div>
++          )}
++        </div>
++      )}
++
++      {/* the bench */}
++      <div className={cx('band', 'band-white', 'bench-region')}>
++        <div className={cx('region-head', bannerClass)}>
++          <span className={cx('headline')}>{headlineByState[state].main}</span>
++          <span className={cx('headline-help')}>{headlineByState[state].help}</span>
++        </div>
++        <div className={cx('region-cap')}>{formatMessage(messages.benchCap)}</div>
++        <div className={cx('bench-row')}>
++          {renderCheck({ kind: 'past' })}
++          {renderCheck({ kind: 'similar' })}
++          {renderCheck({ kind: 'ai' })}
++          {belowRows.length > 0 && (
++            <div className={cx('bar-sep')}>
++              <span className={cx('bar-rule')} />
++              <span className={cx('bar-lbl', 'tip')} title={formatMessage(messages.benchLineLabel)}>
++                {formatMessage(messages.benchLineLabel)}
++              </span>
++              <span className={cx('bar-rule')} />
++            </div>
++          )}
++          {renderDock()}
++        </div>
++      </div>
++
++      {/* evidence stage / compare */}
++      <div className={cx('band', 'band-grey', 'stage')}>{renderStage()}</div>
++
++      {/* verdict bar (R3) */}
++      <div className={cx('band', 'band-white', 'verdict-bar')}>
++        <div className={cx('vb-top')}>
++          <div className={cx('vb-left')}>
++            <div className={cx('vb-verdict-row')}>
++              <span className={cx('flabel')}>{formatMessage(messages.benchVbDefect)}</span>
++              {currentIssue.issueType ? renderPill(currentIssue.issueType) : null}
++              {provTag}
++            </div>
++            <div className={cx('manual-pane')}>
++              <div className={cx('manual-head')}>
++                <span>{formatMessage(messages.benchManualHead)}</span>
++              </div>
++              <DefectTypeSelector
++                selectDefectType={selectManual}
++                selectedItem={
++                  modalState.decisionType === SELECT_DEFECT_MANUALLY
++                    ? modalState.selectManualChoice.issue.issueType || ''
++                    : currentIssue.issueType || ''
++                }
++                highlightedItem={dockHighlight}
++              />
++              <div className={cx('manual-help')}>{formatMessage(messages.benchManualHelp)}</div>
++            </div>
++            <div className={cx('comment-pane')}>
++              <div className={cx('cmt-head')}>
++                <span>{formatMessage(messages.comment)}</span>
++                <span
++                  className={cx('cmt-check', { off: !commentChecked })}
++                  onClick={() => setCommentChecked((c) => !c)}
++                  role="button"
++                  tabIndex={0}
++                >
++                  <span className={cx('box')}>✓</span>
++                  {formatMessage(messages.benchCmtAddReason)}
++                </span>
++              </div>
++              {prefillNote && (
++                <div className={cx('cmt-prefill-note')}>
++                  {formatMessage(messages.benchCmtPrefillNote)}
++                </div>
++              )}
++              <MarkdownEditor
++                key={commentKey}
++                value={currentIssue.comment || ''}
++                onChange={setComment}
++                placeholder={formatMessage(messages.benchCmtPlaceholder)}
++              />
++            </div>
++            <div className={cx('scope-slot')} ref={scopeRef}>
++              {scopeSection}
++            </div>
++          </div>
++          <div className={cx('vb-actions')}>
++            <div className={cx('vb-keys')}>{formatMessage(messages.benchVbKeys)}</div>
++          </div>
++        </div>
++        {recap && (
++          <div className={cx('vb-recap', { warn: recap.warn })}>{recap.text}</div>
++        )}
++      </div>
++    </div>
++  );
++};
++
++Bench.propTypes = {
++  suggestedItems: PropTypes.array,
++  currentItem: PropTypes.object,
++  modalState: PropTypes.object.isRequired,
++  setModalState: PropTypes.func.isRequired,
++  activeTab: PropTypes.string.isRequired,
++  setActiveTab: PropTypes.func.isRequired,
++  onApply: PropTypes.func.isRequired,
++  modalHasChanges: PropTypes.bool,
++  onAdoptRubric: PropTypes.func.isRequired,
++  scopeSection: PropTypes.node,
++  scopeRef: PropTypes.object,
++  isBulkOperation: PropTypes.bool,
++};
++Bench.defaultProps = {
++  suggestedItems: [],
++  currentItem: {},
++  modalHasChanges: false,
++  scopeSection: null,
++  scopeRef: null,
++  isBulkOperation: false,
++};
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
+new file mode 100644
+index 0000000..f0b82e9
+--- /dev/null
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
+@@ -0,0 +1,1081 @@
++/*
++ * Copyright 2025 EPAM Systems
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++/*
++ * The Bench — RP Design System 6 (light) re-skin of the Make Decision modal.
++ * Tokens + values are quoted from docs/consilium-make-decision/mockup-bench-rp.html.
++ * Everything is scoped under .bench-modal so the light surface never leaks into the
++ * surrounding dark modal chrome.
++ */
++
++.bench-modal {
++  // RP Design System 6 tokens (mockup :root)
++  --rp-bg-000: #ffffff;
++  --rp-bg-100: #f7f7f8;
++  --rp-bg-200: #eceff4;
++  --rp-topaz-100: #e5f5f8;
++  --rp-topaz: #00829b;
++  --rp-topaz-hover: #009dbb;
++  --rp-topaz-focused: #00b0d1;
++  --rp-topaz-pressed: #00758c;
++  --rp-almost-black: #3f3f3f;
++  --rp-charcoal: #464547;
++  --rp-e-100: #e3e7ec;
++  --rp-e-200: #c1c7d0;
++  --rp-e-300: #a2aab5;
++  --rp-e-400: #8d95a1;
++  --rp-error: #dc5959;
++  --rp-a-red-700: #c33c3d;
++  --rp-yellow-800: #ffc208;
++  --rp-yellow-700: #d4a002;
++  --rp-sm-warning: #d78706;
++  --rp-sm-warning-line-100: #fceecb;
++  --rp-sm-warning-line-200: #fbe7b6;
++  --rp-status-passed: #3aa76d;
++  --rp-a-green-800: #1c8b50;
++  --rp-shadow-rgb: 55, 67, 98;
++  --rp-shadow: 0 1px 3px rgba(var(--rp-shadow-rgb), 0.1);
++  --rp-shadow-hover: 0 1px 3px rgba(var(--rp-shadow-rgb), 0.2);
++  --rp-shadow-secondary: 0 8px 40px rgba(0, 0, 0, 0.15);
++  --rp-font: Roboto, Arial, Helvetica, sans-serif;
++  --rp-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
++  --muted3: #8d95a1;
++
++  min-width: 1080px;
++  max-width: 1180px;
++  margin: 0 auto 10px auto;
++  background: var(--rp-bg-000);
++  border-radius: 16px;
++  overflow: hidden;
++  box-shadow: var(--rp-shadow-secondary);
++  border: 1px solid var(--rp-e-100);
++  font-family: var(--rp-font);
++  color: var(--rp-almost-black);
++  font-size: 13px;
++  line-height: 20px;
++
++  a {
++    color: var(--rp-topaz);
++  }
++
++  // ---- shared bits -------------------------------------------------------
++  .insp-link {
++    display: inline-flex;
++    align-items: center;
++    gap: 3px;
++    color: var(--rp-topaz);
++    text-decoration: none;
++    font-size: 12px;
++    white-space: nowrap;
++
++    &:hover {
++      text-decoration: underline;
++    }
++  }
++
++  .tip {
++    border-bottom: 1px dotted var(--rp-e-300);
++    cursor: help;
++  }
++
++  .dot {
++    display: inline-block;
++    width: 9px;
++    height: 9px;
++    border-radius: 50%;
++    flex: none;
++  }
++
++  .kbd {
++    display: inline-block;
++    font-family: var(--rp-mono);
++    font-size: 11px;
++    line-height: 16px;
++    padding: 0 5px;
++    background: var(--rp-bg-200);
++    border: 1px solid var(--rp-e-200);
++    border-radius: 3px;
++    color: var(--rp-charcoal);
++  }
++
++  // ---- buttons (§5.1) ----------------------------------------------------
++  .btn {
++    display: inline-flex;
++    align-items: center;
++    gap: 5px;
++    border-radius: 3px;
++    font-size: 13px;
++    line-height: 20px;
++    font-weight: 500;
++    font-family: var(--rp-font);
++    padding: 7px 14px;
++    border: 1px solid transparent;
++    cursor: pointer;
++    background: transparent;
++    transition: background 0.12s, border-color 0.12s, color 0.12s;
++  }
++  .btn-sm {
++    padding: 5px 11px;
++    font-size: 12px;
++  }
++  .btn-teal {
++    background: var(--rp-topaz);
++    color: #fff;
++    border-color: var(--rp-topaz);
++
++    &:hover {
++      background: var(--rp-topaz-hover);
++      border-color: var(--rp-topaz-hover);
++    }
++    &:active {
++      background: var(--rp-topaz-pressed);
++    }
++    &:disabled {
++      opacity: 0.5;
++      cursor: default;
++    }
++  }
++  .btn-ghost {
++    background: transparent;
++    border-color: var(--rp-topaz);
++    color: var(--rp-topaz);
++
++    &:hover {
++      background: var(--rp-topaz-100);
++    }
++  }
++
++  // ---- bands -------------------------------------------------------------
++  .band {
++    padding: 16px 24px;
++    border-bottom: 1px solid var(--rp-e-100);
++  }
++  .band-white {
++    background: var(--rp-bg-000);
++  }
++  .band-grey {
++    background: var(--rp-bg-100);
++  }
++
++  // ---- stripe (item header) ---------------------------------------------
++  .stripe {
++    display: flex;
++    align-items: flex-start;
++    justify-content: space-between;
++    gap: 16px;
++    padding: 15px 24px 14px;
++
++    .stripe-left .name {
++      font-size: 15px;
++      font-weight: 600;
++      color: var(--rp-almost-black);
++    }
++    .stripe-left .meta {
++      display: flex;
++      align-items: center;
++      gap: 8px;
++      margin-top: 3px;
++      font-size: 12px;
++      color: var(--rp-e-400);
++    }
++    .status-pill {
++      display: inline-flex;
++      align-items: center;
++      gap: 5px;
++      color: var(--rp-charcoal);
++    }
++    .stripe-right {
++      display: flex;
++      align-items: center;
++      gap: 16px;
++      flex: none;
++    }
++    .logtoggle {
++      display: inline-flex;
++      align-items: center;
++      gap: 5px;
++      cursor: pointer;
++      color: var(--rp-topaz);
++      font-size: 13px;
++      user-select: none;
++
++      .chev {
++        display: inline-block;
++        transition: transform 0.15s;
++        font-size: 10px;
++      }
++      &.open .chev {
++        transform: rotate(90deg);
++      }
++    }
++  }
++
++  // ---- R1 "This failure" -------------------------------------------------
++  .failure-panel {
++    padding: 12px 24px;
++
++    .fp-line {
++      display: flex;
++      gap: 12px;
++    }
++    .fp-bar {
++      width: 4px;
++      border-radius: 2px;
++      background: var(--rp-error);
++      flex: none;
++    }
++    .fp-cap {
++      font-size: 10px;
++      font-weight: 700;
++      letter-spacing: 0.4px;
++      text-transform: uppercase;
++      color: var(--rp-e-400);
++      margin-bottom: 3px;
++    }
++    .fp-top {
++      font-family: var(--rp-mono);
++      font-size: 12.5px;
++      color: var(--rp-almost-black);
++      white-space: nowrap;
++      overflow: hidden;
++      text-overflow: ellipsis;
++    }
++    .fp-sub {
++      font-family: var(--rp-mono);
++      font-size: 11.5px;
++      color: var(--rp-e-400);
++      margin-top: 2px;
++      white-space: nowrap;
++      overflow: hidden;
++      text-overflow: ellipsis;
++    }
++    .fulllog {
++      margin: 12px 0 0 16px;
++      background: var(--rp-bg-000);
++      border: 1px solid var(--rp-e-100);
++      border-radius: 8px;
++      padding: 10px 12px;
++      max-height: 230px;
++      overflow: auto;
++      box-shadow: var(--rp-shadow);
++
++      .lg-cap {
++        font-size: 10px;
++        font-weight: 700;
++        letter-spacing: 0.4px;
++        text-transform: uppercase;
++        color: var(--rp-e-400);
++        margin-bottom: 6px;
++      }
++      .logrow {
++        font-family: var(--rp-mono);
++        font-size: 12px;
++        line-height: 18px;
++        color: var(--rp-charcoal);
++        white-space: pre-wrap;
++        word-break: break-word;
++      }
++      .logrow.star {
++        color: var(--rp-yellow-700);
++        font-weight: 700;
++      }
++    }
++  }
++
++  // ---- group of identical failures --------------------------------------
++  .group-band {
++    padding: 14px 24px;
++
++    .group-line {
++      display: flex;
++      align-items: flex-start;
++      gap: 12px;
++    }
++    .group-badge {
++      display: inline-flex;
++      align-items: center;
++      justify-content: center;
++      min-width: 30px;
++      height: 26px;
++      padding: 0 8px;
++      background: var(--rp-topaz-100);
++      color: var(--rp-topaz);
++      border: 1px solid #bfe6ee;
++      border-radius: 13px;
++      font-size: 15px;
++      font-weight: 700;
++      flex: none;
++    }
++    .group-main {
++      flex: 1;
++    }
++    .group-head {
++      font-size: 13px;
++      color: var(--rp-almost-black);
++
++      b {
++        font-weight: 700;
++      }
++    }
++    .group-sub {
++      margin-top: 3px;
++      font-size: 12px;
++      color: var(--rp-e-400);
++    }
++    .group-actions {
++      flex: none;
++    }
++    .group-pointer {
++      margin: 8px 0 0 42px;
++      display: inline-flex;
++      align-items: center;
++      gap: 4px;
++      background: none;
++      border: none;
++      padding: 0;
++      cursor: pointer;
++      color: var(--rp-topaz);
++      font-size: 12px;
++
++      &:hover {
++        text-decoration: underline;
++      }
++    }
++    .group-members {
++      margin: 10px 0 0 42px;
++
++      .gm-list {
++        display: flex;
++        flex-wrap: wrap;
++        gap: 6px;
++      }
++      .gm-chip {
++        display: inline-flex;
++        align-items: center;
++        gap: 5px;
++        padding: 3px 9px;
++        background: var(--rp-bg-100);
++        border: 1px solid var(--rp-e-100);
++        border-radius: 100px;
++        font-size: 12px;
++        color: var(--rp-charcoal);
++
++        .gm-cur {
++          color: var(--rp-topaz);
++          font-weight: 600;
++        }
++      }
++      .gm-foot {
++        display: flex;
++        align-items: center;
++        gap: 14px;
++        margin-top: 8px;
++        font-size: 12px;
++        color: var(--rp-e-400);
++      }
++    }
++  }
++
++  // ---- agreement banner + bench -----------------------------------------
++  .bench-region {
++    padding: 16px 24px;
++  }
++  .region-head {
++    display: flex;
++    align-items: baseline;
++    gap: 10px;
++    padding: 11px 14px;
++    border-radius: 8px;
++    border: 1px solid var(--rp-e-100);
++    background: var(--rp-bg-100);
++    margin-bottom: 12px;
++
++    &.unsure {
++      background: var(--rp-sm-warning-line-100);
++      border-color: var(--rp-sm-warning-line-200);
++
++      .headline-help {
++        color: #8a6a12;
++      }
++    }
++    &.agree {
++      background: var(--rp-topaz-100);
++      border-color: #bfe6ee;
++    }
++    .headline {
++      font-size: 15px;
++      font-weight: 700;
++      color: var(--rp-almost-black);
++
++      .verd {
++        color: var(--rp-topaz-pressed);
++      }
++    }
++    .headline-help {
++      font-size: 12.5px;
++      color: var(--rp-e-400);
++    }
++  }
++  .region-cap {
++    font-size: 11px;
++    font-weight: 700;
++    letter-spacing: 0.4px;
++    text-transform: uppercase;
++    color: var(--rp-e-400);
++    margin-bottom: 10px;
++  }
++  .bench-row {
++    display: flex;
++    flex-wrap: wrap;
++    align-items: stretch;
++    gap: 14px;
++  }
++
++  // ---- advisor check cards ----------------------------------------------
++  .check {
++    width: 224px;
++    background: var(--rp-bg-000);
++    border: 1px solid var(--rp-e-200);
++    border-radius: 8px;
++    padding: 12px 13px 12px 15px;
++    position: relative;
++    box-shadow: var(--rp-shadow);
++    transition: border-color 0.15s, box-shadow 0.15s;
++
++    .edge {
++      position: absolute;
++      left: 0;
++      top: 0;
++      bottom: 0;
++      width: 4px;
++      border-radius: 8px 0 0 8px;
++    }
++    &.auto .edge {
++      background: var(--rp-status-passed);
++    }
++    &.suggest .edge {
++      background: linear-gradient(var(--rp-yellow-700) 50%, var(--rp-e-200) 50%);
++    }
++    &.abstain .edge {
++      background: var(--rp-e-300);
++    }
++    &.rubric {
++      border-style: dashed;
++      border-color: var(--rp-e-300);
++
++      .edge {
++        background: repeating-linear-gradient(
++          180deg,
++          var(--rp-e-300) 0 4px,
++          transparent 4px 8px
++        );
++      }
++    }
++    &.empty {
++      opacity: 0.75;
++      border-style: dashed;
++      box-shadow: none;
++      background: var(--rp-bg-100);
++    }
++
++    .why {
++      position: absolute;
++      top: 10px;
++      right: 11px;
++    }
++    .method {
++      display: flex;
++      align-items: center;
++      gap: 6px;
++      font-size: 13.5px;
++      font-weight: 700;
++      color: var(--rp-almost-black);
++
++      .gl {
++        color: var(--rp-e-400);
++      }
++    }
++    .tag-nc {
++      display: inline-block;
++      margin-left: 6px;
++      padding: 0 6px;
++      border: 1px solid var(--rp-e-200);
++      border-radius: 3px;
++      font-size: 10px;
++      font-weight: 600;
++      color: var(--rp-e-400);
++      vertical-align: middle;
++    }
++    .role {
++      margin-top: 3px;
++      font-size: 12px;
++      color: var(--rp-e-400);
++    }
++    .verd-pill {
++      margin-top: 9px;
++    }
++    .strength {
++      margin-top: 9px;
++      font-size: 12.5px;
++      color: var(--rp-almost-black);
++
++      b {
++        font-weight: 700;
++      }
++    }
++    .prov {
++      margin-top: 5px;
++      font-size: 12px;
++      color: var(--rp-e-400);
++    }
++    .compare-btn {
++      margin-top: 10px;
++    }
++  }
++
++  // ---- defect pill (§5.3) ------------------------------------------------
++  .defect-pill {
++    display: inline-flex;
++    align-items: center;
++    gap: 6px;
++    background: var(--rp-bg-000);
++    color: var(--rp-almost-black);
++    border: 1px solid var(--rp-e-200);
++    border-radius: 100px;
++    padding: 2px 9px 2px 7px;
++    font-size: 13px;
++    font-weight: 600;
++
++    .dot {
++      width: 12px;
++      height: 12px;
++    }
++  }
++
++  // ---- the line + declined dock -----------------------------------------
++  .bar-sep {
++    display: flex;
++    flex-direction: column;
++    align-items: center;
++    justify-content: center;
++    gap: 6px;
++    padding: 0 4px;
++
++    .bar-rule {
++      width: 0;
++      flex: 1;
++      border-left: 2px dotted var(--rp-e-300);
++    }
++    .bar-lbl {
++      writing-mode: vertical-rl;
++      transform: rotate(180deg);
++      font-size: 11px;
++      color: var(--rp-e-400);
++      white-space: nowrap;
++    }
++  }
++  .dock {
++    align-self: flex-start;
++    min-width: 250px;
++    max-width: 300px;
++    border: 1px dashed var(--rp-e-300);
++    border-radius: 8px;
++    padding: 11px 13px;
++    background: var(--rp-bg-200);
++
++    .dock-toggle {
++      display: inline-flex;
++      align-items: center;
++      gap: 6px;
++      cursor: pointer;
++      font-size: 12.5px;
++      font-weight: 600;
++      color: var(--rp-charcoal);
++      user-select: none;
++
++      .chev {
++        font-size: 9px;
++        transition: transform 0.15s;
++      }
++      &:not(.open) .chev {
++        transform: rotate(-90deg);
++      }
++    }
++    .dock-note {
++      margin: 8px 0 10px;
++      font-size: 11.5px;
++      color: var(--rp-e-400);
++    }
++    .dock-item {
++      padding: 8px;
++      border-radius: 6px;
++      cursor: pointer;
++
++      & + .dock-item {
++        margin-top: 6px;
++      }
++      &:hover {
++        background: rgba(255, 255, 255, 0.6);
++      }
++      &.focus {
++        background: rgba(255, 255, 255, 0.9);
++        box-shadow: 0 0 0 1px var(--rp-e-300) inset;
++      }
++      .dn {
++        font-size: 12px;
++        color: var(--rp-charcoal);
++        font-weight: 500;
++      }
++      .dd {
++        margin-top: 2px;
++        font-size: 12px;
++        color: var(--rp-e-400);
++
++        .strike {
++          text-decoration: line-through;
++          text-decoration-color: var(--rp-e-300);
++          color: var(--rp-e-400);
++        }
++      }
++      .dact {
++        display: flex;
++        align-items: center;
++        gap: 12px;
++        margin-top: 6px;
++
++        .dock-adopt {
++          background: none;
++          border: none;
++          padding: 0;
++          cursor: pointer;
++          color: var(--rp-topaz);
++          font-size: 12px;
++
++          &:hover {
++            text-decoration: underline;
++          }
++        }
++      }
++    }
++  }
++
++  // ---- evidence stage ----------------------------------------------------
++  .stage {
++    padding: 18px 24px;
++
++    .ns-big {
++      font-size: 15px;
++      font-weight: 700;
++      color: var(--rp-almost-black);
++    }
++    .ns-sub {
++      margin-top: 4px;
++      font-size: 12.5px;
++      color: var(--rp-e-400);
++      max-width: 760px;
++    }
++    .verdict-line {
++      font-size: 14px;
++      color: var(--rp-almost-black);
++      margin-bottom: 12px;
++
++      b {
++        font-weight: 700;
++      }
++    }
++    .vcol {
++      background: var(--rp-bg-000);
++      border: 1px solid var(--rp-e-100);
++      border-radius: 8px;
++      padding: 11px 13px;
++      box-shadow: var(--rp-shadow);
++      margin-bottom: 12px;
++
++      h4 {
++        margin: 0 0 6px;
++        font-size: 10px;
++        font-weight: 700;
++        letter-spacing: 0.4px;
++        text-transform: uppercase;
++        color: var(--rp-e-400);
++      }
++      .difflog {
++        font-family: var(--rp-mono);
++        font-size: 12px;
++        line-height: 18px;
++        color: var(--rp-charcoal);
++        white-space: pre-wrap;
++        word-break: break-word;
++
++        .hot {
++          color: #7a5b00;
++          background: rgba(255, 194, 8, 0.18);
++          border-radius: 2px;
++          padding: 0 2px;
++        }
++      }
++      .prov-line {
++        margin-top: 8px;
++        font-size: 12px;
++        color: var(--rp-e-400);
++        display: flex;
++        align-items: center;
++        gap: 10px;
++      }
++    }
++  }
++
++  // ---- AI explanation strips --------------------------------------------
++  .ai-strip {
++    background: #fff;
++    border: 1px solid var(--rp-e-100);
++    border-left: 3px solid var(--rp-topaz);
++    border-radius: 0 8px 8px 0;
++    padding: 11px 14px;
++    box-shadow: var(--rp-shadow);
++
++    &.guess {
++      border-left-color: var(--rp-yellow-700);
++      background: var(--rp-sm-warning-line-100);
++      border-color: var(--rp-sm-warning-line-200);
++      border-left-width: 3px;
++
++      .ai-cap {
++        color: var(--rp-sm-warning);
++      }
++    }
++    .ai-cap {
++      display: flex;
++      align-items: center;
++      justify-content: space-between;
++      gap: 12px;
++      font-size: 11px;
++      font-weight: 700;
++      letter-spacing: 0.3px;
++      text-transform: uppercase;
++      color: var(--rp-topaz-pressed);
++      margin-bottom: 6px;
++    }
++    .ai-text {
++      font-size: 12.5px;
++      line-height: 19px;
++      color: var(--rp-charcoal);
++      white-space: pre-wrap;
++      word-break: break-word;
++    }
++    .review-note {
++      margin-top: 8px;
++      font-size: 12px;
++      font-style: italic;
++      color: var(--rp-sm-warning);
++    }
++  }
++
++  // ---- log compare (R2) --------------------------------------------------
++  .compare {
++    .cmp-head {
++      display: flex;
++      align-items: center;
++      justify-content: space-between;
++      gap: 12px;
++      margin-bottom: 6px;
++
++      .cmp-title {
++        font-size: 14px;
++        font-weight: 700;
++        color: var(--rp-almost-black);
++      }
++    }
++    .cmp-help {
++      font-size: 12px;
++      color: var(--rp-e-400);
++      margin-bottom: 10px;
++      display: flex;
++      align-items: center;
++      flex-wrap: wrap;
++      gap: 14px;
++
++      .cmp-legend {
++        display: flex;
++        gap: 12px;
++      }
++      .lg {
++        display: inline-flex;
++        align-items: center;
++        gap: 5px;
++      }
++      .sw {
++        width: 22px;
++        height: 12px;
++        border-radius: 3px;
++        display: inline-block;
++      }
++      .lg-same {
++        background: rgba(58, 167, 109, 0.14);
++        border: 1px solid rgba(58, 167, 109, 0.5);
++      }
++      .lg-diff {
++        background: rgba(255, 194, 8, 0.18);
++        border: 1px solid var(--rp-yellow-700);
++      }
++    }
++    .cmp-cols {
++      display: grid;
++      grid-template-columns: 1fr 1fr;
++      gap: 16px;
++
++      @media (max-width: 980px) {
++        grid-template-columns: 1fr;
++      }
++    }
++    .cmp-col {
++      background: var(--rp-bg-000);
++      border: 1px solid var(--rp-e-100);
++      border-radius: 8px;
++      padding: 10px 12px;
++      box-shadow: var(--rp-shadow);
++      max-height: 260px;
++      overflow: auto;
++
++      .cmp-col-head {
++        font-size: 12px;
++        font-weight: 700;
++        color: var(--rp-almost-black);
++        margin-bottom: 2px;
++
++        .s {
++          display: block;
++          font-weight: 400;
++          font-size: 11px;
++          color: var(--rp-e-400);
++          margin-top: 2px;
++        }
++      }
++      .cmp-body {
++        margin-top: 8px;
++      }
++    }
++    .cmp-line {
++      font-family: var(--rp-mono);
++      font-size: 12px;
++      line-height: 18px;
++      padding: 1px 4px;
++      border-radius: 2px;
++      white-space: pre-wrap;
++      word-break: break-word;
++      position: relative;
++
++      &.same {
++        color: #2f6f4c;
++        background: rgba(58, 167, 109, 0.12);
++      }
++      &.diff {
++        color: #7a5b00;
++        background: rgba(255, 194, 8, 0.16);
++      }
++      .starwrap {
++        color: var(--rp-yellow-700);
++        font-weight: 700;
++        margin-right: 4px;
++      }
++      .sidetag {
++        margin-left: 8px;
++        font-family: var(--rp-font);
++        font-size: 10px;
++        color: var(--rp-yellow-700);
++        opacity: 0.85;
++      }
++    }
++    .cmp-nolog {
++      font-size: 12px;
++      color: var(--rp-e-400);
++      font-style: italic;
++    }
++    .cmp-verdict {
++      margin-top: 12px;
++
++      .cv-line {
++        font-size: 12.5px;
++        line-height: 19px;
++        color: var(--rp-charcoal);
++        background: var(--rp-bg-000);
++        border: 1px solid var(--rp-e-100);
++        border-radius: 8px;
++        padding: 10px 12px;
++      }
++    }
++    .cmp-foot {
++      display: flex;
++      align-items: center;
++      justify-content: space-between;
++      gap: 12px;
++      margin-top: 12px;
++
++      .cmp-foot-left {
++        display: flex;
++        align-items: center;
++        gap: 10px;
++        font-size: 12.5px;
++        color: var(--rp-e-400);
++      }
++    }
++  }
++
++  // ---- verdict bar (R3) --------------------------------------------------
++  .verdict-bar {
++    padding: 15px 24px;
++
++    .vb-top {
++      display: flex;
++      align-items: flex-start;
++      justify-content: space-between;
++      gap: 20px;
++      flex-wrap: wrap;
++    }
++    .vb-left {
++      display: flex;
++      flex-direction: column;
++      gap: 12px;
++      flex: 1;
++      min-width: 420px;
++    }
++    .vb-verdict-row {
++      display: flex;
++      align-items: center;
++      gap: 10px;
++      flex-wrap: wrap;
++    }
++    .flabel {
++      font-size: 12px;
++      font-weight: 600;
++      color: var(--rp-charcoal);
++    }
++    .prov-tag {
++      font-size: 12px;
++      color: var(--rp-e-400);
++      font-style: italic;
++
++      &.picked {
++        color: var(--rp-topaz-pressed);
++        font-style: normal;
++      }
++    }
++    .vb-actions {
++      display: flex;
++      flex-direction: column;
++      align-items: flex-end;
++      gap: 8px;
++    }
++    .vb-btns {
++      display: flex;
++      gap: 8px;
++    }
++    .vb-keys {
++      font-size: 11px;
++      color: var(--rp-e-400);
++      display: flex;
++      align-items: center;
++      gap: 5px;
++      flex-wrap: wrap;
++    }
++    .manual-pane,
++    .comment-pane {
++      background: var(--rp-bg-100);
++      border: 1px solid var(--rp-e-100);
++      border-radius: 8px;
++      padding: 12px 13px;
++    }
++    .manual-head,
++    .cmt-head {
++      display: flex;
++      align-items: center;
++      gap: 10px;
++      font-size: 12px;
++      font-weight: 600;
++      color: var(--rp-charcoal);
++      margin-bottom: 8px;
++    }
++    .manual-help {
++      margin-top: 8px;
++      font-size: 12px;
++      color: var(--rp-e-400);
++    }
++    .cmt-check {
++      display: inline-flex;
++      align-items: center;
++      gap: 6px;
++      cursor: pointer;
++      font-weight: 400;
++      color: var(--rp-charcoal);
++      margin-left: auto;
++
++      .box {
++        width: 16px;
++        height: 16px;
++        display: inline-flex;
++        align-items: center;
++        justify-content: center;
++        border: 1px solid var(--rp-topaz);
++        border-radius: 3px;
++        background: var(--rp-topaz);
++        color: #fff;
++        font-size: 11px;
++      }
++      &.off .box {
++        background: var(--rp-bg-000);
++        border-color: var(--rp-e-200);
++        color: transparent;
++      }
++    }
++    .cmt-prefill-note {
++      font-size: 11.5px;
++      color: var(--rp-sm-warning);
++      margin-bottom: 6px;
++    }
++    .vb-recap {
++      margin-top: 12px;
++      font-size: 12.5px;
++      color: var(--rp-e-400);
++
++      &.warn {
++        color: var(--rp-sm-warning);
++        font-weight: 500;
++      }
++    }
++  }
++
++  // scope control (reused OptionsSection) restyled quietly for the light bench
++  .scope-slot {
++    border-radius: 8px;
++    transition: box-shadow 0.2s;
++
++    &.pulse {
++      animation: benchScopePulse 1.6s ease-out;
++    }
++  }
++}
++
++@keyframes benchScopePulse {
++  0% {
++    box-shadow: 0 0 0 0 rgba(0, 176, 209, 0.55);
++  }
++  60% {
++    box-shadow: 0 0 0 6px rgba(0, 176, 209, 0);
++  }
++  100% {
++    box-shadow: 0 0 0 0 rgba(0, 176, 209, 0);
++  }
++}
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/index.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/index.js
+new file mode 100644
+index 0000000..9ab15ae
+--- /dev/null
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/index.js
+@@ -0,0 +1,17 @@
++/*
++ * Copyright 2025 EPAM Systems
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++export { Bench } from './bench';
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/executionSection/executionSection.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/executionSection/executionSection.jsx
+index d4d861b..4e13aed 100644
+--- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/executionSection/executionSection.jsx
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/executionSection/executionSection.jsx
+@@ -40,7 +40,13 @@ import { messages } from '../messages';
+ 
+ const cx = classNames.bind(styles);
+ 
+-export const ExecutionSection = ({ modalState, setModalState, isBulkOperation, eventsInfo }) => {
++export const ExecutionSection = ({
++  modalState,
++  setModalState,
++  isBulkOperation,
++  eventsInfo,
++  benchMode,
++}) => {
+   const { formatMessage } = useIntl();
+   const { trackEvent } = useTracking();
+   const dispatch = useDispatch();
+@@ -168,20 +174,28 @@ export const ExecutionSection = ({ modalState, setModalState, isBulkOperation, e
+ 
+   return (
+     <>
+-      <div className={cx('header')}>{formatMessage(messages.executionToChange)}</div>
+-      {currentTestItems.map((item) => (
+-        <TestItemDetails
+-          item={item}
+-          logs={item.logs}
+-          showErrorLogs={currentItemsLoading || item.opened}
+-          loading={currentItemsLoading}
+-          key={item.id}
+-          eventsInfo={{
+-            onOpenStackTraceEvent,
+-            onClickExternalLinkEvent,
+-          }}
+-        />
+-      ))}
++      {/* In benchMode the Bench owns R1 ("This failure"), so the duplicate current-item
++          panel + "Execution to change" header are suppressed here. The two data fetches
++          above (current-item ERROR logs, scope items) still run so the Bench and the
++          scope control keep their live data. */}
++      {!benchMode && (
++        <>
++          <div className={cx('header')}>{formatMessage(messages.executionToChange)}</div>
++          {currentTestItems.map((item) => (
++            <TestItemDetails
++              item={item}
++              logs={item.logs}
++              showErrorLogs={currentItemsLoading || item.opened}
++              loading={currentItemsLoading}
++              key={item.id}
++              eventsInfo={{
++                onOpenStackTraceEvent,
++                onClickExternalLinkEvent,
++              }}
++            />
++          ))}
++        </>
++      )}
+       {!isBulkOperation && (
+         <OptionsSection
+           currentTestItem={currentTestItems[0]}
+@@ -199,10 +213,12 @@ ExecutionSection.propTypes = {
+   setModalState: PropTypes.func,
+   isBulkOperation: PropTypes.bool,
+   eventsInfo: PropTypes.object,
++  benchMode: PropTypes.bool,
+ };
+ ExecutionSection.defaultProps = {
+   modalState: {},
+   setModalState: () => {},
+   isBulkOperation: false,
+   eventsInfo: {},
++  benchMode: false,
+ };
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
+index f3ff292..40af5fa 100644
+--- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
+@@ -14,7 +14,7 @@
+  * limitations under the License.
+  */
+ 
+-import React, { useEffect, useReducer, useState } from 'react';
++import React, { useEffect, useReducer, useRef, useState } from 'react';
+ import PropTypes from 'prop-types';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { hideModalAction, withModal } from 'controllers/modal';
+@@ -54,6 +54,8 @@ import {
+   SHOW_LOGS_BY_DEFAULT,
+ } from './constants';
+ import { ExecutionSection } from './executionSection';
++import { Bench } from './bench';
++import { isRubricHypothesis } from './analyzerSuggestionMeta';
+ 
+ const MakeDecision = ({ data }) => {
+   const { formatMessage } = useIntl();
+@@ -94,6 +96,11 @@ const MakeDecision = ({ data }) => {
+   });
+   const [activeTab, setActiveTab] = useState(SELECT_DEFECT_MANUALLY);
+   const windowSize = useWindowResize();
++  const scopeRef = useRef(null);
++
++  // The Bench replaces the stock execution/suggestions area for single-item decisions
++  // when the analyzer is reachable. Bulk operations and analyzer-off keep the stock tabs.
++  const benchActive = isAnalyzerAvailable && isMLSuggestionsAvailable && !isBulkOperation;
+ 
+   const [modalHasChanges, setModalHasChanges] = useState(false);
+   const [loadingMLSuggest, setLoadingMLSuggest] = useState(false);
+@@ -389,6 +396,22 @@ const MakeDecision = ({ data }) => {
+     ),
+   });
+ 
++  // Accept a cold-start rubric hypothesis: route into the standard "select defect
++  // manually" flow with the rubric's proposed defect type and the rationale prefilled
++  // into the editable comment editor, so the user can review/edit before Apply. This
++  // fixes the stock behaviour where a self-referenced rubric row would copy the item's
++  // own (empty) issue and apply nothing.
++  const acceptSuggestedHypothesis = ({ issueType, comment }) => {
++    setModalState({
++      decisionType: SELECT_DEFECT_MANUALLY,
++      issueActionType: '',
++      selectManualChoice: {
++        issue: { ...itemData.issue, issueType, comment: comment || '' },
++      },
++    });
++    setActiveTab(SELECT_DEFECT_MANUALLY);
++  };
++
+   const getMakeDecisionTabs = () => {
+     const preparedHistoryLineItems = historyItems.filter(
+       (item) =>
+@@ -420,14 +443,20 @@ const MakeDecision = ({ data }) => {
+         isOpen: activeTab === MACHINE_LEARNING_SUGGESTIONS,
+         title:
+           modalState.suggestChoice.suggestRs &&
+-          formatMessage(messages.machineLearningSuggestions, {
+-            value: modalState.suggestChoice.suggestRs.matchScore,
+-          }),
++          formatMessage(
++            isRubricHypothesis(modalState.suggestChoice.suggestRs)
++              ? messages.llmHypothesisHeader
++              : messages.machineLearningSuggestions,
++            {
++              value: modalState.suggestChoice.suggestRs.matchScore,
++            },
++          ),
+         content: isMLSuggestionsAvailable && (
+           <MachineLearningSuggestions
+             modalState={modalState}
+             itemData={itemData}
+             eventsInfo={data.eventsInfo.editDefectsEvents}
++            onAcceptHypothesis={acceptSuggestedHypothesis}
+           />
+         ),
+       },
+@@ -458,20 +487,23 @@ const MakeDecision = ({ data }) => {
+     ctrlEnter: applyChanges,
+   };
+ 
++  const executionSection = (bench) => (
++    <ExecutionSection
++      modalState={modalState}
++      setModalState={setModalState}
++      isBulkOperation={isBulkOperation}
++      eventsInfo={data.eventsInfo.editDefectsEvents}
++      benchMode={bench}
++    />
++  );
++
+   return (
+     <DarkModalLayout
+       headerTitle={formatMessage(messages.selectDefect)}
+       modalHasChanges={modalHasChanges}
+       hotKeyAction={hotKeyAction}
+       modalNote={formatMessage(messages.modalNote)}
+-      sideSection={
+-        <ExecutionSection
+-          modalState={modalState}
+-          setModalState={setModalState}
+-          isBulkOperation={isBulkOperation}
+-          eventsInfo={data.eventsInfo.editDefectsEvents}
+-        />
+-      }
++      sideSection={benchActive ? null : executionSection(false)}
+       footer={
+         <MakeDecisionFooter
+           buttons={getFooterButtons()}
+@@ -483,18 +515,35 @@ const MakeDecision = ({ data }) => {
+         />
+       }
+     >
+-      <MakeDecisionTabs
+-        tabs={getMakeDecisionTabs(windowSize)}
+-        toggleTab={setActiveTab}
+-        suggestedItems={modalState.suggestedItems}
+-        loadingMLSuggest={loadingMLSuggest}
+-        modalState={modalState}
+-        setModalState={setModalState}
+-        itemData={itemData}
+-        isBulkOperation={isBulkOperation}
+-        isAnalyzerAvailable={isAnalyzerAvailable}
+-        isMLSuggestionsAvailable={isMLSuggestionsAvailable}
+-      />
++      {benchActive ? (
++        <Bench
++          suggestedItems={modalState.suggestedItems}
++          currentItem={modalState.currentTestItems[0]}
++          modalState={modalState}
++          setModalState={setModalState}
++          activeTab={activeTab}
++          setActiveTab={setActiveTab}
++          onApply={applyChanges}
++          modalHasChanges={modalHasChanges}
++          onAdoptRubric={acceptSuggestedHypothesis}
++          scopeSection={executionSection(true)}
++          scopeRef={scopeRef}
++          isBulkOperation={isBulkOperation}
++        />
++      ) : (
++        <MakeDecisionTabs
++          tabs={getMakeDecisionTabs(windowSize)}
++          toggleTab={setActiveTab}
++          suggestedItems={modalState.suggestedItems}
++          loadingMLSuggest={loadingMLSuggest}
++          modalState={modalState}
++          setModalState={setModalState}
++          itemData={itemData}
++          isBulkOperation={isBulkOperation}
++          isAnalyzerAvailable={isAnalyzerAvailable}
++          isMLSuggestionsAvailable={isMLSuggestionsAvailable}
++        />
++      )}
+     </DarkModalLayout>
+   );
+ };
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.jsx
+index 289cc4f..b7b85e9 100644
+--- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.jsx
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.jsx
+@@ -26,6 +26,7 @@ import {
+   MACHINE_LEARNING_SUGGESTIONS,
+   SELECT_DEFECT_MANUALLY,
+ } from '../constants';
++import { isRubricHypothesis } from '../analyzerSuggestionMeta';
+ import { messages } from '../messages';
+ import styles from './makeDecisionTabs.scss';
+ 
+@@ -145,20 +146,28 @@ export const MakeDecisionTabs = ({
+             )}
+ 
+             {isAnalyzerAvailable &&
+-              suggestedItems.map(({ suggestRs, testItemResource }, index) => (
+-                <div
+-                  key={testItemResource.id}
+-                  onClick={() => selectMachineLearningSuggestionItem(index, testItemResource.id)}
+-                  className={cx(`suggest-item`, {
+-                    [`suggest-item-active`]:
+-                      machineLearningTab.isOpen && selectedMLSuggest === index,
+-                    jumping: index === 0 && suggestedItems.length && animationSuggest,
+-                  })}
+-                >
+-                  <p className={cx('suggest-title')}>{suggestRs.matchScore}%</p>
+-                  <p className={cx('suggest-text')}>{formatMessage(messages.analyzerSuggestion)}</p>
+-                </div>
+-              ))}
++              suggestedItems.map(({ suggestRs, testItemResource }, index) => {
++                const rubric = isRubricHypothesis(suggestRs);
++                return (
++                  <div
++                    key={testItemResource.id}
++                    onClick={() => selectMachineLearningSuggestionItem(index, testItemResource.id)}
++                    className={cx(`suggest-item`, {
++                      [`suggest-item-active`]:
++                        machineLearningTab.isOpen && selectedMLSuggest === index,
++                      'suggest-item-rubric': rubric,
++                      jumping: index === 0 && suggestedItems.length && animationSuggest,
++                    })}
++                  >
++                    <p className={cx('suggest-title')}>{suggestRs.matchScore}%</p>
++                    <p className={cx('suggest-text')}>
++                      {formatMessage(
++                        rubric ? messages.llmHypothesisTab : messages.analyzerSuggestion,
++                      )}
++                    </p>
++                  </div>
++                );
++              })}
+           </div>
+           {copyFromHistoryLineTab && (
+             <div
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.scss
+index 9c6b6da..1f85b26 100644
+--- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.scss
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.scss
+@@ -206,6 +206,11 @@
+     }
+   }
+ 
++  .suggest-item-rubric {
++    border-bottom-style: dashed;
++    border-bottom-color: $COLOR--topaz;
++  }
++
+   .suggest-wrapper {
+     display: flex;
+   }
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
+index 34cfec5..33f5706 100644
+--- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
+@@ -266,4 +266,432 @@ export const messages = defineMessages({
+     id: 'MakeDecisionModal.defectReplaceWith',
+     defaultMessage: 'The defect type will be changed to',
+   },
++  // analyzer-ng suggestion metadata (see analyzerSuggestionMeta.js)
++  suggestedDefect: {
++    id: 'MakeDecisionModal.suggestedDefect',
++    defaultMessage: 'Suggested defect',
++  },
++  llmHypothesisTab: {
++    id: 'MakeDecisionModal.llmHypothesisTab',
++    defaultMessage: 'LLM hypothesis',
++  },
++  llmHypothesisHeader: {
++    id: 'MakeDecisionModal.llmHypothesisHeader',
++    defaultMessage: 'LLM cold-start hypothesis · {value}% rubric confidence',
++  },
++  provenanceLlmHypothesis: {
++    id: 'MakeDecisionModal.provenanceLlmHypothesis',
++    defaultMessage: 'LLM hypothesis (provisional)',
++  },
++  provenanceHumanNeighbor: {
++    id: 'MakeDecisionModal.provenanceHumanNeighbor',
++    defaultMessage: 'human-labeled neighbor',
++  },
++  provenanceAutoNeighbor: {
++    id: 'MakeDecisionModal.provenanceAutoNeighbor',
++    defaultMessage: 'auto-labeled neighbor',
++  },
++  rubricWhyCaption: {
++    id: 'MakeDecisionModal.rubricWhyCaption',
++    defaultMessage: 'AI hypothesis — why this defect',
++  },
++  acceptHypothesis: {
++    id: 'MakeDecisionModal.acceptHypothesis',
++    defaultMessage: 'Accept & edit comment',
++  },
++
++  // ---------------------------------------------------------------------------
++  // The Bench (redesign). Plain global English, NO em-dashes / long dashes in any
++  // rendered string (lens-bench-english §0). Copy is quoted from lens-bench-english.md
++  // and mockup-bench-rp.html, with em-dashes rewritten as plain punctuation.
++  // ---------------------------------------------------------------------------
++  benchThisFailure: {
++    id: 'MakeDecisionModal.benchThisFailure',
++    defaultMessage: 'This failure',
++  },
++  benchShowErrorLog: {
++    id: 'MakeDecisionModal.benchShowErrorLog',
++    defaultMessage: 'Show error log',
++  },
++  benchHideErrorLog: {
++    id: 'MakeDecisionModal.benchHideErrorLog',
++    defaultMessage: 'Hide error log',
++  },
++  benchStackAndContext: {
++    id: 'MakeDecisionModal.benchStackAndContext',
++    defaultMessage: 'Stack trace and context (ERROR level)',
++  },
++  benchInspectorItem: {
++    id: 'MakeDecisionModal.benchInspectorItem',
++    defaultMessage: 'Open full details in Inspector',
++  },
++  benchInspectorReason: {
++    id: 'MakeDecisionModal.benchInspectorReason',
++    defaultMessage: 'See the full reason in Inspector',
++  },
++  benchInspectorDetails: {
++    id: 'MakeDecisionModal.benchInspectorDetails',
++    defaultMessage: 'See details in Inspector',
++  },
++  benchWhy: {
++    id: 'MakeDecisionModal.benchWhy',
++    defaultMessage: 'why?',
++  },
++  // Group of identical failures (HYBRID)
++  benchGroupHead: {
++    id: 'MakeDecisionModal.benchGroupHead',
++    defaultMessage: 'This exact failure shows up in {count} tests in this run.',
++  },
++  benchGroupSub: {
++    id: 'MakeDecisionModal.benchGroupSub',
++    defaultMessage:
++      'Same error signature, this test included. They are all waiting to be investigated, so one decision can cover the whole group.',
++  },
++  benchGroupShowTests: {
++    id: 'MakeDecisionModal.benchGroupShowTests',
++    defaultMessage: 'Show the tests',
++  },
++  benchGroupHideTests: {
++    id: 'MakeDecisionModal.benchGroupHideTests',
++    defaultMessage: 'Hide the tests',
++  },
++  benchGroupPointer: {
++    id: 'MakeDecisionModal.benchGroupPointer',
++    defaultMessage: 'Apply one decision to all {count} when you commit',
++  },
++  benchGroupNote: {
++    id: 'MakeDecisionModal.benchGroupNote',
++    defaultMessage: 'These {count} tests share the same error signature in this run.',
++  },
++  benchGroupInspector: {
++    id: 'MakeDecisionModal.benchGroupInspector',
++    defaultMessage: 'See the group in Inspector',
++  },
++  benchGroupThisTest: {
++    id: 'MakeDecisionModal.benchGroupThisTest',
++    defaultMessage: '(this test)',
++  },
++  // Bench heading + agreement banner
++  benchCap: {
++    id: 'MakeDecisionModal.benchCap',
++    defaultMessage: 'The analyzer checked this three ways, strongest first',
++  },
++  benchHeadAgree: {
++    id: 'MakeDecisionModal.benchHeadAgree',
++    defaultMessage: 'The checks agree: {defect}',
++  },
++  benchHeadAgreeHelp: {
++    id: 'MakeDecisionModal.benchHeadAgreeHelp',
++    defaultMessage: 'Press Enter to set it.',
++  },
++  benchHeadDisagree: {
++    id: 'MakeDecisionModal.benchHeadDisagree',
++    defaultMessage: 'The checks do not agree',
++  },
++  benchHeadDisagreeHelp: {
++    id: 'MakeDecisionModal.benchHeadDisagreeHelp',
++    defaultMessage: 'Read the one line below, then pick.',
++  },
++  benchHeadColdStart: {
++    id: 'MakeDecisionModal.benchHeadColdStart',
++    defaultMessage: 'Only the AI has a guess',
++  },
++  benchHeadColdStartHelp: {
++    id: 'MakeDecisionModal.benchHeadColdStartHelp',
++    defaultMessage: 'No past match and nothing similar.',
++  },
++  benchHeadNotSure: {
++    id: 'MakeDecisionModal.benchHeadNotSure',
++    defaultMessage: 'The analyzer is not sure about this one',
++  },
++  benchHeadNotSureHelp: {
++    id: 'MakeDecisionModal.benchHeadNotSureHelp',
++    defaultMessage: 'Nothing was a strong match. You decide.',
++  },
++  // The three checks
++  benchCheckPast: {
++    id: 'MakeDecisionModal.benchCheckPast',
++    defaultMessage: 'Past decision',
++  },
++  benchCheckPastRole: {
++    id: 'MakeDecisionModal.benchCheckPastRole',
++    defaultMessage: 'A person already decided this exact same failure.',
++  },
++  benchCheckPastNoMatch: {
++    id: 'MakeDecisionModal.benchCheckPastNoMatch',
++    defaultMessage: 'No exact match found.',
++  },
++  benchCheckPastNoMatchProv: {
++    id: 'MakeDecisionModal.benchCheckPastNoMatchProv',
++    defaultMessage: 'Nothing in history has the same error fingerprint.',
++  },
++  benchCheckPastStrong: {
++    id: 'MakeDecisionModal.benchCheckPastStrong',
++    defaultMessage: 'Exact same failure. Strong enough to apply on its own.',
++  },
++  benchCheckSimilar: {
++    id: 'MakeDecisionModal.benchCheckSimilar',
++    defaultMessage: 'Similar failures',
++  },
++  benchCheckSimilarRole: {
++    id: 'MakeDecisionModal.benchCheckSimilarRole',
++    defaultMessage: 'Failures that look like this one, from a trained model.',
++  },
++  benchCheckSimilarNone: {
++    id: 'MakeDecisionModal.benchCheckSimilarNone',
++    defaultMessage: 'No similar failures cleared the bar.',
++  },
++  benchCheckAi: {
++    id: 'MakeDecisionModal.benchCheckAi',
++    defaultMessage: 'AI guess',
++  },
++  benchCheckAiRole: {
++    id: 'MakeDecisionModal.benchCheckAiRole',
++    defaultMessage: 'With no earlier match, the AI reasons from a set of rules.',
++  },
++  benchCheckAiNone: {
++    id: 'MakeDecisionModal.benchCheckAiNone',
++    defaultMessage: 'No AI guess for this failure.',
++  },
++  benchCheckAiOrigin: {
++    id: 'MakeDecisionModal.benchCheckAiOrigin',
++    defaultMessage: 'No earlier match to lean on.',
++  },
++  benchNotConfirmed: {
++    id: 'MakeDecisionModal.benchNotConfirmed',
++    defaultMessage: 'not confirmed',
++  },
++  benchUseThisGuess: {
++    id: 'MakeDecisionModal.benchUseThisGuess',
++    defaultMessage: 'Use this guess',
++  },
++  benchCompareLogs: {
++    id: 'MakeDecisionModal.benchCompareLogs',
++    defaultMessage: 'Compare logs',
++  },
++  // Band phrases (next to any number)
++  benchBandAuto: {
++    id: 'MakeDecisionModal.benchBandAuto',
++    defaultMessage: 'Will apply on its own',
++  },
++  benchBandSuggest: {
++    id: 'MakeDecisionModal.benchBandSuggest',
++    defaultMessage: 'Suggested, please confirm',
++  },
++  benchBandAbstain: {
++    id: 'MakeDecisionModal.benchBandAbstain',
++    defaultMessage: 'Not sure, your call',
++  },
++  benchBandRubric: {
++    id: 'MakeDecisionModal.benchBandRubric',
++    defaultMessage: 'A guess, check it first',
++  },
++  benchAlike: {
++    id: 'MakeDecisionModal.benchAlike',
++    defaultMessage: '{score} alike.',
++  },
++  benchAiGuessPct: {
++    id: 'MakeDecisionModal.benchAiGuessPct',
++    defaultMessage: "The AI's own guess ({pct}%). Check it first.",
++  },
++  // The line + declined dock
++  benchLineLabel: {
++    id: 'MakeDecisionModal.benchLineLabel',
++    defaultMessage: 'the line the analyzer must clear',
++  },
++  benchDockToggle: {
++    id: 'MakeDecisionModal.benchDockToggle',
++    defaultMessage: 'The analyzer said no to these ({count})',
++  },
++  benchDockNote: {
++    id: 'MakeDecisionModal.benchDockNote',
++    defaultMessage: 'The analyzer looked at these and said no. Shown only so you can decide.',
++  },
++  benchDockTooWeak: {
++    id: 'MakeDecisionModal.benchDockTooWeak',
++    defaultMessage: 'Too weak to suggest ({score}).',
++  },
++  benchDockChoose: {
++    id: 'MakeDecisionModal.benchDockChoose',
++    defaultMessage: 'Choose this myself',
++  },
++  // Evidence stage
++  benchStageCap: {
++    id: 'MakeDecisionModal.benchStageCap',
++    defaultMessage: 'What the analyzer saw',
++  },
++  benchStageNotSureBig: {
++    id: 'MakeDecisionModal.benchStageNotSureBig',
++    defaultMessage: 'The analyzer is not sure about this one.',
++  },
++  benchStageNotSureSub: {
++    id: 'MakeDecisionModal.benchStageNotSureSub',
++    defaultMessage:
++      'Nothing was a strong match. The list it said no to is open below the line. Read this test log, put a look-alike next to it to check, then pick a defect type yourself. You can also use the AI guess and edit the comment.',
++  },
++  benchStageColdStartLine: {
++    id: 'MakeDecisionModal.benchStageColdStartLine',
++    defaultMessage: 'No past match and nothing similar. Only the AI guess is left.',
++  },
++  benchStageAiGuessCap: {
++    id: 'MakeDecisionModal.benchStageAiGuessCap',
++    defaultMessage: 'Why the AI guessed this (written by AI)',
++  },
++  benchStageReviewNote: {
++    id: 'MakeDecisionModal.benchStageReviewNote',
++    defaultMessage: 'A guess is never applied for you. Read it, edit the comment, then apply.',
++  },
++  benchStageAgreeCap: {
++    id: 'MakeDecisionModal.benchStageAgreeCap',
++    defaultMessage: 'Why the analyzer thinks this (written by AI)',
++  },
++  benchStageDeclineCap: {
++    id: 'MakeDecisionModal.benchStageDeclineCap',
++    defaultMessage: 'Why the analyzer said no',
++  },
++  benchStageMatched: {
++    id: 'MakeDecisionModal.benchStageMatched',
++    defaultMessage: 'The failure this matched',
++  },
++  // Compare
++  benchCmpTitle: {
++    id: 'MakeDecisionModal.benchCmpTitle',
++    defaultMessage: 'Is this the same failure?',
++  },
++  benchCmpClose: {
++    id: 'MakeDecisionModal.benchCmpClose',
++    defaultMessage: 'Close compare',
++  },
++  benchCmpHelp: {
++    id: 'MakeDecisionModal.benchCmpHelp',
++    defaultMessage:
++      'Green lines match. Highlighted lines differ. If the key error line matches, it is likely the same failure.',
++  },
++  benchCmpSame: {
++    id: 'MakeDecisionModal.benchCmpSame',
++    defaultMessage: 'Same in both',
++  },
++  benchCmpDiff: {
++    id: 'MakeDecisionModal.benchCmpDiff',
++    defaultMessage: 'Different',
++  },
++  benchCmpLeft: {
++    id: 'MakeDecisionModal.benchCmpLeft',
++    defaultMessage: 'This failure',
++  },
++  benchCmpLeftSuffix: {
++    id: 'MakeDecisionModal.benchCmpLeftSuffix',
++    defaultMessage: '(the item under analysis)',
++  },
++  benchCmpRight: {
++    id: 'MakeDecisionModal.benchCmpRight',
++    defaultMessage: 'The one you picked',
++  },
++  benchCmpOnlyHere: {
++    id: 'MakeDecisionModal.benchCmpOnlyHere',
++    defaultMessage: 'only here',
++  },
++  benchCmpOnlyThere: {
++    id: 'MakeDecisionModal.benchCmpOnlyThere',
++    defaultMessage: 'only there',
++  },
++  benchCmpNoLog: {
++    id: 'MakeDecisionModal.benchCmpNoLog',
++    defaultMessage: 'This candidate has no error log to compare.',
++  },
++  benchCmpNotSame: {
++    id: 'MakeDecisionModal.benchCmpNotSame',
++    defaultMessage: 'Not the same failure?',
++  },
++  benchCmpManual: {
++    id: 'MakeDecisionModal.benchCmpManual',
++    defaultMessage: 'Choose a defect type yourself',
++  },
++  // Verdict bar
++  benchVbDefect: {
++    id: 'MakeDecisionModal.benchVbDefect',
++    defaultMessage: 'Defect:',
++  },
++  benchVbChooseDefect: {
++    id: 'MakeDecisionModal.benchVbChooseDefect',
++    defaultMessage: 'Choose a defect type',
++  },
++  benchVbPickAnswer: {
++    id: 'MakeDecisionModal.benchVbPickAnswer',
++    defaultMessage: 'Pick your answer',
++  },
++  benchVbApplyTo: {
++    id: 'MakeDecisionModal.benchVbApplyTo',
++    defaultMessage: 'Apply to:',
++  },
++  benchVbFanout: {
++    id: 'MakeDecisionModal.benchVbFanout',
++    defaultMessage: 'Apply to all {count}',
++  },
++  benchVbChooseMyself: {
++    id: 'MakeDecisionModal.benchVbChooseMyself',
++    defaultMessage: 'Choose myself',
++  },
++  benchVbKeys: {
++    id: 'MakeDecisionModal.benchVbKeys',
++    defaultMessage: 'Enter apply · 1/2 pick answer · M choose myself · Esc close',
++  },
++  benchManualHead: {
++    id: 'MakeDecisionModal.benchManualHead',
++    defaultMessage: 'Pick a defect type',
++  },
++  benchManualHelp: {
++    id: 'MakeDecisionModal.benchManualHelp',
++    defaultMessage: 'Pick the defect type that fits this failure.',
++  },
++  benchCmtAddReason: {
++    id: 'MakeDecisionModal.benchCmtAddReason',
++    defaultMessage: 'Add the reason as a comment',
++  },
++  benchCmtPrefillNote: {
++    id: 'MakeDecisionModal.benchCmtPrefillNote',
++    defaultMessage: 'Filled from the AI reason. Change it if you want.',
++  },
++  benchCmtPlaceholder: {
++    id: 'MakeDecisionModal.benchCmtPlaceholder',
++    defaultMessage: 'Why this defect? (optional)',
++  },
++  // Provenance tag on the verdict selector
++  benchProvYouPicked: {
++    id: 'MakeDecisionModal.benchProvYouPicked',
++    defaultMessage: 'you picked this',
++  },
++  benchProvFromAi: {
++    id: 'MakeDecisionModal.benchProvFromAi',
++    defaultMessage: 'from the AI guess (not confirmed)',
++  },
++  benchProvFromSimilarity: {
++    id: 'MakeDecisionModal.benchProvFromSimilarity',
++    defaultMessage: 'from Similar failures ({score})',
++  },
++  benchProvFromPrecedent: {
++    id: 'MakeDecisionModal.benchProvFromPrecedent',
++    defaultMessage: 'from Past decision (exact match)',
++  },
++  benchProvDockAdopt: {
++    id: 'MakeDecisionModal.benchProvDockAdopt',
++    defaultMessage: 'the analyzer said no. Click the type to confirm',
++  },
++  // Recap
++  benchRecapThisItem: {
++    id: 'MakeDecisionModal.benchRecapThisItem',
++    defaultMessage: 'This will be applied to this item.',
++  },
++  benchRecapGroup: {
++    id: 'MakeDecisionModal.benchRecapGroup',
++    defaultMessage: 'This will apply to all {count} matching tests in this run.',
++  },
++  benchRecapWarnConfirm: {
++    id: 'MakeDecisionModal.benchRecapWarnConfirm',
++    defaultMessage: 'Your own choice (the analyzer said no). Click the highlighted type to confirm.',
++  },
++  benchRecapWarnCovers: {
++    id: 'MakeDecisionModal.benchRecapWarnCovers',
++    defaultMessage: 'Your own choice (the analyzer said no) applies to {count} items.',
++  },
+ });
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx
+index 11f5ec0..2d841a5 100644
+--- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx
+@@ -16,13 +16,37 @@
+ 
+ import React from 'react';
+ import PropTypes from 'prop-types';
++import classNames from 'classnames/bind';
+ import { useIntl } from 'react-intl';
+ import { useTracking } from 'react-tracking';
+ import { TO_INVESTIGATE_LOCATOR_PREFIX } from 'common/constants/defectTypes';
++import { DefectTypeItem } from 'pages/inside/common/defectTypeItem';
++import { GhostButton } from 'components/buttons/ghostButton';
+ import { TestItemDetails } from '../../elements/testItemDetails';
+ import { messages } from '../../messages';
++import {
++  isRubricHypothesis,
++  parseProvenance,
++  parseRubricModelVer,
++  parseRubricWhy,
++  PROVENANCE,
++} from '../../analyzerSuggestionMeta';
++import styles from './machineLearningSuggestions.scss';
+ 
+-export const MachineLearningSuggestions = ({ modalState, itemData, eventsInfo }) => {
++const cx = classNames.bind(styles);
++
++const PROVENANCE_MESSAGE = {
++  [PROVENANCE.RUBRIC]: messages.provenanceLlmHypothesis,
++  [PROVENANCE.HUMAN]: messages.provenanceHumanNeighbor,
++  [PROVENANCE.AUTO]: messages.provenanceAutoNeighbor,
++};
++
++export const MachineLearningSuggestions = ({
++  modalState,
++  itemData,
++  eventsInfo,
++  onAcceptHypothesis,
++}) => {
+   const { formatMessage } = useIntl();
+   const { trackEvent } = useTracking();
+ 
+@@ -38,8 +62,51 @@ export const MachineLearningSuggestions = ({ modalState, itemData, eventsInfo })
+     return eventsInfo.getOpenStackTraceEvent(defectFromTIGroup, 'ml_suggestions');
+   };
+ 
++  // analyzer-ng metadata — defensively parsed; a stock analyzer yields null/'' here
++  // and only the plain <TestItemDetails> below is rendered (no behaviour change).
++  const rubric = isRubricHypothesis(suggestRs);
++  const provenance = parseProvenance(suggestRs);
++  const provenanceMessage = provenance && PROVENANCE_MESSAGE[provenance];
++  const whyText = rubric ? parseRubricWhy(suggestRs?.modelInfo) : '';
++  const modelVer = rubric ? parseRubricModelVer(suggestRs?.modelInfo) : '';
++
+   return (
+     <>
++      <div className={cx('suggestion-meta')}>
++        <div className={cx('suggested-defect-row')}>
++          <span className={cx('meta-caption')}>{formatMessage(messages.suggestedDefect)}</span>
++          {suggestRs?.issueType && (
++            <DefectTypeItem type={suggestRs.issueType} className={cx('suggested-defect-pill')} />
++          )}
++          {provenanceMessage && (
++            <span
++              className={cx('provenance-chip', { 'provenance-chip-rubric': rubric })}
++              title={rubric && modelVer ? modelVer : undefined}
++            >
++              {formatMessage(provenanceMessage)}
++            </span>
++          )}
++        </div>
++        {rubric && whyText && (
++          <div className={cx('rubric-why')} data-provenance="ai_suggested">
++            <span className={cx('meta-caption')}>{formatMessage(messages.rubricWhyCaption)}</span>
++            <p className={cx('rubric-why-text')}>{whyText}</p>
++          </div>
++        )}
++        {rubric && (
++          <div className={cx('rubric-accept')}>
++            <GhostButton
++              onClick={() =>
++                onAcceptHypothesis({ issueType: suggestRs.issueType, comment: whyText })
++              }
++              color="''"
++              appearance="topaz"
++            >
++              {formatMessage(messages.acceptHypothesis)}
++            </GhostButton>
++          </div>
++        )}
++      </div>
+       <TestItemDetails
+         item={item}
+         logs={logs}
+@@ -59,8 +126,10 @@ MachineLearningSuggestions.propTypes = {
+   modalState: PropTypes.object.isRequired,
+   itemData: PropTypes.oneOfType([PropTypes.object, PropTypes.array]),
+   eventsInfo: PropTypes.object,
++  onAcceptHypothesis: PropTypes.func,
+ };
+ MachineLearningSuggestions.defaultProps = {
+   itemData: {},
+   eventsInfo: {},
++  onAcceptHypothesis: () => {},
+ };
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.scss
+new file mode 100644
+index 0000000..6778c5b
+--- /dev/null
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.scss
+@@ -0,0 +1,81 @@
++/*
++ * Copyright 2021 EPAM Systems
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++.suggestion-meta {
++  margin: 0 20px 12px 20px;
++  padding-bottom: 12px;
++  border-bottom: 1px solid $COLOR--darkmode-gray-200;
++}
++
++.meta-caption {
++  color: $COLOR--darkmode-gray-100;
++  font-size: 9px;
++  font-weight: 700;
++  line-height: 14px;
++  letter-spacing: 0.4px;
++  text-transform: uppercase;
++}
++
++.suggested-defect-row {
++  display: flex;
++  align-items: center;
++  flex-wrap: wrap;
++  gap: 8px;
++}
++
++.suggested-defect-pill {
++  cursor: default;
++}
++
++.provenance-chip {
++  display: inline-flex;
++  align-items: center;
++  height: 18px;
++  padding: 0 8px;
++  border-radius: 9px;
++  background-color: $COLOR--darkmode-gray-400;
++  color: $COLOR--darkmode-gray-100;
++  font-size: 10px;
++  font-weight: 500;
++  line-height: 18px;
++  white-space: nowrap;
++
++  &-rubric {
++    background-color: $COLOR--darkmode-topaz-additional;
++    color: $COLOR--darkmode-topaz-text;
++  }
++}
++
++.rubric-why {
++  margin-top: 12px;
++
++  &-text {
++    margin-top: 4px;
++    padding: 8px 10px;
++    border-left: 2px solid $COLOR--darkmode-topaz-main;
++    border-radius: 2px;
++    background-color: $COLOR--darkmode-gray-400;
++    color: $COLOR--white-two;
++    font-size: 13px;
++    line-height: 18px;
++    white-space: pre-wrap;
++    word-break: break-word;
++  }
++}
++
++.rubric-accept {
++  margin-top: 12px;
++}
