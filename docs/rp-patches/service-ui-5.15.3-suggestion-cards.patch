@@ -1,0 +1,463 @@
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
+new file mode 100644
+index 0000000..6e67473
+--- /dev/null
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
+@@ -0,0 +1,92 @@
++/*
++ * Copyright 2021 EPAM Systems
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++/*
++ * Helpers that read the analyzer-ng metadata carried on a suggestion's `suggestRs`
++ * object (RP's SuggestInfo). All parsing is deliberately defensive: a legacy /
++ * stock analyzer emits a `modelInfo` that does not match these shapes, in which
++ * case every helper returns an empty / null value and the UI renders nothing extra.
++ *
++ * Cold-start rubric provisional row (analyzer-ng, image mk18):
++ *   methodName = 'coldstart_rubric'
++ *   issueType  = <rubric locator> (proposed defect type)
++ *   matchScore = rubric pseudo-confidence (NOT a similarity score)
++ *   modelInfo  = "coldstart_rubric;{model_ver};why={explanation}"
++ *
++ * Classical row:
++ *   methodName = 'suggestion' | 'auto_analysis'
++ *   modelInfo  = "analyzer-ng;gbm=..;emb=..;kb_mode=..;src=<provenance>"
++ *                where src = human-confirmed | auto-analyzed | ...
++ */
++
++export const COLDSTART_RUBRIC_METHOD = 'coldstart_rubric';
++
++export const PROVENANCE = {
++  RUBRIC: 'rubric',
++  HUMAN: 'human',
++  AUTO: 'auto',
++};
++
++export const isRubricHypothesis = (suggestRs) =>
++  !!suggestRs && suggestRs.methodName === COLDSTART_RUBRIC_METHOD;
++
++// Everything after the first `why=` token in modelInfo — the free-text rationale
++// may itself contain `;` or `=`, so we take the remainder verbatim.
++export const parseRubricWhy = (modelInfo) => {
++  if (typeof modelInfo !== 'string') {
++    return '';
++  }
++  const marker = 'why=';
++  const idx = modelInfo.indexOf(marker);
++  if (idx === -1) {
++    return '';
++  }
++  return modelInfo.slice(idx + marker.length).trim();
++};
++
++// The model version token (2nd `;`-separated segment) of a rubric modelInfo, e.g.
++// "coldstart_rubric;rubric+2026.07;why=..." -> "rubric+2026.07". Used only for a tooltip.
++export const parseRubricModelVer = (modelInfo) => {
++  if (typeof modelInfo !== 'string') {
++    return '';
++  }
++  const parts = modelInfo.split(';');
++  return parts.length > 1 ? parts[1].trim() : '';
++};
++
++// One of PROVENANCE.* or null. Rubric wins by methodName; classical rows are read
++// from the `src=` token of modelInfo. Unknown / legacy shapes -> null (render nothing).
++export const parseProvenance = (suggestRs) => {
++  if (isRubricHypothesis(suggestRs)) {
++    return PROVENANCE.RUBRIC;
++  }
++  const modelInfo = suggestRs && suggestRs.modelInfo;
++  if (typeof modelInfo !== 'string') {
++    return null;
++  }
++  const match = modelInfo.match(/src=([^;]+)/);
++  if (!match) {
++    return null;
++  }
++  const src = match[1].trim();
++  if (src === 'human-confirmed') {
++    return PROVENANCE.HUMAN;
++  }
++  if (src === 'auto-analyzed') {
++    return PROVENANCE.AUTO;
++  }
++  return null;
++};
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
+index f3ff292..f005d66 100644
+--- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
+@@ -54,6 +54,7 @@ import {
+   SHOW_LOGS_BY_DEFAULT,
+ } from './constants';
+ import { ExecutionSection } from './executionSection';
++import { isRubricHypothesis } from './analyzerSuggestionMeta';
+ 
+ const MakeDecision = ({ data }) => {
+   const { formatMessage } = useIntl();
+@@ -389,6 +390,22 @@ const MakeDecision = ({ data }) => {
+     ),
+   });
+ 
++  // Accept a cold-start rubric hypothesis: route into the standard "select defect
++  // manually" flow with the rubric's proposed defect type and the rationale prefilled
++  // into the editable comment editor, so the user can review/edit before Apply. This
++  // fixes the stock behaviour where a self-referenced rubric row would copy the item's
++  // own (empty) issue and apply nothing.
++  const acceptSuggestedHypothesis = ({ issueType, comment }) => {
++    setModalState({
++      decisionType: SELECT_DEFECT_MANUALLY,
++      issueActionType: '',
++      selectManualChoice: {
++        issue: { ...itemData.issue, issueType, comment: comment || '' },
++      },
++    });
++    setActiveTab(SELECT_DEFECT_MANUALLY);
++  };
++
+   const getMakeDecisionTabs = () => {
+     const preparedHistoryLineItems = historyItems.filter(
+       (item) =>
+@@ -420,14 +437,20 @@ const MakeDecision = ({ data }) => {
+         isOpen: activeTab === MACHINE_LEARNING_SUGGESTIONS,
+         title:
+           modalState.suggestChoice.suggestRs &&
+-          formatMessage(messages.machineLearningSuggestions, {
+-            value: modalState.suggestChoice.suggestRs.matchScore,
+-          }),
++          formatMessage(
++            isRubricHypothesis(modalState.suggestChoice.suggestRs)
++              ? messages.llmHypothesisHeader
++              : messages.machineLearningSuggestions,
++            {
++              value: modalState.suggestChoice.suggestRs.matchScore,
++            },
++          ),
+         content: isMLSuggestionsAvailable && (
+           <MachineLearningSuggestions
+             modalState={modalState}
+             itemData={itemData}
+             eventsInfo={data.eventsInfo.editDefectsEvents}
++            onAcceptHypothesis={acceptSuggestedHypothesis}
+           />
+         ),
+       },
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.jsx
+index 289cc4f..b7b85e9 100644
+--- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.jsx
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.jsx
+@@ -26,6 +26,7 @@ import {
+   MACHINE_LEARNING_SUGGESTIONS,
+   SELECT_DEFECT_MANUALLY,
+ } from '../constants';
++import { isRubricHypothesis } from '../analyzerSuggestionMeta';
+ import { messages } from '../messages';
+ import styles from './makeDecisionTabs.scss';
+ 
+@@ -145,20 +146,28 @@ export const MakeDecisionTabs = ({
+             )}
+ 
+             {isAnalyzerAvailable &&
+-              suggestedItems.map(({ suggestRs, testItemResource }, index) => (
+-                <div
+-                  key={testItemResource.id}
+-                  onClick={() => selectMachineLearningSuggestionItem(index, testItemResource.id)}
+-                  className={cx(`suggest-item`, {
+-                    [`suggest-item-active`]:
+-                      machineLearningTab.isOpen && selectedMLSuggest === index,
+-                    jumping: index === 0 && suggestedItems.length && animationSuggest,
+-                  })}
+-                >
+-                  <p className={cx('suggest-title')}>{suggestRs.matchScore}%</p>
+-                  <p className={cx('suggest-text')}>{formatMessage(messages.analyzerSuggestion)}</p>
+-                </div>
+-              ))}
++              suggestedItems.map(({ suggestRs, testItemResource }, index) => {
++                const rubric = isRubricHypothesis(suggestRs);
++                return (
++                  <div
++                    key={testItemResource.id}
++                    onClick={() => selectMachineLearningSuggestionItem(index, testItemResource.id)}
++                    className={cx(`suggest-item`, {
++                      [`suggest-item-active`]:
++                        machineLearningTab.isOpen && selectedMLSuggest === index,
++                      'suggest-item-rubric': rubric,
++                      jumping: index === 0 && suggestedItems.length && animationSuggest,
++                    })}
++                  >
++                    <p className={cx('suggest-title')}>{suggestRs.matchScore}%</p>
++                    <p className={cx('suggest-text')}>
++                      {formatMessage(
++                        rubric ? messages.llmHypothesisTab : messages.analyzerSuggestion,
++                      )}
++                    </p>
++                  </div>
++                );
++              })}
+           </div>
+           {copyFromHistoryLineTab && (
+             <div
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.scss
+index 9c6b6da..1f85b26 100644
+--- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.scss
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.scss
+@@ -206,6 +206,11 @@
+     }
+   }
+ 
++  .suggest-item-rubric {
++    border-bottom-style: dashed;
++    border-bottom-color: $COLOR--topaz;
++  }
++
+   .suggest-wrapper {
+     display: flex;
+   }
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
+index 34cfec5..bfcc9a9 100644
+--- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
+@@ -266,4 +266,37 @@ export const messages = defineMessages({
+     id: 'MakeDecisionModal.defectReplaceWith',
+     defaultMessage: 'The defect type will be changed to',
+   },
++  // analyzer-ng suggestion metadata (see analyzerSuggestionMeta.js)
++  suggestedDefect: {
++    id: 'MakeDecisionModal.suggestedDefect',
++    defaultMessage: 'Suggested defect',
++  },
++  llmHypothesisTab: {
++    id: 'MakeDecisionModal.llmHypothesisTab',
++    defaultMessage: 'LLM hypothesis',
++  },
++  llmHypothesisHeader: {
++    id: 'MakeDecisionModal.llmHypothesisHeader',
++    defaultMessage: 'LLM cold-start hypothesis · {value}% rubric confidence',
++  },
++  provenanceLlmHypothesis: {
++    id: 'MakeDecisionModal.provenanceLlmHypothesis',
++    defaultMessage: 'LLM hypothesis (provisional)',
++  },
++  provenanceHumanNeighbor: {
++    id: 'MakeDecisionModal.provenanceHumanNeighbor',
++    defaultMessage: 'human-labeled neighbor',
++  },
++  provenanceAutoNeighbor: {
++    id: 'MakeDecisionModal.provenanceAutoNeighbor',
++    defaultMessage: 'auto-labeled neighbor',
++  },
++  rubricWhyCaption: {
++    id: 'MakeDecisionModal.rubricWhyCaption',
++    defaultMessage: 'AI hypothesis — why this defect',
++  },
++  acceptHypothesis: {
++    id: 'MakeDecisionModal.acceptHypothesis',
++    defaultMessage: 'Accept & edit comment',
++  },
+ });
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx
+index 11f5ec0..2d841a5 100644
+--- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx
+@@ -16,13 +16,37 @@
+ 
+ import React from 'react';
+ import PropTypes from 'prop-types';
++import classNames from 'classnames/bind';
+ import { useIntl } from 'react-intl';
+ import { useTracking } from 'react-tracking';
+ import { TO_INVESTIGATE_LOCATOR_PREFIX } from 'common/constants/defectTypes';
++import { DefectTypeItem } from 'pages/inside/common/defectTypeItem';
++import { GhostButton } from 'components/buttons/ghostButton';
+ import { TestItemDetails } from '../../elements/testItemDetails';
+ import { messages } from '../../messages';
++import {
++  isRubricHypothesis,
++  parseProvenance,
++  parseRubricModelVer,
++  parseRubricWhy,
++  PROVENANCE,
++} from '../../analyzerSuggestionMeta';
++import styles from './machineLearningSuggestions.scss';
+ 
+-export const MachineLearningSuggestions = ({ modalState, itemData, eventsInfo }) => {
++const cx = classNames.bind(styles);
++
++const PROVENANCE_MESSAGE = {
++  [PROVENANCE.RUBRIC]: messages.provenanceLlmHypothesis,
++  [PROVENANCE.HUMAN]: messages.provenanceHumanNeighbor,
++  [PROVENANCE.AUTO]: messages.provenanceAutoNeighbor,
++};
++
++export const MachineLearningSuggestions = ({
++  modalState,
++  itemData,
++  eventsInfo,
++  onAcceptHypothesis,
++}) => {
+   const { formatMessage } = useIntl();
+   const { trackEvent } = useTracking();
+ 
+@@ -38,8 +62,51 @@ export const MachineLearningSuggestions = ({ modalState, itemData, eventsInfo })
+     return eventsInfo.getOpenStackTraceEvent(defectFromTIGroup, 'ml_suggestions');
+   };
+ 
++  // analyzer-ng metadata — defensively parsed; a stock analyzer yields null/'' here
++  // and only the plain <TestItemDetails> below is rendered (no behaviour change).
++  const rubric = isRubricHypothesis(suggestRs);
++  const provenance = parseProvenance(suggestRs);
++  const provenanceMessage = provenance && PROVENANCE_MESSAGE[provenance];
++  const whyText = rubric ? parseRubricWhy(suggestRs?.modelInfo) : '';
++  const modelVer = rubric ? parseRubricModelVer(suggestRs?.modelInfo) : '';
++
+   return (
+     <>
++      <div className={cx('suggestion-meta')}>
++        <div className={cx('suggested-defect-row')}>
++          <span className={cx('meta-caption')}>{formatMessage(messages.suggestedDefect)}</span>
++          {suggestRs?.issueType && (
++            <DefectTypeItem type={suggestRs.issueType} className={cx('suggested-defect-pill')} />
++          )}
++          {provenanceMessage && (
++            <span
++              className={cx('provenance-chip', { 'provenance-chip-rubric': rubric })}
++              title={rubric && modelVer ? modelVer : undefined}
++            >
++              {formatMessage(provenanceMessage)}
++            </span>
++          )}
++        </div>
++        {rubric && whyText && (
++          <div className={cx('rubric-why')} data-provenance="ai_suggested">
++            <span className={cx('meta-caption')}>{formatMessage(messages.rubricWhyCaption)}</span>
++            <p className={cx('rubric-why-text')}>{whyText}</p>
++          </div>
++        )}
++        {rubric && (
++          <div className={cx('rubric-accept')}>
++            <GhostButton
++              onClick={() =>
++                onAcceptHypothesis({ issueType: suggestRs.issueType, comment: whyText })
++              }
++              color="''"
++              appearance="topaz"
++            >
++              {formatMessage(messages.acceptHypothesis)}
++            </GhostButton>
++          </div>
++        )}
++      </div>
+       <TestItemDetails
+         item={item}
+         logs={logs}
+@@ -59,8 +126,10 @@ MachineLearningSuggestions.propTypes = {
+   modalState: PropTypes.object.isRequired,
+   itemData: PropTypes.oneOfType([PropTypes.object, PropTypes.array]),
+   eventsInfo: PropTypes.object,
++  onAcceptHypothesis: PropTypes.func,
+ };
+ MachineLearningSuggestions.defaultProps = {
+   itemData: {},
+   eventsInfo: {},
++  onAcceptHypothesis: () => {},
+ };
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.scss
+new file mode 100644
+index 0000000..6778c5b
+--- /dev/null
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.scss
+@@ -0,0 +1,81 @@
++/*
++ * Copyright 2021 EPAM Systems
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++.suggestion-meta {
++  margin: 0 20px 12px 20px;
++  padding-bottom: 12px;
++  border-bottom: 1px solid $COLOR--darkmode-gray-200;
++}
++
++.meta-caption {
++  color: $COLOR--darkmode-gray-100;
++  font-size: 9px;
++  font-weight: 700;
++  line-height: 14px;
++  letter-spacing: 0.4px;
++  text-transform: uppercase;
++}
++
++.suggested-defect-row {
++  display: flex;
++  align-items: center;
++  flex-wrap: wrap;
++  gap: 8px;
++}
++
++.suggested-defect-pill {
++  cursor: default;
++}
++
++.provenance-chip {
++  display: inline-flex;
++  align-items: center;
++  height: 18px;
++  padding: 0 8px;
++  border-radius: 9px;
++  background-color: $COLOR--darkmode-gray-400;
++  color: $COLOR--darkmode-gray-100;
++  font-size: 10px;
++  font-weight: 500;
++  line-height: 18px;
++  white-space: nowrap;
++
++  &-rubric {
++    background-color: $COLOR--darkmode-topaz-additional;
++    color: $COLOR--darkmode-topaz-text;
++  }
++}
++
++.rubric-why {
++  margin-top: 12px;
++
++  &-text {
++    margin-top: 4px;
++    padding: 8px 10px;
++    border-left: 2px solid $COLOR--darkmode-topaz-main;
++    border-radius: 2px;
++    background-color: $COLOR--darkmode-gray-400;
++    color: $COLOR--white-two;
++    font-size: 13px;
++    line-height: 18px;
++    white-space: pre-wrap;
++    word-break: break-word;
++  }
++}
++
++.rubric-accept {
++  margin-top: 12px;
++}
