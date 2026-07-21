@@ -665,7 +665,6 @@ const METHOD_TIP = {
   rule_cold: 'No trained model is available yet (cold start). Simple safety rules decide: exact match, then catalog, then a pre-configured seed rule for this failure kind (needs confidence ≥ 0.7); otherwise the analyzer abstains.',
   coldstart: 'Zero-label project: the LLM cold-start rubric proposed a PROVISIONAL ai_suggested label. It is never auto-applied and never surfaced in RP’s Make Decision — the classical decision path runs separately.',
 };
-const BAND_CHIP = { auto: 'auto-applied', suggest: 'suggested — needs a human', abstain: 'abstain → To Investigate' };
 const BAND_TIP = {
   auto: 'Confidence is at or above 0.75 (tau_auto). The label was applied without waiting for a human. A human can still correct it later.',
   suggest: 'Confidence is between 0.45 (tau_suggest) and 0.75 (tau_auto). The label is shown as a suggestion; a human confirms or corrects it.',
@@ -698,23 +697,28 @@ function decisionCard(d) {
   // L1 takeaway (band × method matrix)
   body.appendChild(decisionTakeaway(dec, method, label, matchedItemId, modeTitle));
 
-  // verdict chip row: band + method + (label, unless abstain) + outcome
+  // Verdict chip row — dedup rule: chips carry ONLY what the takeaway sentence
+  // doesn't already say. Band, label and provisional-ness live in the takeaway
+  // (and on the gauge), so the former band/label/provisional chips are gone;
+  // what remains is the method key (with its tooltip) and the outcome.
   const chips = h('div', { class: 'flex gap-8 wrap center', style: { marginBottom: '16px' } });
-  chips.appendChild(bandChip(dec));
   chips.appendChild(methodChip(method));
-  if (dec.band !== 'abstain') chips.appendChild(labelChip(dec, label));
   chips.appendChild(outcomeBadge(dec.outcome));
-  // (the old '🧠 LLM judge consulted' badge is removed — llm_used is set by the
-  // explainer/coldstart too and judge has 0 events, so it asserted a consult that
-  // never happened. The role-accurate LLM strip below replaces it.)
   body.appendChild(chips);
 
   // Decision summary — the stored explanation of the DISPLAYED decision row
   // (primary; classical on provisional items), prominent, with provenance chips.
   // Honest absence: no block when no explanation is stored.
   const clForSummary = dec.coldstart_provisional && dec.classical ? dec.classical : null;
-  const summarySrc = (clForSummary && clForSummary.explanation) ? clForSummary
+  let summarySrc = (clForSummary && clForSummary.explanation) ? clForSummary
     : (dec.explanation ? dec : null);
+  // Dedup guard: show the summary only when it adds words the takeaway doesn't —
+  // a narrative that is (or is contained in) the takeaway sentence is skipped.
+  if (summarySrc) {
+    const tw = (body.querySelector('.takeaway') || {}).textContent || '';
+    const ex = String(summarySrc.explanation).trim();
+    if (!ex || tw.includes(ex)) summarySrc = null;
+  }
   const summaryEl = summarySrc ? decisionSummary(d, dec, summarySrc) : null;
   if (summaryEl) body.appendChild(summaryEl);
 
@@ -731,16 +735,25 @@ function decisionCard(d) {
     ? { ...cl, tau_suggest: dec.tau_suggest, tau_auto: dec.tau_auto }
     : dec;
 
-  // L2 — banded confidence gauge + active-band legend
-  if (cl) {
-    body.appendChild(h('div', { class: 'section-title', style: { marginTop: '4px' } },
-      `Classical decision — ${cl.predicted_label === 'ti' ? 'abstained' : defectName(cl.predicted_label, cl.predicted_group)} @ ${fmt(cl.confidence, 2)} (${cl.band})`));
-  }
+  // L2 — banded confidence gauge + active-band legend. On provisional items the
+  // needle is the AUTHORITATIVE classical decision; the LLM's proposed confidence
+  // is a dashed topaz tick, captioned so the relationship is unmistakable. (The
+  // former "Classical decision — …" section title is folded into this caption.)
+  const marker = dec.coldstart_provisional
+    ? { value: dec.confidence, label: 'LLM proposal' } : null;
   const gaugeRow = h('div', { class: 'flex gap-12 wrap center', style: { marginBottom: '6px' } });
   const gaugeWrap = h('div', { class: 'gauge-wrap' });
   gaugeRow.append(gaugeWrap, h('div', { style: { flex: '1 1 220px' } }, bandLegend(evDec)));
   body.appendChild(gaugeRow);
-  requestAnimationFrame(() => drawGauge(gaugeWrap, evDec));
+  if (marker) {
+    body.appendChild(h('p', { class: 'note', style: { margin: '0 0 10px' } },
+      `needle = classical decision (in effect) · dashed tick = LLM proposed ${label} @ ${fmt(dec.confidence, 2)} (provisional — not applied)`));
+  }
+  if (dec.judge) {
+    body.appendChild(h('p', { class: 'note', style: { margin: '0 0 10px' } },
+      'LLM judge re-ranked the suggest candidates (order only — label and confidence untouched).'));
+  }
+  requestAnimationFrame(() => drawGauge(gaugeWrap, evDec, marker));
 
   // abstain reason (only when the row stores one — verbatim, honest omission otherwise)
   if (dec.band === 'abstain' && dec.abstain_reason) body.appendChild(abstainReasonBlock(dec, label));
@@ -845,27 +858,9 @@ function decisionTakeaway(dec, method, label, matchedItemId, modeTitle) {
   return p;
 }
 
-function bandChip(dec) {
-  if (dec.coldstart_provisional) {
-    // Not a served band: rubric rows never reach RP Make Decision.
-    return h('span', { class: 'badge', title: METHOD_TIP.coldstart,
-      style: { border: '1px dashed var(--rp-topaz)', color: 'var(--rp-topaz)', background: 'transparent' } },
-      h('span', { class: 'dot', style: { background: 'var(--rp-topaz)' } }), 'provisional (ai_suggested)');
-  }
-  const col = `var(--band-${dec.band})`;
-  const isAbstain = dec.band === 'abstain';
-  return h('span', { class: 'badge', title: BAND_TIP[dec.band],
-    style: { background: `color-mix(in srgb, ${col} ${isAbstain ? 22 : 18}%, transparent)`, color: isAbstain ? 'var(--ink-2)' : col, borderColor: col } },
-    h('span', { class: 'dot', style: { background: col } }), BAND_CHIP[dec.band]);
-}
 function methodChip(method) {
   return h('span', { class: 'method-chip', title: METHOD_TIP[method] || '' },
     h('span', { class: 'k' }, method), METHOD_PLAIN[method] || method);
-}
-function labelChip(dec, label) {
-  const g = dec.predicted_group;
-  const cls = ['pb', 'ab', 'si', 'nd', 'ti'].includes(g) ? g : 'none';
-  return h('span', { class: `badge lbl ${cls}` }, h('span', { class: 'dot' }), `label: ${label}`);
 }
 function outcomeBadge(o) {
   const map = { accepted: 'var(--good)', corrected: 'var(--warning)', ignored: 'var(--muted)', pending: 'var(--accent)' };
@@ -876,7 +871,7 @@ function outcomeBadge(o) {
 
 function bandLegend(dec) {
   const TS = fmt(dec.tau_suggest, 2), TA = fmt(dec.tau_auto, 2);
-  const item = (band, text, active) => h('span', { class: 'bl-item', role: 'listitem', ...(active ? { 'data-active': '' } : {}) },
+  const item = (band, text, active) => h('span', { class: 'bl-item', role: 'listitem', title: BAND_TIP[band], ...(active ? { 'data-active': '' } : {}) },
     h('i', { class: 'dot', style: { background: `var(--band-${band})` } }), text);
   return h('div', { class: 'band-legend', role: 'list' },
     item('abstain', `abstain · < ${TS} → TI`, dec.band === 'abstain'),
@@ -920,7 +915,7 @@ function gaugeArc(cx, cy, r, v0, v1) {
   }
   return dstr;
 }
-function drawGauge(el, dec) {
+function drawGauge(el, dec, marker) {
   clear(el);
   const W = 260, H = 150, cx = 130, cy = 118, R = 92, sw = 14;
   const NS = 'http://www.w3.org/2000/svg';
@@ -937,6 +932,27 @@ function drawGauge(el, dec) {
     path.setAttribute('fill', 'none'); path.setAttribute('stroke', col);
     path.setAttribute('stroke-width', sw); path.setAttribute('stroke-linecap', 'butt');
     svg.appendChild(path);
+  }
+  // Optional LLM-proposal marker: a dashed radial tick at the proposed
+  // confidence — visually distinct from the authoritative classical needle.
+  if (marker && marker.value != null) {
+    const mv = Math.max(0, Math.min(1, marker.value));
+    const a = gaugeAngle(mv);
+    const p1 = gaugePolar(cx, cy, R - sw / 2 - 6, a);
+    const p2 = gaugePolar(cx, cy, R + sw / 2 + 4, a);
+    const tick = document.createElementNS(NS, 'line');
+    tick.setAttribute('x1', p1.x.toFixed(2)); tick.setAttribute('y1', p1.y.toFixed(2));
+    tick.setAttribute('x2', p2.x.toFixed(2)); tick.setAttribute('y2', p2.y.toFixed(2));
+    tick.setAttribute('stroke', cssVar('--rp-topaz')); tick.setAttribute('stroke-width', 2);
+    tick.setAttribute('stroke-dasharray', '3 2');
+    svg.appendChild(tick);
+    const lp = gaugePolar(cx, cy, R + sw / 2 + 16, a);
+    const lt = document.createElementNS(NS, 'text');
+    lt.setAttribute('x', lp.x.toFixed(2)); lt.setAttribute('y', lp.y.toFixed(2));
+    lt.setAttribute('text-anchor', 'middle');
+    lt.setAttribute('fill', cssVar('--rp-topaz')); lt.setAttribute('font-size', '9');
+    lt.textContent = marker.label || 'LLM';
+    svg.appendChild(lt);
   }
   const conf = Math.max(0, Math.min(1, dec.confidence));
   const np = gaugePolar(cx, cy, R - 4, gaugeAngle(conf));
@@ -1061,7 +1077,11 @@ function decisionSummary(d, dec, row) {
   const chips = h('div', { class: 'flex gap-8 wrap center', style: { marginBottom: '6px' } });
   chips.appendChild(h('span', { class: 'section-title', style: { margin: 0 } },
     row === dec ? 'decision summary' : 'decision summary — classical row'));
-  chips.appendChild(h('span', { class: 'chip mono' }, prov.chip));
+  chips.appendChild(h('span', { class: 'chip mono',
+    title: prov.kind === 'llm'
+      ? 'Model output — the label and confidence are the analyzer’s, not the LLM’s.'
+      : (prov.kind === 'rubric' ? 'Cold-start rubric output (provisional, ai_suggested).' : 'Deterministic analyzer narrative.') },
+    prov.chip));
   if (prov.ev && !prov.ev.cache_hit && prov.ev.latency_ms != null) {
     chips.appendChild(h('span', { class: 'chip' }, latFmt(prov.ev.latency_ms)));
   }
@@ -1089,10 +1109,17 @@ function llmStrip(d, dec, method, opts = {}) {
     h('div', { class: 'llm-strip-title' }, 'LLM sidecar ',
       h('span', { class: 'k' }, E.length ? `LLM · ${E.length}` : 'LLM · —')),
     h('span', { class: 'note' }, 'async roles, decision-path-neutral')));
-  strip.appendChild(llmTakeaway(dec, method, E, isColdstart, roles));
+  // Dedup rule: the strip sentence renders only when it carries facts the
+  // decision takeaway/summary don't — coldstart is fully told by the takeaway +
+  // gauge marker, and an explainer whose text sits in the summary block above
+  // needs no restatement here.
+  const expEv = latestByRole('explainer');
+  const skipTakeaway = isColdstart
+    || (expEv && expEv.outcome === 'ok' && dec.explanation && opts.explanationShownAbove);
+  if (!skipTakeaway) strip.appendChild(llmTakeaway(dec, method, E, isColdstart, roles));
 
   const tiles = h('div', { class: 'llm-tiles' });
-  if (isColdstart) tiles.appendChild(coldstartTile(dec, E));
+  if (isColdstart) tiles.appendChild(coldstartTile(dec, E, opts));
   const exp = latestByRole('explainer');
   // Skip the quote tile when the summary block above already carries the text.
   if (exp && exp.outcome === 'ok' && dec.explanation && !opts.explanationShownAbove) {
@@ -1139,22 +1166,23 @@ function llmTakeaway(dec, method, E, isColdstart, roles) {
   return p;
 }
 
-function coldstartTile(dec, E) {
+function coldstartTile(dec, E, opts = {}) {
+  // Dedup: label / model_ver / fixed-conf are already stated by the decision
+  // takeaway and the gauge marker — the tile keeps only what is unique to the
+  // rubric run: the matched rule and the model's own rationale.
   const ev = E.find((e) => e.role === 'coldstart' && e.outcome === 'ok' && e.output);
   const cs = dec.coldstart || {};
   const rule = cs.rule || (ev && ev.output && ev.output.rubric_rule_matched) || '—';
   const reason = ev && ev.output && ev.output.reason;
   const tile = h('div', { class: 'llm-tile' });
   tile.appendChild(h('div', { class: 'role-line' },
-    h('span', { class: 'role-key' }, 'coldstart'), h('span', { class: 'tag-prov' }, 'provisional')));
-  tile.appendChild(h('div', { class: 'provisional' },
-    h('div', { class: 'chip-row' },
-      labelChip(dec, defectName(dec.predicted_label, dec.predicted_group)),
-      h('span', { class: 'chip mono' }, dec.model_ver || ''),
-      h('span', { class: 'chip' }, `conf ${fmt(dec.confidence, 2)} (fixed)`),
-      h('span', { class: 'chip mono' }, `rule ${rule}`))));
-  if (reason) tile.appendChild(h('div', { class: 'llm-quote' }, reason,
-    h('span', { class: 'attr' }, 'model rationale — cold-start')));
+    h('span', { class: 'role-key' }, 'coldstart'),
+    h('span', { class: 'chip mono' }, `rule ${rule}`)));
+  // The rationale text may already sit in the decision-summary block above.
+  if (reason && !opts.explanationShownAbove) {
+    tile.appendChild(h('div', { class: 'llm-quote' }, reason,
+      h('span', { class: 'attr' }, 'model rationale — cold-start')));
+  }
   return tile;
 }
 
