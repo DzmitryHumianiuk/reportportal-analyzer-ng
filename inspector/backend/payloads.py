@@ -339,23 +339,41 @@ def item_journey(
         )
         launch_failed_count = lfc["n"] if lfc else 0
 
-        # Group members: the launch's failing items whose masked error_hash equals
-        # the group's representative fingerprint. Self is forced ahead of the cap so
-        # the "this item" dot is never dropped. Capped at 60 (mirrors the existing
-        # signatures member cap). If the group was chosen by fallback (its
-        # fingerprint != this item's error_hash) the list may not contain self and
-        # may be short of member_count — the frontend degrades to the count chip.
+        # Group members. Groups are built by SIGNATURE SIMILARITY (θ-chains inside an
+        # exception_fp bucket), not by identical hashes — so exact-hash equality
+        # UNDERCOUNTS real-world groups (identical twins only). The authoritative
+        # persisted membership is suggestion.group_id: the analyze fan-out writes one
+        # suggestion row per member. Union it with hash-equality as the fallback for
+        # groups whose members never got suggestion rows (partial TO_INVESTIGATE
+        # analyzes, suggest-route groups). Self is forced ahead of the cap so the
+        # "this item" dot is never dropped; capped at 60 (mirrors the signatures
+        # member cap). May still be short of member_count when neither source covers
+        # a member — the frontend key line shows "N of M" honestly.
         member_rows = db.rows(
             """
-            SELECT ti.item_id, ti.item_name, ti.issue_type, ti.issue_type_group,
-                   ti.is_auto_analyzed
-            FROM analyzer.failure_signature fs
-            JOIN analyzer.test_item ti USING (project_id, item_id)
-            WHERE fs.project_id = %s AND ti.launch_id = %s AND fs.error_hash = %s
-            ORDER BY (ti.item_id = %s) DESC, ti.item_id
+            SELECT item_id, item_name, issue_type, issue_type_group, is_auto_analyzed
+            FROM (
+                SELECT DISTINCT ti.item_id, ti.item_name, ti.issue_type,
+                       ti.issue_type_group, ti.is_auto_analyzed
+                FROM analyzer.suggestion s
+                JOIN analyzer.test_item ti
+                  ON ti.project_id = s.project_id AND ti.item_id = s.item_id
+                WHERE s.project_id = %s AND s.launch_id = %s AND s.group_id = %s
+                UNION
+                SELECT DISTINCT ti.item_id, ti.item_name, ti.issue_type,
+                       ti.issue_type_group, ti.is_auto_analyzed
+                FROM analyzer.failure_signature fs
+                JOIN analyzer.test_item ti USING (project_id, item_id)
+                WHERE fs.project_id = %s AND ti.launch_id = %s AND fs.error_hash = %s
+            ) m
+            ORDER BY (item_id = %s) DESC, item_id
             LIMIT %s
             """,
-            (project_id, item["launch_id"], grouping["fingerprint"], item_id, _GROUP_MEMBER_CAP),
+            (
+                project_id, item["launch_id"], grouping["group_id"],
+                project_id, item["launch_id"], grouping["fingerprint"],
+                item_id, _GROUP_MEMBER_CAP,
+            ),
         )
         for m in member_rows:
             group_members.append(
@@ -587,7 +605,9 @@ def llm_summary(db: Database, project_id: int) -> dict[str, Any]:
                 "event_count": sum(outcomes.values()),
                 "ok": outcomes.get("ok", 0),
                 "from_cache": cache_by.get(role, 0),
-                "last_event": _iso(last_by.get(role, {}).get("last_event")) if role in last_by else None,
+                "last_event": (
+                    _iso(last_by.get(role, {}).get("last_event")) if role in last_by else None
+                ),
                 "latency": (
                     {
                         "p50": _num(lr["p50"]),
@@ -1527,7 +1547,9 @@ def signature_hash(
         for tid in template_ids:
             t = by_id.get(tid)
             templates_block.append(
-                _template_row(t) if t else {"template_id": str(tid), "pattern": None, "missing": True}
+                _template_row(t)
+                if t
+                else {"template_id": str(tid), "pattern": None, "missing": True}
             )
 
     total_row = db.one(
