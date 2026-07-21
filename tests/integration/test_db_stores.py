@@ -490,7 +490,10 @@ def test_delete_launches_retains_label_events(pool: ConnectionPool) -> None:
         assert events == 1
 
 
-def test_delete_project_removes_all_rows(pool: ConnectionPool) -> None:
+def test_delete_project_purges_derived_data_but_keeps_label_events(pool: ConnectionPool) -> None:
+    # RP's "Generate index" is delete->rebuild via this route, so delete_project
+    # must wipe only DERIVED data and keep the append-only label_event log — else
+    # every reindex destroys the project's learning history.
     store = PgRetrievalStore(pool)
     _seed_hybrid_fixture(store, project_id=1)
     PgKBStore(pool).spawn_candidate_mode(
@@ -502,21 +505,40 @@ def test_delete_project_removes_all_rows(pool: ConnectionPool) -> None:
     PgDrain3StateStore(pool).save(1, b"blob", 0, {})
     store.delete_project(1)
     with pool.connection() as conn:
+        # Derived tables are wiped (regenerated on reindex; test_history_stats is
+        # rebuilt incrementally so it must not linger and double-count).
         for table in (
             "test_item",
             "failure_signature",
             "failure_mode",
             "mode_membership",
-            "label_event",
             "drain3_state",
             "log_template",
             "suggestion",
+            "test_history_stats",
             "project",
         ):
             n = conn.execute(
                 f"SELECT count(*) FROM analyzer.{table} WHERE project_id=1"
             ).fetchone()[0]
             assert n == 0, f"{table} still has rows for project 1"
+        # label_event survives (no FK to project; append-only learning log).
+        events = conn.execute(
+            "SELECT item_id, new_label FROM analyzer.label_event WHERE project_id=1"
+        ).fetchall()
+        assert events == [(1, "pb001")]
+
+    # After reindex the item returns under its stable item_id and rejoins its
+    # preserved event (the training stream is intact).
+    store.upsert_items([TestItemIn(item_id=1, project_id=1, launch_id=1, issue_type="pb001")])
+    with pool.connection() as conn:
+        joined = conn.execute(
+            "SELECT ti.item_id, le.new_label FROM analyzer.test_item ti "
+            "JOIN analyzer.label_event le "
+            "  ON le.project_id = ti.project_id AND le.item_id = ti.item_id "
+            "WHERE ti.project_id=1"
+        ).fetchall()
+        assert joined == [(1, "pb001")]
 
 
 def test_delete_by_log_time_respects_log_time_max(pool: ConnectionPool) -> None:

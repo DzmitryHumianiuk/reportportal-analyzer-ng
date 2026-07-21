@@ -303,7 +303,34 @@ class PgRetrievalStore(StoreBase):
             return cur.rowcount
 
     def delete_project(self, project_id: int) -> int:
-        # Children first; the project row (with its FK cascades) last.
+        """Purge a project's DERIVED data, preserving the ``label_event`` log.
+
+        RP's project-wide "Generate index" is a delete->rebuild: it drives this
+        same ``delete`` route before re-publishing every launch. So this must clear
+        only data that reindexing regenerates and must KEEP ``label_event`` — the
+        append-only learning log (spec 02 §2.7) that feeds GBM training and KB
+        purity. Wiping it every reindex would silently destroy the project's
+        learning history; the re-indexed items come back labeled via the index
+        payload, but the training stream would be gone. ``label_event`` has no FK
+        to ``project``, so events survive even the project-row delete below and
+        re-attach naturally to the rebuilt items via their stable ``item_id`` (the
+        item/launch/time-range deletes already preserve it — see ``_purge_items``).
+
+        ``test_history_stats`` IS wiped: it is derived from indexing (window run/
+        failure counters) and is rebuilt incrementally as the launches re-index,
+        so keeping it would double-count. All other tables here are derived
+        (signatures, templates, drain state, modes, suggestions, groups, caches,
+        daily metrics) and regenerate on rebuild.
+
+        Trade-off (deliberate): a genuine RP *project deletion* also uses this
+        route, so it leaves orphaned ``label_event`` rows behind. That is harmless
+        — the rows are project-scoped and queryable, never resurfaced for a
+        deleted project — and is the accepted cost of not destroying learning
+        history on the far more common reindex.
+        """
+        # Children first; the project row last. label_event is intentionally
+        # absent (preserved); it has no FK to project so the project delete leaves
+        # it in place.
         tables = (
             "mode_membership",
             "failure_mode",
@@ -313,7 +340,6 @@ class PgRetrievalStore(StoreBase):
             "test_item",
             "suggestion",
             "launch_group",
-            "label_event",
             "test_history_stats",
             "llm_cache",
             "metrics_daily",
