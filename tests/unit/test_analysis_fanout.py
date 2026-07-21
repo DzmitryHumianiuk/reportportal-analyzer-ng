@@ -385,3 +385,59 @@ def test_same_hash_divergent_context_splits_pb_si_abstain() -> None:
     assert bare.method is not None and bare.abstain_reason is not None
     assert retr.suggestions[CTX_REP].method == "hash"
     assert retr.suggestions[CTX_REP].abstain_reason is None
+
+
+# --------------------------------------------------------------------------- #
+# Wire-order independence (RP-forwarding readiness proof).
+#
+# RP's service-api forwards a test item's logs as an unordered Set
+# (IndexTestItem.logs), so once WARN context is forwarded the wire array order is
+# NOT guaranteed chronological — the ERROR may arrive before its preceding WARN
+# context. The analyzer re-establishes chronological order from logTime on ingest
+# (_time_ordered_logs). This proves the near-error discriminant survives a scrambled
+# wire order, i.e. the analyzer is ready for RP WARN-forwarding regardless of the
+# Set's iteration order. Only the RP payload (WARN levels) was missing.
+# --------------------------------------------------------------------------- #
+_TS_BASE = (2026, 7, 21, 0, 0)  # Y, M, D, h, m — seconds/7th appended per log
+
+
+def _item_ctx_ts(item_id: int, err_msg: str, ctx_msgs: list[str], *, scramble: bool) -> TestItem:
+    """S16 item with realistic distinct logTime (context strictly BEFORE the error).
+    ``scramble`` reverses the wire array (ERROR first) to mimic RP's unordered Set."""
+    logs = [
+        Log(logId=item_id * 10 + 1 + i, logLevel=WARN, message=c, logTime=(*_TS_BASE, i + 1, 0))
+        for i, c in enumerate(ctx_msgs)
+    ]
+    logs.append(
+        Log(logId=item_id * 10, logLevel=ERROR, message=err_msg,
+            logTime=(*_TS_BASE, len(ctx_msgs) + 1, 0))
+    )
+    if scramble:
+        logs.reverse()  # ERROR now precedes its context on the wire
+    return TestItem(testItemId=item_id, isAutoAnalyzed=False, testItemName="t",
+                    testCaseHash=0, logs=logs)
+
+
+def test_wire_order_independence_via_logtime() -> None:
+    def _index(scramble: bool) -> dict[int, StoredSignature]:
+        idx = IndexRetrieval()
+        pipe = IndexPipeline(idx, FakeStats(), FakeDrainStore())
+        items = [
+            _item_ctx_ts(CTX_REP, _ERR_TIMEOUT, _CTX_SLOW, scramble=scramble),
+            _item_ctx_ts(CTX_POOL_ITEM, _ERR_TIMEOUT, _CTX_POOL, scramble=scramble),
+        ]
+        pipe.index_launches([_launch(items, launch_id=1)])
+        return {i: _stored(idx.sigs[(PROJECT, i)]) for i in (CTX_REP, CTX_POOL_ITEM)}
+
+    ordered = _index(scramble=False)
+    scrambled = _index(scramble=True)
+
+    # Scrambling the wire order changes NOTHING: logTime restores chronology, so the
+    # folded near-error context (and thus msg_text) is byte-identical either way.
+    for i in (CTX_REP, CTX_POOL_ITEM):
+        assert ordered[i].msg_text == scrambled[i].msg_text
+
+    # And the discriminant is genuinely present: shared identity, divergent context.
+    assert scrambled[CTX_REP].error_hash == scrambled[CTX_POOL_ITEM].error_hash
+    assert scrambled[CTX_REP].exception_fp != 0
+    assert scrambled[CTX_REP].msg_text != scrambled[CTX_POOL_ITEM].msg_text

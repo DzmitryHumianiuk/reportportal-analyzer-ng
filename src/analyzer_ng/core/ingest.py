@@ -23,6 +23,7 @@ import logging
 import random
 import time
 from collections import defaultdict
+from collections.abc import Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -31,6 +32,7 @@ from analyzer_ng.amqp.models import (
     ERROR_LOGGING_LEVEL,
     BulkResponse,
     Launch,
+    Log,
     LogExceptionResult,
     TestItem,
 )
@@ -71,6 +73,20 @@ class ItemAnalysis:
     log_count: int
     start_time: datetime | None
     clean_msg: str  # unmasked cleaned primary text (seed matching + clusterMessage)
+
+
+def _time_ordered_logs(logs: Sequence[Log]) -> list[Log]:
+    """Return the item's logs in chronological order (by ``logTime``).
+
+    RP's service-api forwards a test item's logs as an unordered ``Set``
+    (``IndexTestItem.logs``), so the wire array order is not guaranteed chronological.
+    The near-error context discriminant (ADV-1 / S16) depends on the WARN lines
+    *preceding* the first ERROR — :func:`~analyzer_ng.preprocessing.pipeline.extract_context_lines`
+    reads them positionally — so re-establish order from ``logTime`` before processing
+    rather than trusting the wire order. The sort is stable: logs with equal timestamps
+    keep their wire order (RP stamps distinct ``logTime`` per log; only synthetic
+    payloads with defaulted timestamps tie)."""
+    return sorted(logs, key=lambda log: tuple(log.logTime))
 
 
 def _ts7_to_datetime(ts: object) -> datetime | None:
@@ -240,7 +256,8 @@ class IndexPipeline:
     def _process_item(
         self, manager: DrainManager, launch: Launch, item: TestItem
     ) -> tuple[TestItemIn, SignatureIn, datetime]:
-        logs = [pp.LogInput(message=log.message, log_level=log.logLevel) for log in item.logs]
+        ordered_logs = _time_ordered_logs(item.logs)
+        logs = [pp.LogInput(message=log.message, log_level=log.logLevel) for log in ordered_logs]
         kept = pp.filter_item_logs(logs, max_logs=self._max_logs)
         result = pp.build_item_signature(item.testItemName, logs, manager, in_app_prefixes=None)
 
@@ -252,7 +269,7 @@ class IndexPipeline:
         error_log_id = next(
             (
                 log.logId
-                for log in item.logs
+                for log in ordered_logs
                 if log.logLevel >= ERROR_LOGGING_LEVEL and log.message.strip()
             ),
             None,
@@ -350,7 +367,8 @@ class IndexPipeline:
         return out
 
     def _build_one(self, manager: DrainManager, launch: Launch, item: TestItem) -> ItemAnalysis:
-        logs = [pp.LogInput(message=log.message, log_level=log.logLevel) for log in item.logs]
+        ordered_logs = _time_ordered_logs(item.logs)
+        logs = [pp.LogInput(message=log.message, log_level=log.logLevel) for log in ordered_logs]
         kept = pp.filter_item_logs(logs, max_logs=self._max_logs)
         result = pp.build_item_signature(item.testItemName, logs, manager, in_app_prefixes=None)
         clean_msg = "\n".join(pp.clean_log(m).msg for m in kept if m.strip())
