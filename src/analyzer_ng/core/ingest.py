@@ -7,8 +7,12 @@ Turns an ``index`` request (a ``list[Launch]``) into persisted rows:
       ->  incremental test_history_stats
 
 Drain3 is single-writer per project via the spec-02 CAS contract: state is loaded,
-the batch is mined, and the snapshot is saved with an optimistic-concurrency check;
-a lost race reloads, re-mines, and retries (bounded). Embedding is optional — when
+the batch is mined, and the snapshot is saved with an optimistic-concurrency check.
+The load->mine->save critical section is serialized per project by a fleet-wide
+Postgres advisory lock (``Drain3StateStore.project_lock``) so a burst of concurrent
+``index`` messages for ONE project (RP's project-wide "Generate index") can't race
+the CAS and drop launches; a lost race still reloads, re-mines, and retries with
+jittered backoff (bounded) as a belt for lock-less stores. Embedding is optional — when
 no embedder is bound the index soft-degrades to lexical-only (``emb=NULL``,
 ``emb_model_ver=0``), as CONTEXT's risk note requires.
 """
@@ -16,8 +20,10 @@ no embedder is bound the index soft-degrades to lexical-only (``emb=NULL``,
 from __future__ import annotations
 
 import logging
+import random
 import time
 from collections import defaultdict
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -38,7 +44,14 @@ from analyzer_ng.preprocessing import pipeline as pp
 
 logger = logging.getLogger(__name__)
 
-DRAIN_CAS_RETRIES = 3
+DRAIN_CAS_RETRIES = 5
+# Jittered backoff between lost-CAS retries (§2.3). With the per-project advisory
+# lock the mine+CAS section is serialized so a conflict should not occur; this is
+# the belt for stores that do not expose ``project_lock`` (e.g. a lone unlocked
+# worker), letting a retry re-mine against genuinely newer state instead of
+# hot-looping on the same stale version.
+_CAS_BACKOFF_BASE_S = 0.02
+_CAS_BACKOFF_JITTER_S = 0.03
 
 
 @dataclass(frozen=True)
@@ -135,7 +148,13 @@ class IndexPipeline:
         entries: list[tuple[Launch, TestItem]],
         log_results: list[LogExceptionResult],
     ) -> None:
-        items, sigs, stats_bumps = self._mine_and_build(project_id, entries)
+        # Serialize the load->mine->CAS-write critical section per project so a
+        # burst of concurrent ``index`` messages for ONE project (RP's project-wide
+        # "Generate index") can't collide on the Drain3 optimistic-concurrency
+        # version and drop launches after exhausting CAS retries. The lock spans
+        # only the mine+persist section; different projects never contend.
+        with self._project_lock(project_id):
+            items, sigs, stats_bumps = self._mine_and_build(project_id, entries)
 
         # spec 02 §2.10: test_item + failure_signature + test_history_stats commit in
         # ONE transaction, so a mid-write failure leaves nothing persisted for the
@@ -208,6 +227,11 @@ class IndexPipeline:
                 attempt + 1,
                 self._cas_retries,
             )
+            if attempt < self._cas_retries - 1:
+                # Jittered backoff so a lost race re-mines against genuinely newer
+                # state instead of hot-looping (the advisory lock normally makes
+                # this unreachable — see _CAS_BACKOFF_* notes).
+                time.sleep(_CAS_BACKOFF_BASE_S + random.uniform(0, _CAS_BACKOFF_JITTER_S))
         raise RuntimeError(
             f"Drain3 state persistence failed for project {project_id} "
             f"after {self._cas_retries} attempts"
@@ -280,6 +304,16 @@ class IndexPipeline:
     def _load_template_texts(self, project_id: int) -> list[str]:
         loader = getattr(self._drain_store, "load_template_texts", None)
         return list(loader(project_id)) if loader is not None else []
+
+    def _project_lock(self, project_id: int) -> AbstractContextManager[object]:
+        """Per-project mine+CAS serialization guard (spec 02 §2.3).
+
+        Delegates to the store's ``project_lock`` (a fleet-wide Postgres advisory
+        lock) when available; a store without it degrades to the CAS-retry belt
+        alone (``nullcontext``), preserving the prior behavior for lock-less fakes.
+        """
+        lock = getattr(self._drain_store, "project_lock", None)
+        return lock(project_id) if lock is not None else nullcontext()
 
     # ------------------------------------------------------------------ #
     # Read-path signature building (analyze/suggest/cluster/search, T2.3)
