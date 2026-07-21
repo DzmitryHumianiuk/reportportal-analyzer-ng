@@ -36,6 +36,7 @@ class HealthProvider(Protocol):
     def thread_statuses(self) -> list[dict[str, Any]]: ...
     def render_metrics(self) -> tuple[bytes, str]: ...
     def metrics_summary(self) -> dict | None: ...
+    def llm_health(self) -> dict[str, Any]: ...
 
 
 def create_app(provider: HealthProvider) -> FastAPI:
@@ -56,8 +57,11 @@ def create_app(provider: HealthProvider) -> FastAPI:
     @app.get("/health")
     def health() -> Response:
         ready = provider.is_ready()
-        # metrics_summary is optional on older providers/fakes — degrade gracefully.
+        # metrics_summary / llm_health are optional on older providers/fakes —
+        # degrade gracefully. The llm block is additive and read-cheap (in-process
+        # state only, no blocking Ollama call), so /health stays fast (tech-debt #4).
         summary_fn = getattr(provider, "metrics_summary", None)
+        llm_fn = getattr(provider, "llm_health", None)
         body = {
             "live": True,
             "ready": ready,
@@ -67,6 +71,7 @@ def create_app(provider: HealthProvider) -> FastAPI:
             "gbm_model_ver": provider.gbm_model_ver,
             "version": provider.version,
             "metrics": summary_fn() if callable(summary_fn) else None,
+            "llm": llm_fn() if callable(llm_fn) else {"enabled": False},
         }
         return JSONResponse(status_code=200 if ready else 503, content=body)
 

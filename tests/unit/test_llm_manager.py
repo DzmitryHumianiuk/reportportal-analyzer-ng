@@ -74,7 +74,28 @@ def test_disabled_is_inert_and_never_hits_ollama() -> None:
         "available": False,
         "model": "qwen3:4b-q4_K_M",
         "reason": "disabled",
+        "breaker_state": None,  # no breaker constructed while disabled
     }
+
+
+def test_health_surfaces_breaker_state_and_makes_no_network_call() -> None:
+    # tech-debt #4: health() is a cheap in-process read — the breaker's live state
+    # is surfaced without any Ollama call (canary client raises on any HTTP hit).
+    cache, events, state = _stores()
+    sidecar = LlmSidecar(
+        _config(analyzer_llm_enabled=True),
+        cache_store=cache,
+        event_store=events,
+        role_state_store=state,
+        client=_canary_client(),  # would raise if health() touched the network
+    )
+    health = sidecar.health()
+    assert health["enabled"] is True
+    assert health["breaker_state"] == "closed"  # fresh breaker starts closed
+    # Trip the breaker (3 consecutive transport failures) — health reflects it live.
+    for _ in range(3):
+        sidecar._breaker.record_failure()  # type: ignore[union-attr]
+    assert sidecar.health()["breaker_state"] == "open"
 
 
 # ---- Probe ---- #

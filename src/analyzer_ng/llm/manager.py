@@ -207,11 +207,19 @@ class LlmSidecar:
 
     # -- observability ---------------------------------------------------- #
     def health(self) -> dict[str, Any]:
+        """Cheap in-process state read for ``GET /health`` — never probes/blocks.
+
+        Every field is a plain attribute or the breaker's in-memory state, so this
+        stays sub-ms and safe to call on the health hot path. ``breaker_state`` is
+        the honest live circuit signal (closed/open/half_open) the Inspector's
+        "breaker: in-process, not in DB" caveat was working around; it is ``None``
+        when the sidecar is disabled (no breaker constructed)."""
         return {
             "enabled": self.enabled,
             "available": self._available,
             "model": self.model,
             "reason": self._reason,
+            "breaker_state": self._breaker.state.value if self._breaker is not None else None,
         }
 
     def _on_breaker_change(self, old: BreakerState, new: BreakerState) -> None:

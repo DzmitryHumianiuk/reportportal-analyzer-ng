@@ -424,6 +424,18 @@ class AnalyzerService:
         self._metrics.pg_pool_in_use.set(pool_in_use(self._pg_pool))
         return self._metrics.render()
 
+    def llm_health(self) -> dict[str, Any]:
+        """LLM sidecar liveness for ``GET /health`` (tech-debt #4).
+
+        A cheap in-process state read (``sidecar.health()`` touches only attributes
+        and the breaker's in-memory state — no Ollama call), so the health hot path
+        stays fast. When the sidecar is absent or the master switch is off, the block
+        is ``{"enabled": False}`` and claims nothing else (spec 04 §0 back-compat)."""
+        sidecar = self._sidecar
+        if sidecar is None or not sidecar.enabled:
+            return {"enabled": False}
+        return sidecar.health()
+
     def metrics_summary(self) -> dict | None:
         """Install-wide metrics_daily rollup for the health endpoint (spec §10.3)."""
         stats = self._handlers.stats
