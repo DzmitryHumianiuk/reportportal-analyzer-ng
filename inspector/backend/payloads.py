@@ -426,7 +426,7 @@ def item_journey(
         decision_block["coldstart_provisional"] = True
         classical = db.one(
             """
-            SELECT predicted_label, confidence, model_ver, created_at
+            SELECT predicted_label, confidence, model_ver, features, created_at
             FROM analyzer.suggestion
             WHERE project_id = %s AND item_id = %s AND model_ver NOT LIKE 'rubric+%%'
             ORDER BY created_at DESC, suggestion_id DESC
@@ -436,6 +436,7 @@ def item_journey(
         )
         if classical:
             c_conf = float(classical["confidence"] or 0.0)
+            c_feats = _feature_rows(classical["features"] or {})
             decision_block["classical"] = {
                 "predicted_label": classical["predicted_label"],
                 "predicted_group": _grp(classical["predicted_label"]),
@@ -446,6 +447,11 @@ def item_journey(
                     else "abstain"
                 ),
                 "model_ver": classical["model_ver"],
+                # Full snapshot so the evidence waterfall/gauge can tell the
+                # classical story (the rubric row carries no feature vector).
+                "features": c_feats,
+                "feature_count": len(c_feats),
+                "feature_total": len(features_meta.FEATURE_DEFS),
             }
         else:
             decision_block["classical"] = None
@@ -780,6 +786,20 @@ def _num(v: Any) -> float | None:
     return None if v is None else float(v)
 
 
+def _feature_rows(features: dict[str, Any]) -> list[dict[str, Any]]:
+    """Numeric feature snapshot → described rows, |value|-sorted (shared by the
+    primary decision and the classical row exposed on cold-start items)."""
+    rows: list[dict[str, Any]] = []
+    for key, val in features.items():
+        try:
+            fv = float(val)
+        except (TypeError, ValueError):
+            continue
+        rows.append({**features_meta.describe(key), "value": fv})
+    rows.sort(key=lambda r: abs(r["value"]), reverse=True)
+    return rows
+
+
 def _matching_decision(
     db: Database, project_id: int, sug: dict[str, Any] | None
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
@@ -850,15 +870,7 @@ def _matching_decision(
 
     # Decision block — feature vector + gauge.
     features = sug["features"] or {}
-    feat_rows = []
-    for key, val in features.items():
-        try:
-            fv = float(val)
-        except (TypeError, ValueError):
-            continue
-        meta = features_meta.describe(key)
-        feat_rows.append({**meta, "value": fv})
-    feat_rows.sort(key=lambda r: abs(r["value"]), reverse=True)
+    feat_rows = _feature_rows(features)
 
     confidence = float(sug["confidence"] or 0.0)
     if confidence >= TAU_AUTO:

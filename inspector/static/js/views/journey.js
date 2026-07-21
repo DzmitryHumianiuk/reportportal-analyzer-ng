@@ -713,12 +713,25 @@ function decisionCard(d) {
   const llmEl = llmStrip(d, dec, method);
   if (llmEl) body.appendChild(llmEl);
 
+  // On cold-start provisional items the rubric row carries no feature vector —
+  // the gauge and evidence waterfall tell the CLASSICAL decision's story instead,
+  // clearly captioned as such. Normal items: unchanged.
+  const cl = dec.coldstart_provisional && dec.classical && dec.classical.features
+    ? dec.classical : null;
+  const evDec = cl
+    ? { ...cl, tau_suggest: dec.tau_suggest, tau_auto: dec.tau_auto }
+    : dec;
+
   // L2 — banded confidence gauge + active-band legend
+  if (cl) {
+    body.appendChild(h('div', { class: 'section-title', style: { marginTop: '4px' } },
+      `Classical decision — ${cl.predicted_label === 'ti' ? 'abstained' : defectName(cl.predicted_label, cl.predicted_group)} @ ${fmt(cl.confidence, 2)} (${cl.band})`));
+  }
   const gaugeRow = h('div', { class: 'flex gap-12 wrap center', style: { marginBottom: '6px' } });
   const gaugeWrap = h('div', { class: 'gauge-wrap' });
-  gaugeRow.append(gaugeWrap, h('div', { style: { flex: '1 1 220px' } }, bandLegend(dec)));
+  gaugeRow.append(gaugeWrap, h('div', { style: { flex: '1 1 220px' } }, bandLegend(evDec)));
   body.appendChild(gaugeRow);
-  requestAnimationFrame(() => drawGauge(gaugeWrap, dec));
+  requestAnimationFrame(() => drawGauge(gaugeWrap, evDec));
 
   // abstain reason (only when the row stores one — verbatim, honest omission otherwise)
   if (dec.band === 'abstain' && dec.abstain_reason) body.appendChild(abstainReasonBlock(dec, label));
@@ -732,12 +745,16 @@ function decisionCard(d) {
 
   // L2 — evidence groups (feature vector, grouped by evidence type, Σ|v|-sorted)
   body.appendChild(h('div', { class: 'section-title', style: { marginTop: '4px' } },
-    `Evidence the decision weighed (${dec.feature_count} of ${dec.feature_total} signals, largest first) (feature vector)`));
-  body.appendChild(evidenceGroups(dec.features));
+    `Evidence the ${cl ? 'classical ' : ''}decision weighed (${evDec.feature_count} of ${evDec.feature_total} signals, largest first) (feature vector)`));
+  body.appendChild(evidenceGroups(evDec.features));
 
   // L4 — engineer details (all raw fields, one click away)
   body.appendChild(engDetails('decision',
     h('dl', { class: 'kv' },
+      ...(cl ? [
+        h('dt', {}, 'rubric row'), h('dd', { class: 'mono' }, 'no feature vector — rubric path'),
+        h('dt', {}, 'classical model_ver'), h('dd', { class: 'mono', style: { fontSize: '12px' } }, cl.model_ver),
+      ] : []),
       h('dt', {}, 'model_ver'), h('dd', { class: 'mono', style: { fontSize: '12px' } }, dec.model_ver),
       h('dt', {}, 'method'), h('dd', { class: 'mono' }, method),
       ...(dec.abstain_reason ? [h('dt', {}, 'abstain_reason'), h('dd', { class: 'mono' }, dec.abstain_reason)] : []),
