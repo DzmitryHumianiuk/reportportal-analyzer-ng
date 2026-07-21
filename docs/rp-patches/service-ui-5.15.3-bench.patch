@@ -215,10 +215,10 @@ index 0000000..dbbf931
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
 new file mode 100644
-index 0000000..d99c3d5
+index 0000000..ab5b516
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
-@@ -0,0 +1,992 @@
+@@ -0,0 +1,952 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -685,7 +685,7 @@ index 0000000..d99c3d5
 +          {formatMessage(messages.benchDockToggle, { count: belowRows.length })}
 +        </div>
 +        {dockOpen && (
-+          <div className={cx('dock-body')}>
++          <>
 +            <div className={cx('dock-note')}>{formatMessage(messages.benchDockNote)}</div>
 +            {belowRows.map((row) => (
 +              <div
@@ -718,82 +718,7 @@ index 0000000..d99c3d5
 +                </div>
 +              </div>
 +            ))}
-+          </div>
-+        )}
-+      </div>
-+    );
-+  };
-+
-+  // The group of identical failures as first-class LEFT-column context (ng3).
-+  const renderGroup = () => {
-+    if (!showGroup) {
-+      return (
-+        <div className={cx('group-alone')}>
-+          <span className={cx('ga-glyph')} aria-hidden>
-+            ●
-+          </span>
-+          <div>
-+            <b>{formatMessage(messages.benchGroupAloneTitle)}</b>
-+            <br />
-+            {formatMessage(messages.benchGroupAloneSub)}
-+          </div>
-+        </div>
-+      );
-+    }
-+    return (
-+      <div className={cx('group-block')}>
-+        <div className={cx('group-line')}>
-+          <span className={cx('group-badge')}>{groupCount}</span>
-+          <div className={cx('group-main')}>
-+            <div className={cx('group-head')}>
-+              {formatMessage(messages.benchGroupHead, {
-+                count: groupCount,
-+                b: (chunks) => <b key="b">{chunks}</b>,
-+              })}
-+            </div>
-+            <div className={cx('group-sub')}>{formatMessage(messages.benchGroupSub)}</div>
-+          </div>
-+        </div>
-+        <div className={cx('group-actions')}>
-+          <button
-+            type="button"
-+            className={cx('btn', 'btn-ghost', 'btn-sm')}
-+            onClick={() => setGroupOpen((o) => !o)}
-+          >
-+            {formatMessage(groupOpen ? messages.benchGroupHideTests : messages.benchGroupShowTests)}
-+          </button>
-+        </div>
-+        <button type="button" className={cx('group-pointer')} onClick={pulseScope}>
-+          {formatMessage(messages.benchGroupPointer, { count: groupCount })} <span aria-hidden>↓</span>
-+        </button>
-+        {groupOpen && (
-+          <div className={cx('group-members')}>
-+            <div className={cx('gm-list')}>
-+              <span className={cx('gm-chip')}>
-+                <span
-+                  className={cx('dot')}
-+                  style={{ background: defectColor(currentIssue.issueType) }}
-+                />
-+                {currentItem?.name}{' '}
-+                <span className={cx('gm-cur')}>{formatMessage(messages.benchGroupThisTest)}</span>
-+              </span>
-+              {groupMembers.map((m) => (
-+                <span key={m.id || m.itemId} className={cx('gm-chip')}>
-+                  <span
-+                    className={cx('dot')}
-+                    style={{ background: defectColor(m.issue?.issueType) }}
-+                  />
-+                  {m.name}
-+                </span>
-+              ))}
-+            </div>
-+            <div className={cx('gm-foot')}>
-+              <InspectorLink
-+                href={itemInspector}
-+                label={formatMessage(messages.benchGroupInspector)}
-+              />
-+            </div>
-+          </div>
++          </>
 +        )}
 +      </div>
 +    );
@@ -1027,7 +952,6 @@ index 0000000..d99c3d5
 +  const itemInspector = getInspectorJourneyUrlForItem(projectId, currentItem);
 +
 +  return (
-+    <div className={cx('modal-scroll')}>
 +    <div className={cx('bench-modal')}>
 +      {/* item stripe */}
 +      <div className={cx('band', 'band-white', 'stripe')}>
@@ -1084,44 +1008,81 @@ index 0000000..d99c3d5
 +        )}
 +      </div>
 +
-+      {/* full-width body: LEFT context column (group) + main bench (ng3) */}
-+      <div className={cx('bench-split')}>
-+        <aside className={cx('context-col')}>
-+          <div className={cx('lp-cap')}>{formatMessage(messages.benchInThisRun)}</div>
-+          {renderGroup()}
-+        </aside>
-+        <div className={cx('bench-main')}>
-+          {/* the bench */}
-+          <div className={cx('bench-region')}>
-+            <div className={cx('region-head', bannerClass)}>
-+              <span className={cx('headline')}>{headlineByState[state].main}</span>
-+              <span className={cx('headline-help')}>{headlineByState[state].help}</span>
++      {/* group of identical failures (HYBRID: top context cue) */}
++      {showGroup && (
++        <div className={cx('band', 'band-white', 'group-band')}>
++          <div className={cx('group-line')}>
++            <span className={cx('group-badge')}>{groupCount}</span>
++            <div className={cx('group-main')}>
++              <div className={cx('group-head')}>
++                {formatMessage(messages.benchGroupHead, {
++                  count: <b key="c">{groupCount}</b>,
++                })}
++              </div>
++              <div className={cx('group-sub')}>{formatMessage(messages.benchGroupSub)}</div>
 +            </div>
-+            <div className={cx('region-cap')}>{formatMessage(messages.benchCap)}</div>
-+            <div className={cx('bench-row')}>
-+              {renderCheck({ kind: 'past' })}
-+              {renderCheck({ kind: 'similar' })}
-+              {renderCheck({ kind: 'ai' })}
-+              {belowRows.length > 0 && (
-+                <div className={cx('bar-sep')}>
-+                  <span className={cx('bar-rule')} />
-+                  <span
-+                    className={cx('bar-lbl', 'tip')}
-+                    title={formatMessage(messages.benchLineLabel)}
-+                  >
-+                    {formatMessage(messages.benchLineLabel)}
-+                  </span>
-+                  <span className={cx('bar-rule')} />
-+                </div>
-+              )}
-+              {renderDock()}
++            <div className={cx('group-actions')}>
++              <button
++                type="button"
++                className={cx('btn', 'btn-ghost', 'btn-sm')}
++                onClick={() => setGroupOpen((o) => !o)}
++              >
++                {formatMessage(groupOpen ? messages.benchGroupHideTests : messages.benchGroupShowTests)}
++              </button>
 +            </div>
 +          </div>
++          <button type="button" className={cx('group-pointer')} onClick={pulseScope}>
++            {formatMessage(messages.benchGroupPointer, { count: groupCount })} <span aria-hidden>↓</span>
++          </button>
++          {groupOpen && (
++            <div className={cx('group-members')}>
++              <div className={cx('gm-list')}>
++                <span className={cx('gm-chip')}>
++                  <span className={cx('dot')} style={{ background: defectColor(currentIssue.issueType) }} />
++                  {currentItem?.name} <span className={cx('gm-cur')}>{formatMessage(messages.benchGroupThisTest)}</span>
++                </span>
++                {groupMembers.map((m) => (
++                  <span key={m.id || m.itemId} className={cx('gm-chip')}>
++                    <span className={cx('dot')} style={{ background: defectColor(m.issue?.issueType) }} />
++                    {m.name}
++                  </span>
++                ))}
++              </div>
++              <div className={cx('gm-foot')}>
++                <span>{formatMessage(messages.benchGroupNote, { count: groupCount })}</span>
++                <InspectorLink href={itemInspector} label={formatMessage(messages.benchGroupInspector)} />
++              </div>
++            </div>
++          )}
++        </div>
++      )}
 +
-+          {/* evidence stage / compare */}
-+          <div className={cx('stage')}>{renderStage()}</div>
++      {/* the bench */}
++      <div className={cx('band', 'band-white', 'bench-region')}>
++        <div className={cx('region-head', bannerClass)}>
++          <span className={cx('headline')}>{headlineByState[state].main}</span>
++          <span className={cx('headline-help')}>{headlineByState[state].help}</span>
++        </div>
++        <div className={cx('region-cap')}>{formatMessage(messages.benchCap)}</div>
++        <div className={cx('bench-row')}>
++          {renderCheck({ kind: 'past' })}
++          {renderCheck({ kind: 'similar' })}
++          {renderCheck({ kind: 'ai' })}
++          {belowRows.length > 0 && (
++            <div className={cx('bar-sep')}>
++              <span className={cx('bar-rule')} />
++              <span className={cx('bar-lbl', 'tip')} title={formatMessage(messages.benchLineLabel)}>
++                {formatMessage(messages.benchLineLabel)}
++              </span>
++              <span className={cx('bar-rule')} />
++            </div>
++          )}
++          {renderDock()}
 +        </div>
 +      </div>
++
++      {/* evidence stage / compare */}
++      <div className={cx('band', 'band-grey', 'stage')}>{renderStage()}</div>
 +
 +      {/* verdict bar (R3) */}
 +      <div className={cx('band', 'band-white', 'verdict-bar')}>
@@ -1185,7 +1146,6 @@ index 0000000..d99c3d5
 +        )}
 +      </div>
 +    </div>
-+    </div>
 +  );
 +};
 +
@@ -1213,10 +1173,10 @@ index 0000000..d99c3d5
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 0000000..b773541
+index 0000000..f0b82e9
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,1173 @@
+@@ -0,0 +1,1081 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -1239,15 +1199,6 @@ index 0000000..b773541
 + * Everything is scoped under .bench-modal so the light surface never leaks into the
 + * surrounding dark modal chrome.
 + */
-+
-+// Full-width shell (ng3): the Bench fills the modal width up to a graceful 1600px cap,
-+// reclaiming the empty dark margins the ~1180px-capped ng2 Bench left. The dark modal
-+// shell spans the whole screen; this centres the light surface and caps it.
-+.modal-scroll {
-+  max-width: 1600px;
-+  margin: 0 auto;
-+  overflow-x: auto;
-+}
 +
 +.bench-modal {
 +  // RP Design System 6 tokens (mockup :root)
@@ -1282,9 +1233,9 @@ index 0000000..b773541
 +  --rp-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
 +  --muted3: #8d95a1;
 +
-+  width: 100%;
 +  min-width: 1080px;
-+  margin: 0 0 10px 0;
++  max-width: 1180px;
++  margin: 0 auto 10px auto;
 +  background: var(--rp-bg-000);
 +  border-radius: 16px;
 +  overflow: hidden;
@@ -1523,179 +1474,108 @@ index 0000000..b773541
 +    }
 +  }
 +
-+  // ---- full-width body: left context column + main bench (ng3) -----------
-+  .bench-split {
-+    display: flex;
-+    align-items: stretch;
-+    border-bottom: 1px solid var(--rp-e-100);
-+  }
-+  .context-col {
-+    width: 340px;
-+    flex: none;
-+    background: var(--rp-bg-100);
-+    border-right: 1px solid var(--rp-e-100);
-+    padding: 16px 20px;
-+  }
-+  .bench-main {
-+    flex: 1;
-+    min-width: 0;
-+  }
-+  .lp-cap {
-+    font-size: 11px;
-+    line-height: 16px;
-+    font-weight: 700;
-+    letter-spacing: 0.8px;
-+    text-transform: uppercase;
-+    color: var(--rp-e-400);
-+    margin: 0 0 10px;
-+  }
++  // ---- group of identical failures --------------------------------------
++  .group-band {
++    padding: 14px 24px;
 +
-+  // ---- group of identical failures (first-class context, left column) ----
-+  .group-block {
-+    background: var(--rp-bg-000);
-+    border: 1px solid var(--rp-e-100);
-+    border-radius: 8px;
-+    padding: 12px 13px;
-+    box-shadow: var(--rp-shadow);
-+
-+    .group-actions {
-+      margin-top: 10px;
++    .group-line {
++      display: flex;
++      align-items: flex-start;
++      gap: 12px;
 +    }
-+    .group-pointer {
-+      margin-top: 10px;
-+    }
-+  }
-+  .group-alone {
-+    background: var(--rp-bg-000);
-+    border: 1px dashed var(--rp-e-200);
-+    border-radius: 8px;
-+    padding: 12px 13px;
-+    color: var(--rp-e-400);
-+    font-size: 12.5px;
-+    line-height: 1.5;
-+    display: flex;
-+    align-items: flex-start;
-+    gap: 9px;
-+
-+    .ga-glyph {
-+      flex: none;
-+      width: 26px;
-+      height: 26px;
-+      border-radius: 100px;
-+      background: var(--rp-bg-200);
-+      color: var(--rp-e-400);
++    .group-badge {
 +      display: inline-flex;
 +      align-items: center;
 +      justify-content: center;
-+      font-size: 11px;
-+    }
-+    b {
-+      color: var(--rp-charcoal);
-+      font-weight: 600;
-+    }
-+  }
-+  .group-line {
-+    display: flex;
-+    align-items: flex-start;
-+    gap: 12px;
-+  }
-+  .group-badge {
-+    display: inline-flex;
-+    align-items: center;
-+    justify-content: center;
-+    min-width: 30px;
-+    height: 26px;
-+    padding: 0 8px;
-+    background: var(--rp-topaz-100);
-+    color: var(--rp-topaz);
-+    border: 1px solid #bfe6ee;
-+    border-radius: 13px;
-+    font-size: 15px;
-+    font-weight: 700;
-+    flex: none;
-+  }
-+  .group-main {
-+    flex: 1;
-+    min-width: 0;
-+  }
-+  .group-head {
-+    font-size: 13px;
-+    line-height: 1.45;
-+    color: var(--rp-almost-black);
-+
-+    b {
++      min-width: 30px;
++      height: 26px;
++      padding: 0 8px;
++      background: var(--rp-topaz-100);
++      color: var(--rp-topaz);
++      border: 1px solid #bfe6ee;
++      border-radius: 13px;
++      font-size: 15px;
 +      font-weight: 700;
++      flex: none;
 +    }
-+  }
-+  .group-sub {
-+    margin-top: 3px;
-+    font-size: 12px;
-+    color: var(--rp-e-400);
-+    line-height: 1.45;
-+  }
-+  .group-pointer {
-+    display: inline-flex;
-+    align-items: center;
-+    gap: 4px;
-+    background: none;
-+    border: none;
-+    padding: 0;
-+    cursor: pointer;
-+    color: var(--rp-topaz);
-+    font-size: 12px;
-+
-+    &:hover {
-+      text-decoration: underline;
++    .group-main {
++      flex: 1;
 +    }
-+  }
-+  .group-members {
-+    margin-top: 12px;
-+    padding-top: 12px;
-+    border-top: 1px solid var(--rp-e-100);
++    .group-head {
++      font-size: 13px;
++      color: var(--rp-almost-black);
 +
-+    .gm-list {
-+      display: flex;
-+      flex-wrap: wrap;
-+      gap: 6px;
-+    }
-+    .gm-chip {
-+      display: inline-flex;
-+      align-items: center;
-+      gap: 5px;
-+      padding: 3px 9px;
-+      background: var(--rp-bg-100);
-+      border: 1px solid var(--rp-e-100);
-+      border-radius: 100px;
-+      font-size: 12px;
-+      color: var(--rp-charcoal);
-+
-+      .gm-cur {
-+        color: var(--rp-e-400);
-+        font-style: italic;
++      b {
++        font-weight: 700;
 +      }
 +    }
-+    .gm-foot {
-+      display: flex;
-+      align-items: center;
-+      gap: 14px;
-+      margin-top: 8px;
++    .group-sub {
++      margin-top: 3px;
 +      font-size: 12px;
 +      color: var(--rp-e-400);
++    }
++    .group-actions {
++      flex: none;
++    }
++    .group-pointer {
++      margin: 8px 0 0 42px;
++      display: inline-flex;
++      align-items: center;
++      gap: 4px;
++      background: none;
++      border: none;
++      padding: 0;
++      cursor: pointer;
++      color: var(--rp-topaz);
++      font-size: 12px;
++
++      &:hover {
++        text-decoration: underline;
++      }
++    }
++    .group-members {
++      margin: 10px 0 0 42px;
++
++      .gm-list {
++        display: flex;
++        flex-wrap: wrap;
++        gap: 6px;
++      }
++      .gm-chip {
++        display: inline-flex;
++        align-items: center;
++        gap: 5px;
++        padding: 3px 9px;
++        background: var(--rp-bg-100);
++        border: 1px solid var(--rp-e-100);
++        border-radius: 100px;
++        font-size: 12px;
++        color: var(--rp-charcoal);
++
++        .gm-cur {
++          color: var(--rp-topaz);
++          font-weight: 600;
++        }
++      }
++      .gm-foot {
++        display: flex;
++        align-items: center;
++        gap: 14px;
++        margin-top: 8px;
++        font-size: 12px;
++        color: var(--rp-e-400);
++      }
 +    }
 +  }
 +
 +  // ---- agreement banner + bench -----------------------------------------
 +  .bench-region {
 +    padding: 16px 24px;
-+    background: var(--rp-bg-000);
-+    border-bottom: 1px solid var(--rp-e-100);
 +  }
 +  .region-head {
 +    display: flex;
 +    align-items: baseline;
-+    justify-content: space-between;
-+    gap: 12px;
-+    flex-wrap: wrap;
++    gap: 10px;
 +    padding: 11px 14px;
 +    border-radius: 8px;
 +    border: 1px solid var(--rp-e-100);
@@ -1743,10 +1623,9 @@ index 0000000..b773541
 +    gap: 14px;
 +  }
 +
-+  // ---- advisor check cards (flexible: spread across the widened bench) ----
++  // ---- advisor check cards ----------------------------------------------
 +  .check {
-+    flex: 1 1 240px;
-+    max-width: 380px;
++    width: 224px;
 +    background: var(--rp-bg-000);
 +    border: 1px solid var(--rp-e-200);
 +    border-radius: 8px;
@@ -1865,91 +1744,82 @@ index 0000000..b773541
 +    }
 +  }
 +
-+  // ---- the line + declined dock (full-width horizontal strip, ng3) -------
++  // ---- the line + declined dock -----------------------------------------
 +  .bar-sep {
-+    flex-basis: 100%;
 +    display: flex;
++    flex-direction: column;
 +    align-items: center;
-+    gap: 12px;
-+    margin: 14px 0 10px;
++    justify-content: center;
++    gap: 6px;
++    padding: 0 4px;
 +
 +    .bar-rule {
++      width: 0;
 +      flex: 1;
-+      height: 0;
-+      border-top: 2px dotted var(--rp-e-300);
++      border-left: 2px dotted var(--rp-e-300);
 +    }
 +    .bar-lbl {
-+      font-size: 10px;
++      writing-mode: vertical-rl;
++      transform: rotate(180deg);
++      font-size: 11px;
 +      color: var(--rp-e-400);
-+      text-transform: uppercase;
-+      letter-spacing: 0.5px;
 +      white-space: nowrap;
-+      cursor: help;
 +    }
 +  }
 +  .dock {
-+    flex-basis: 100%;
 +    align-self: flex-start;
++    min-width: 250px;
++    max-width: 300px;
 +    border: 1px dashed var(--rp-e-300);
 +    border-radius: 8px;
 +    padding: 11px 13px;
 +    background: var(--rp-bg-200);
 +
 +    .dock-toggle {
-+      display: flex;
++      display: inline-flex;
 +      align-items: center;
-+      gap: 8px;
++      gap: 6px;
 +      cursor: pointer;
-+      width: 100%;
-+      text-align: left;
 +      font-size: 12.5px;
 +      font-weight: 600;
-+      color: var(--rp-e-400);
++      color: var(--rp-charcoal);
 +      user-select: none;
 +
 +      .chev {
-+        font-size: 11px;
++        font-size: 9px;
 +        transition: transform 0.15s;
 +      }
 +      &:not(.open) .chev {
 +        transform: rotate(-90deg);
 +      }
 +    }
-+    .dock-body {
-+      display: grid;
-+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-+      gap: 8px;
-+      margin-top: 10px;
-+    }
 +    .dock-note {
-+      grid-column: 1 / -1;
-+      margin-bottom: 2px;
++      margin: 8px 0 10px;
 +      font-size: 11.5px;
 +      color: var(--rp-e-400);
-+      line-height: 1.45;
 +    }
 +    .dock-item {
-+      border: 1px dashed var(--rp-e-200);
++      padding: 8px;
 +      border-radius: 6px;
-+      padding: 9px 11px;
-+      background: var(--rp-bg-000);
 +      cursor: pointer;
-+      transition: border-color 0.15s;
 +
++      & + .dock-item {
++        margin-top: 6px;
++      }
 +      &:hover {
-+        border-color: var(--rp-e-300);
++        background: rgba(255, 255, 255, 0.6);
 +      }
 +      &.focus {
-+        border-color: var(--rp-e-400);
-+        background: #fff;
++        background: rgba(255, 255, 255, 0.9);
++        box-shadow: 0 0 0 1px var(--rp-e-300) inset;
 +      }
 +      .dn {
-+        font-size: 12.5px;
++        font-size: 12px;
 +        color: var(--rp-charcoal);
-+        font-weight: 600;
++        font-weight: 500;
 +      }
 +      .dd {
-+        margin-top: 4px;
++        margin-top: 2px;
 +        font-size: 12px;
 +        color: var(--rp-e-400);
 +
@@ -1962,9 +1832,8 @@ index 0000000..b773541
 +      .dact {
 +        display: flex;
 +        align-items: center;
-+        justify-content: space-between;
-+        gap: 10px;
-+        margin-top: 9px;
++        gap: 12px;
++        margin-top: 6px;
 +
 +        .dock-adopt {
 +          background: none;
@@ -1985,7 +1854,6 @@ index 0000000..b773541
 +  // ---- evidence stage ----------------------------------------------------
 +  .stage {
 +    padding: 18px 24px;
-+    background: var(--rp-bg-000);
 +
 +    .ns-big {
 +      font-size: 15px;
@@ -2721,10 +2589,10 @@ index 9c6b6da..1f85b26 100644
      display: flex;
    }
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-index 34cfec5..40d92a1 100644
+index 34cfec5..33f5706 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-@@ -266,4 +266,445 @@ export const messages = defineMessages({
+@@ -266,4 +266,432 @@ export const messages = defineMessages({
      id: 'MakeDecisionModal.defectReplaceWith',
      defaultMessage: 'The defect type will be changed to',
    },
@@ -2799,28 +2667,15 @@ index 34cfec5..40d92a1 100644
 +    id: 'MakeDecisionModal.benchWhy',
 +    defaultMessage: 'why?',
 +  },
-+  // Group of identical failures (HYBRID: left context column)
-+  benchInThisRun: {
-+    id: 'MakeDecisionModal.benchInThisRun',
-+    defaultMessage: 'In this run',
-+  },
++  // Group of identical failures (HYBRID)
 +  benchGroupHead: {
 +    id: 'MakeDecisionModal.benchGroupHead',
-+    defaultMessage: 'This exact failure shows up in <b>{count} tests</b> in this run.',
++    defaultMessage: 'This exact failure shows up in {count} tests in this run.',
 +  },
 +  benchGroupSub: {
 +    id: 'MakeDecisionModal.benchGroupSub',
 +    defaultMessage:
-+      'Same error signature, this test included. They are all waiting to be investigated.',
-+  },
-+  benchGroupAloneTitle: {
-+    id: 'MakeDecisionModal.benchGroupAloneTitle',
-+    defaultMessage: 'This failure is on its own in this run.',
-+  },
-+  benchGroupAloneSub: {
-+    id: 'MakeDecisionModal.benchGroupAloneSub',
-+    defaultMessage:
-+      'No other test failed with the same error signature, so there is no group to apply a decision to.',
++      'Same error signature, this test included. They are all waiting to be investigated, so one decision can cover the whole group.',
 +  },
 +  benchGroupShowTests: {
 +    id: 'MakeDecisionModal.benchGroupShowTests',
