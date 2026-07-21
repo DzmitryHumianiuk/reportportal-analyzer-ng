@@ -63,6 +63,7 @@ FEATURE_DEFS: list[tuple[int, str, str, str, str, float, str]] = [
     (43, "identifier_jaccard_top1", "shared identifiers with best match", "Overlap of identifier tokens (class names, endpoints, test names) with the best match, 0 to 1 (identifier-token Jaccard). 0 can mean \"nothing to compare\" — see \"has identifiers to compare\".", "[0,1]", 0.0, "discriminant"),
     (44, "hash_gate_blocked", "exact match found but rejected", "1 = an identical error ID (error_hash) existed, but the safety gate rejected inheriting its label because unmasked details disagreed (status codes / identifiers). A warning sign for look-alike traps.", "{0,1}", 0.0, "discriminant"),
     (45, "identifiers_present", "has identifiers to compare", "1 = this failure's message contains identifier tokens, so \"shared identifiers\" 0 means real disagreement, not missing data (v4, 2026-07-18b).", "{0,1}", 0.0, "discriminant"),
+    (46, "ident_jaccard_source", "identifier-match neighbour source", "Where the identifier comparison's neighbour came from: 1.0 = exact-hash match, 0.5 = closest history candidate (Stage C), 0 = no neighbour (v5, 2026-07-20).", "{0,0.5,1}", 0.0, "discriminant"),
 ]
 
 FEATURE_INDEX = {key: i for i, key, *_ in FEATURE_DEFS}

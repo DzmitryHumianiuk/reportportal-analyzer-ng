@@ -709,8 +709,17 @@ function decisionCard(d) {
   // never happened. The role-accurate LLM strip below replaces it.)
   body.appendChild(chips);
 
+  // Decision summary — the stored explanation of the DISPLAYED decision row
+  // (primary; classical on provisional items), prominent, with provenance chips.
+  // Honest absence: no block when no explanation is stored.
+  const clForSummary = dec.coldstart_provisional && dec.classical ? dec.classical : null;
+  const summarySrc = (clForSummary && clForSummary.explanation) ? clForSummary
+    : (dec.explanation ? dec : null);
+  const summaryEl = summarySrc ? decisionSummary(d, dec, summarySrc) : null;
+  if (summaryEl) body.appendChild(summaryEl);
+
   // LLM involvement strip (role-accurate, item-scoped) — before the gauge
-  const llmEl = llmStrip(d, dec, method);
+  const llmEl = llmStrip(d, dec, method, { explanationShownAbove: !!summaryEl });
   if (llmEl) body.appendChild(llmEl);
 
   // On cold-start provisional items the rubric row carries no feature vector —
@@ -735,13 +744,6 @@ function decisionCard(d) {
 
   // abstain reason (only when the row stores one — verbatim, honest omission otherwise)
   if (dec.band === 'abstain' && dec.abstain_reason) body.appendChild(abstainReasonBlock(dec, label));
-
-  // analyzer explanation (real stored field, no decorative quotes)
-  if (dec.explanation) {
-    body.appendChild(h('p', { class: 'note', style: { margin: '8px 0 16px' } },
-      h('span', { class: 'muted', style: { textTransform: 'uppercase', letterSpacing: '.5px', fontSize: '10px' } }, 'analyzer’s explanation'),
-      h('br'), dec.explanation));
-  }
 
   // L2 — evidence groups (feature vector, grouped by evidence type, Σ|v|-sorted)
   body.appendChild(h('div', { class: 'section-title', style: { marginTop: '4px' } },
@@ -1036,7 +1038,44 @@ function ocClass(outcome) {
   return 'oc-unavail';
 }
 
-function llmStrip(d, dec, method) {
+// Provenance of a stored explanation: llm explainer / rubric / deterministic.
+// Tolerant of unknown future markers — falls back to 'deterministic' wording.
+function explanationProvenance(d, row) {
+  const E = (d.llm && d.llm.events) || [];
+  const exp = E.find((e) => e.role === 'explainer');
+  const modelVer = String(row.model_ver || '');
+  if (modelVer.startsWith('rubric+')) {
+    return { kind: 'rubric', chip: modelVer.split(';')[0], validated: false, ev: null };
+  }
+  if (row.llm_used && exp && exp.outcome === 'ok') {
+    return { kind: 'llm', chip: exp.model || 'llm', validated: true, ev: exp };
+  }
+  return { kind: 'deterministic', chip: 'deterministic', validated: false, ev: null };
+}
+
+// Prominent decision-summary block: the stored explanation text (untrusted →
+// textContent via h()) + provenance chips. Never generated client-side.
+function decisionSummary(d, dec, row) {
+  const prov = explanationProvenance(d, row);
+  const wrap = h('div', { class: 'llm-quote', style: { margin: '0 0 14px' } });
+  const chips = h('div', { class: 'flex gap-8 wrap center', style: { marginBottom: '6px' } });
+  chips.appendChild(h('span', { class: 'section-title', style: { margin: 0 } },
+    row === dec ? 'decision summary' : 'decision summary — classical row'));
+  chips.appendChild(h('span', { class: 'chip mono' }, prov.chip));
+  if (prov.ev && !prov.ev.cache_hit && prov.ev.latency_ms != null) {
+    chips.appendChild(h('span', { class: 'chip' }, latFmt(prov.ev.latency_ms)));
+  }
+  if (prov.ev && prov.ev.cache_hit) chips.appendChild(h('span', { class: 'chip' }, 'cache hit'));
+  if (prov.validated) {
+    chips.appendChild(h('span', { class: 'chip', title: 'LLM explainer outputs pass a grounding guard: verbatim quotes are substring-validated against the real logs before anything is persisted.' },
+      'grounded quotes validated'));
+  }
+  wrap.appendChild(chips);
+  wrap.appendChild(h('div', {}, row.explanation));
+  return wrap;
+}
+
+function llmStrip(d, dec, method, opts = {}) {
   const llm = d.llm || { events: [], role_state: [] };
   const E = llm.events || []; // newest-first
   const modelVer = dec.model_ver || '';
@@ -1055,7 +1094,10 @@ function llmStrip(d, dec, method) {
   const tiles = h('div', { class: 'llm-tiles' });
   if (isColdstart) tiles.appendChild(coldstartTile(dec, E));
   const exp = latestByRole('explainer');
-  if (exp && exp.outcome === 'ok' && dec.explanation) tiles.appendChild(explainerTile(dec, exp));
+  // Skip the quote tile when the summary block above already carries the text.
+  if (exp && exp.outcome === 'ok' && dec.explanation && !opts.explanationShownAbove) {
+    tiles.appendChild(explainerTile(dec, exp));
+  }
   if (dec.judge) tiles.appendChild(judgeTile(dec));
   const ext = E.find((e) => e.role === 'extractor' && e.outcome === 'ok' && e.output);
   if (ext) tiles.appendChild(extractorTile(ext));

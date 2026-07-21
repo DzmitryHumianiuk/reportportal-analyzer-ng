@@ -426,7 +426,8 @@ def item_journey(
         decision_block["coldstart_provisional"] = True
         classical = db.one(
             """
-            SELECT predicted_label, confidence, model_ver, features, created_at
+            SELECT predicted_label, confidence, model_ver, features, explanation,
+                   llm_used, created_at
             FROM analyzer.suggestion
             WHERE project_id = %s AND item_id = %s AND model_ver NOT LIKE 'rubric+%%'
             ORDER BY created_at DESC, suggestion_id DESC
@@ -453,6 +454,8 @@ def item_journey(
                 "feature_count": len(c_feats),
                 "feature_total": len(features_meta.FEATURE_DEFS),
                 "extra_snapshot": c_extras or None,
+                "explanation": classical["explanation"],
+                "llm_used": classical["llm_used"],
             }
         else:
             decision_block["classical"] = None
