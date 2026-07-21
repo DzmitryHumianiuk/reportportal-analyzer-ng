@@ -140,5 +140,24 @@ def test_coldstart_inserts_suggest_band_ai_suggestion() -> None:
     assert ins["features"]["coldstart"] == {"rule": "R6", "confidence": "high"}
 
 
+def test_coldstart_copies_rubric_reason_into_explanation() -> None:
+    # Extension 2026-07-20: the rubric reason sentence (already in llm_event.output)
+    # is persisted onto the inserted suggestion's explanation — no second LLM call.
+    ops = FakeOps()
+    out = {"label": "si", "confidence": "high", "rubric_rule_matched": "R6",
+           "reason": "connection refused to shared database (R6)"}
+    sid = apply_coldstart(
+        ops, 1, 10, 500, output=out, group_locator="si001", model_tag="m"
+    )
+    assert ops.explanations == [(1, sid, "connection refused to shared database (R6)")]
+
+
+def test_coldstart_no_reason_leaves_explanation_unset() -> None:
+    ops = FakeOps()
+    out = {"label": "si", "confidence": "high", "rubric_rule_matched": "R6", "reason": ""}
+    apply_coldstart(ops, 1, 10, 500, output=out, group_locator="si001", model_tag="m")
+    assert ops.explanations == []
+
+
 def test_coldstart_method_name_constant() -> None:
     assert COLDSTART_METHOD_NAME == "llm_coldstart"

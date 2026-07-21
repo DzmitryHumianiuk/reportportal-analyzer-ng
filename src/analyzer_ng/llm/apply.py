@@ -98,7 +98,13 @@ def apply_coldstart(
     group_locator: str,
     model_tag: str,
 ) -> int:
-    """Insert a cold-start AI suggestion, always inside the suggest band (§4.4)."""
+    """Insert a cold-start AI suggestion, always inside the suggest band (§4.4).
+
+    Extension 2026-07-20: the rubric ``reason`` sentence the model already produced
+    (and which is audited verbatim in ``llm_event.output``) is copied straight onto
+    the inserted suggestion's ``explanation`` — no second LLM call, provenance stays
+    ``rubric+<model>``. Cheap and deterministic: the sentence already exists.
+    """
     confidence = CONFIDENCE_SCORE[output["confidence"]]
     features = {
         "coldstart": {
@@ -106,7 +112,7 @@ def apply_coldstart(
             "confidence": output["confidence"],
         }
     }
-    return ops.insert_coldstart(
+    suggestion_id = ops.insert_coldstart(
         project_id=project_id,
         item_id=item_id,
         launch_id=launch_id,
@@ -115,3 +121,7 @@ def apply_coldstart(
         model_ver=f"rubric+{model_tag}",
         features=features,
     )
+    reason = output.get("reason")
+    if reason:
+        ops.set_explanation(project_id, suggestion_id, reason)
+    return suggestion_id

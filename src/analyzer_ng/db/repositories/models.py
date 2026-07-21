@@ -173,6 +173,11 @@ class SuggestionIn(BaseModel):
     features: dict[str, float] = {}
     model_ver: str
     llm_used: bool = False
+    # Deterministic template explanation written at decision time (extension
+    # 2026-07-20): Stage-A inherits carry an "inherited from item N …" sentence with
+    # ``llm_used=false`` — the provenance marker distinguishing a template rationale
+    # from the LLM explainer (which sets ``llm_used=true``). None for every other path.
+    explanation: str | None = None
 
 
 class LabelEventIn(BaseModel):

@@ -19,8 +19,15 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# §1.5 static role priorities (lower = more urgent).
-ROLE_PRIORITY = {"judge": 0, "extractor": 1, "coldstart": 1, "explainer": 2}
+# §1.5 static role priorities (lower = more urgent). The abstain explainer is UX
+# enrichment like the match explainer, so it shares the least-urgent tier.
+ROLE_PRIORITY = {
+    "judge": 0,
+    "extractor": 1,
+    "coldstart": 1,
+    "explainer": 2,
+    "abstain_explainer": 2,
+}
 
 
 @dataclass

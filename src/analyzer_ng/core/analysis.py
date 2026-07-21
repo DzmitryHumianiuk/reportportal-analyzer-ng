@@ -49,6 +49,7 @@ from analyzer_ng.core.decision import (
     ACTION_AUTO,
     KB_CANDIDATE_SCORE,
     METHOD_GBM,
+    METHOD_HASH,
     METHOD_KB,
     TAU_AUTO,
     TAU_SUGGEST,
@@ -246,11 +247,13 @@ class AnalysisEngine:
                     self._record_membership(project, [member.item_id], m_mode, m_ana)
                 else:
                     inherit_ids.append(member.item_id)
-                self._write_suggestion(
+                sid = self._write_suggestion(
                     project, member.item_id, launch.launchId, group_id, m_decision
                 )
                 # §1.5: enqueue async LLM enrichment after the row is committed.
-                self._enqueue_llm(project, member.item_id, launch.launchId, m_decision)
+                self._enqueue_llm(
+                    project, member.item_id, launch.launchId, m_decision, suggestion_id=sid
+                )
                 if m_decision.action == ACTION_AUTO and m_decision.label != "ti":
                     self.retrieval.update_issue_type(
                         project, member.item_id, m_decision.issue_type, is_auto=True
@@ -296,7 +299,7 @@ class AnalysisEngine:
         # renders an empty reply. Persist here, before rendering, so an abstained
         # item later labeled by a human still carries its feature snapshot into
         # training (the analyze route already writes per member; suggest must too).
-        self._write_suggestion(info.project, info.testItemId, info.launchId, None, decision)
+        sid = self._write_suggestion(info.project, info.testItemId, info.launchId, None, decision)
         elapsed = time.monotonic() - started
         # §4.3 read-path surfacing: honor a prior async judge verdict by promoting the
         # chosen candidate to resultPosition 0. Only when the sidecar is on, so the
@@ -313,6 +316,7 @@ class AnalysisEngine:
             info.launchId,
             decision,
             candidates=self._judge_candidates(decision),
+            suggestion_id=sid,
         )
         return out
 
@@ -737,8 +741,8 @@ class AnalysisEngine:
         launch_id: int,
         group_id: int | None,
         decision: DecisionResult,
-    ) -> None:
-        self.retrieval.write_suggestion(
+    ) -> int:
+        return self.retrieval.write_suggestion(
             SuggestionIn(
                 project_id=project,
                 item_id=item_id,
@@ -750,7 +754,30 @@ class AnalysisEngine:
                 matched_item_id=decision.relevant_item_id,
                 features=decision.features,
                 model_ver=self._model_ver(decision),
+                explanation=self._stage_a_explanation(decision),
             )
+        )
+
+    @staticmethod
+    def _stage_a_explanation(decision: DecisionResult) -> str | None:
+        """Deterministic Stage-A inherit rationale (extension 2026-07-20).
+
+        Stage-A facts are fully unambiguous — a confirmed neighbour with the identical
+        ``error_hash`` that cleared the discriminant gate — so narrative synthesis adds
+        nothing an LLM should be spent on. The sentence is generated in-process (no LLM,
+        no queue) and persisted with ``llm_used=false`` (the provenance marker: an LLM
+        explanation always sets ``llm_used=true``). Returns None for every other path.
+        """
+        if decision.method != METHOD_HASH or decision.relevant_item_id is None:
+            return None
+        human = (
+            "human-labeled "
+            if decision.relevant_label_source in ("human", "rp")
+            else ""
+        )
+        return (
+            f"Inherited from item {decision.relevant_item_id} "
+            f"({human}{decision.issue_type}, same error_hash, discriminant gate passed)."
         )
 
     def _record_membership(
@@ -794,12 +821,23 @@ class AnalysisEngine:
         launch_id: int,
         decision: DecisionResult,
         candidates: list[dict] | None = None,
+        suggestion_id: int | None = None,
     ) -> None:
         """Enqueue the relevant LLM roles after the suggestion row is committed.
 
         A no-op when no sidecar is wired or the master switch is off (byte-identity,
         §0). Never raises into the decision path, never waits on the LLM (§0/§1.5).
         Per-role flags and the per-project kill-switch are enforced downstream.
+
+        Decision-outcome coverage (extension 2026-07-20):
+
+        * **abstain WITH candidates** → an ``abstain_explainer`` job narrates *why the
+          analyzer declined* (label conflict + blocking gate). A **pure-empty abstain**
+          (no retrieved candidates) enqueues nothing — there is nothing to explain.
+        * **Stage-A inherit** → no LLM: the deterministic "inherited from item N …"
+          sentence is written at ``_write_suggestion`` time (unambiguous facts).
+        * **suggest/auto with a match** → the match explainer (unchanged), plus the
+          judge in the suggest tie-break band (unchanged).
         """
         sc = self.sidecar
         if sc is None or not getattr(sc, "enabled", False):
@@ -809,8 +847,27 @@ class AnalysisEngine:
             # cache dedupes actual Ollama calls to once per novel template set (§4.2).
             sc.enqueue("extractor", project, item_id, {})  # type: ignore[attr-defined]
             if decision.label == "ti":
-                # Abstain → cold-start rubric (fact_loader gates on a cold project).
+                abstain_cands = self._abstain_candidates(decision)
+                if abstain_cands and suggestion_id is not None:
+                    # Abstain that still retrieved candidates → explain the decline.
+                    sc.enqueue(  # type: ignore[attr-defined]
+                        "abstain_explainer",
+                        project,
+                        item_id,
+                        {
+                            "suggestion_id": suggestion_id,
+                            "abstain_reason": decision.abstain_reason,
+                            "confidence": decision.confidence,
+                            "candidates": abstain_cands,
+                        },
+                    )
+                # Pure-empty abstain (no candidates): no abstain_explainer — nothing
+                # to explain. Cold-start rubric still fires (fact_loader gates cold).
                 sc.enqueue("coldstart", project, item_id, {"launch_id": launch_id})  # type: ignore[attr-defined]
+            elif decision.method == METHOD_HASH:
+                # Stage-A inherit: explanation is the deterministic template written at
+                # decision time (llm_used=false). No LLM narration is warranted.
+                pass
             elif decision.confidence >= TAU_SUGGEST:
                 sc.enqueue("explainer", project, item_id, {})  # type: ignore[attr-defined]
                 if (
@@ -823,6 +880,27 @@ class AnalysisEngine:
                     )
         except Exception:  # noqa: BLE001 — enrichment must never fail a decision
             logger.exception("LLM enqueue failed (project=%s item=%s)", project, item_id)
+
+    @staticmethod
+    def _abstain_candidates(decision: DecisionResult) -> list[dict]:
+        """Top Stage-C candidate refs for the abstain explainer (extension).
+
+        Carries each neighbour's locator + similarity — the label conflict the gates
+        declined to resolve. The worker re-reads the query facts fresh (§1.5); these
+        refs are pointers/evidence like the judge's candidate list, not trusted output.
+        """
+        out: list[dict] = []
+        for c in list(decision.stage_c)[:3]:
+            if c.issue_type is None:
+                continue
+            out.append(
+                {
+                    "id": c.item_id,
+                    "label": c.issue_type,
+                    "similarity": round(min(1.0, c.cosine or 0.0), 3),
+                }
+            )
+        return out
 
     @staticmethod
     def _judge_candidates(decision: DecisionResult) -> list[dict]:

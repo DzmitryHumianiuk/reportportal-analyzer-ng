@@ -32,6 +32,7 @@ from analyzer_ng.llm.client import OllamaClient
 from analyzer_ng.llm.engine import LlmEngine, RoleResult
 from analyzer_ng.llm.queue import LLMJob, LlmQueue
 from analyzer_ng.llm.roles import (
+    AbstainExplainerRole,
     ColdStartRole,
     ExplainerRole,
     ExtractorRole,
@@ -74,12 +75,15 @@ class LlmSidecar:
 
         self._role_enabled = {
             "explainer": config.analyzer_llm_explainer,
+            # Abstain explanations reuse the explainer flag (extension 2026-07-20).
+            "abstain_explainer": config.analyzer_llm_explainer,
             "extractor": config.analyzer_llm_extractor,
             "judge": config.analyzer_llm_judge,
             "coldstart": config.analyzer_llm_coldstart,
         }
         self._roles: dict[str, Role] = {
             "explainer": ExplainerRole(),
+            "abstain_explainer": AbstainExplainerRole(),
             "extractor": ExtractorRole(),
             "judge": JudgeRole(),
             "coldstart": ColdStartRole(),
