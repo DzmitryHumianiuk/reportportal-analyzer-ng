@@ -418,6 +418,38 @@ def item_journey(
     )
     matching_block, decision_block = _matching_decision(db, project_id, sug)
 
+    # Honesty split for LLM cold-start rows: a rubric row (model_ver 'rubric+…') is a
+    # PROVISIONAL ai_suggested hint — never surfaced in RP's Make Decision. When it is
+    # the latest row, also expose the latest CLASSICAL decision (if any) so the UI can
+    # tell both stories instead of dressing the rubric up as a normal suggest.
+    if decision_block is not None and str(sug.get("model_ver") or "").startswith("rubric+"):
+        decision_block["coldstart_provisional"] = True
+        classical = db.one(
+            """
+            SELECT predicted_label, confidence, model_ver, created_at
+            FROM analyzer.suggestion
+            WHERE project_id = %s AND item_id = %s AND model_ver NOT LIKE 'rubric+%%'
+            ORDER BY created_at DESC, suggestion_id DESC
+            LIMIT 1
+            """,
+            (project_id, item_id),
+        )
+        if classical:
+            c_conf = float(classical["confidence"] or 0.0)
+            decision_block["classical"] = {
+                "predicted_label": classical["predicted_label"],
+                "predicted_group": _grp(classical["predicted_label"]),
+                "confidence": c_conf,
+                "band": (
+                    "auto" if c_conf >= TAU_AUTO
+                    else "suggest" if c_conf >= TAU_SUGGEST
+                    else "abstain"
+                ),
+                "model_ver": classical["model_ver"],
+            }
+        else:
+            decision_block["classical"] = None
+
     # ---- RP UI deep links (batched): the item, a matched item, candidates,
     #      grouping members ----
     if rp is not None:
@@ -845,6 +877,9 @@ def _matching_decision(
             method = "hash"
         elif stage == "AB":
             method = "kb"
+        elif str(sug["model_ver"] or "").startswith("rubric+"):
+            # LLM cold-start rubric row — provisional ai_suggested, not a served path.
+            method = "coldstart"
         elif (sug["model_ver"] or "").split(";")[0] == "rule_cold":
             method = "rule_cold"
         else:

@@ -657,12 +657,13 @@ const GROUP_NAME = {
   discriminant: 'exact-detail agreement (discriminant)',
   other: 'uncatalogued (other)',
 };
-const METHOD_PLAIN = { hash: 'exact match', kb: 'known failure mode', gbm: 'learned model', rule_cold: 'starter rules' };
+const METHOD_PLAIN = { hash: 'exact match', kb: 'known failure mode', gbm: 'learned model', rule_cold: 'starter rules', coldstart: 'LLM cold-start rubric' };
 const METHOD_TIP = {
   hash: 'An identical failure (same error ID, error_hash) was seen before and labeled by a human. That label is inherited. Extra guards: recent (≤ 180 days), trusted (confidence ≥ 0.9), and the two failures still agree on unmasked details such as status codes and identifiers (discriminant gate). Confidence is fixed at 0.95 (Stage A).',
   kb: 'This failure matches an entry in the catalog of known, confirmed failure modes (knowledge base): match score ≥ 0.85, catalog entry ≥ 95 % label-pure with ≥ 10 confirmed members. Confidence is capped at 0.93.',
   gbm: 'A trained model (gradient-boosted trees, LightGBM) weighed all evidence signals — similar past failures, this test’s track record, the launch failure pattern, log contents — and produced a calibrated probability for each label.',
   rule_cold: 'No trained model is available yet (cold start). Simple safety rules decide: exact match, then catalog, then a pre-configured seed rule for this failure kind (needs confidence ≥ 0.7); otherwise the analyzer abstains.',
+  coldstart: 'Zero-label project: the LLM cold-start rubric proposed a PROVISIONAL ai_suggested label. It is never auto-applied and never surfaced in RP’s Make Decision — the classical decision path runs separately.',
 };
 const BAND_CHIP = { auto: 'auto-applied', suggest: 'suggested — needs a human', abstain: 'abstain → To Investigate' };
 const BAND_TIP = {
@@ -756,6 +757,26 @@ function decisionTakeaway(dec, method, label, matchedItemId, modeTitle) {
   const TA = fmt(dec.tau_auto, 2);
   const TS = fmt(dec.tau_suggest, 2);
   const mode = modeTitle ? `“${modeTitle}”` : 'in the catalog';
+  if (dec.coldstart_provisional) {
+    // Rubric rows are provisional ai_suggested hints — never a served suggest.
+    const modelBase = String(dec.model_ver || '').split(';')[0];
+    p.append(h('b', {}, 'LLM cold-start provisional: '), h('b', {}, label), `@${C} `,
+      h('span', { class: 'mono' }, modelBase), ' ',
+      muted('(ai_suggested — not shown in RP Make Decision)'));
+    const cl = dec.classical;
+    if (cl) {
+      const cLabel = defectName(cl.predicted_label, cl.predicted_group);
+      const cC = fmt(cl.confidence, 2);
+      p.append('; the classical decision ',
+        cl.band === 'abstain'
+          ? `abstained (${cl.predicted_label === 'ti' ? 'ti' : cLabel}@${cC})`
+          : `${cl.band === 'auto' ? 'auto-applied' : 'suggests'} ${cLabel}@${cC}`,
+        '.');
+    } else {
+      p.append('; no classical decision row exists for this item.');
+    }
+    return p;
+  }
   if (dec.band === 'auto') {
     if (method === 'hash' && matchedItemId) {
       p.append(h('b', {}, label), ', auto-applied — inherited from human-labeled identical failure ',
@@ -796,6 +817,12 @@ function decisionTakeaway(dec, method, label, matchedItemId, modeTitle) {
 }
 
 function bandChip(dec) {
+  if (dec.coldstart_provisional) {
+    // Not a served band: rubric rows never reach RP Make Decision.
+    return h('span', { class: 'badge', title: METHOD_TIP.coldstart,
+      style: { border: '1px dashed var(--rp-topaz)', color: 'var(--rp-topaz)', background: 'transparent' } },
+      h('span', { class: 'dot', style: { background: 'var(--rp-topaz)' } }), 'provisional (ai_suggested)');
+  }
   const col = `var(--band-${dec.band})`;
   const isAbstain = dec.band === 'abstain';
   return h('span', { class: 'badge', title: BAND_TIP[dec.band],
