@@ -97,7 +97,7 @@ def test_features_sorted_by_magnitude_and_enriched():
 def test_feature_total_is_data_driven():
     # The decision payload carries the real schema width (not a UI magic number).
     _, dec = _matching_decision(_FakeDB(), 1, _sug())
-    assert dec["feature_total"] == len(features_meta.FEATURE_DEFS) == 39
+    assert dec["feature_total"] == len(features_meta.FEATURE_DEFS) == 47
 
 
 def test_no_suggestion():
