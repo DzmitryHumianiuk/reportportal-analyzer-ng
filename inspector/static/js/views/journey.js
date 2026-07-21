@@ -111,11 +111,14 @@ function renderJourneyDetail(root, d) {
   if (d.rp) setDefects(d.rp.defects);
   const it = d.item;
   // Header line
-  root.appendChild(h('div', { style: { marginBottom: '14px' } },
-    h('h2', { style: { margin: '0 0 8px', fontSize: '18px', overflowWrap: 'anywhere', minWidth: 0 } }, it.item_name || `item ${it.item_id}`),
-    h('div', { class: 'flex center gap-8 wrap' },
-      defectBadge(it.issue_type, it.label_group),
-      it.is_auto_analyzed ? h('span', { class: 'badge', style: { background: 'var(--accent-soft)', color: 'var(--accent)' } }, icon('bolt', { size: 12 }), ' auto‑analyzed') : null,
+  root.appendChild(h('div', { class: 'flex center wrap', style: { marginBottom: '14px', gap: '8px 16px' } },
+    h('h2', { style: { margin: 0, fontSize: '18px', overflowWrap: 'anywhere', minWidth: 0, flex: '1 1 auto' } },
+      it.item_name || `item ${it.item_id}`, ' ',
+      // Badges live inside the heading so they ride the end of its last line.
+      h('span', { style: { display: 'inline-flex', gap: '8px', verticalAlign: 'middle', whiteSpace: 'nowrap', marginLeft: '4px' } },
+        defectBadge(it.issue_type, it.label_group),
+        it.is_auto_analyzed ? h('span', { class: 'badge', style: { background: 'var(--accent-soft)', color: 'var(--accent)' } }, icon('bolt', { size: 12 }), ' auto‑analyzed') : null)),
+    h('div', { class: 'flex gap-8 wrap', style: { marginLeft: 'auto', justifyContent: 'flex-end' } },
       idChip(`item ${it.item_id}`, it.ui_url),
       idChip(`launch ${it.launch_id}`, it.launch_url),
       h('span', { class: 'chip' }, `${it.log_count} logs`),
