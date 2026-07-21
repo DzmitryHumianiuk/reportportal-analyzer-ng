@@ -135,8 +135,8 @@ function renderJourneyDetail(root, d) {
   stages.forEach(([k, v], i) => {
     const pill = h('div', { class: 'stage-pill' + (i === 0 ? ' active' : ''), onclick: () => focus(i) },
       h('div', { class: 's-k' }, `${i + 1} · ${k}`),
-      h('div', { class: 's-v' }, v),
-      h('div', { class: 's-flow' }, '→'));
+      h('div', { class: 's-v', title: v }, v),
+      h('div', { class: 's-flow', 'aria-hidden': 'true' }, icon('arrowRight', { size: 15 })));
     stepper.appendChild(pill);
     cards.push(pill);
   });
