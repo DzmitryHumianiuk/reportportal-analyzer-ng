@@ -151,6 +151,12 @@ class MockOllama:
         message: dict[str, Any] = {"role": "assistant", "content": entry.get("content", "{}")}
         if "tool_calls" in entry:
             message["tool_calls"] = entry["tool_calls"]
+        # Stop cause: default "stop"; entries set "finish_reason": "length" to
+        # simulate a num_predict cap (masked truncation). Ollama surfaces it as
+        # ``done_reason``, the OpenAI dialect as choice ``finish_reason``.
+        finish_reason = entry.get("finish_reason", "stop")
         if request.url.path == "/v1/chat/completions":
-            return httpx.Response(200, json={"choices": [{"message": message}]})
-        return httpx.Response(200, json={"message": message})
+            return httpx.Response(
+                200, json={"choices": [{"message": message, "finish_reason": finish_reason}]}
+            )
+        return httpx.Response(200, json={"message": message, "done_reason": finish_reason})

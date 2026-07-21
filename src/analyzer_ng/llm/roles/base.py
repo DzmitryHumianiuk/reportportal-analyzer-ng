@@ -104,6 +104,13 @@ class Role(ABC):
     ttl_days: int
     num_predict: int
     schema: dict[str, Any]
+    # Free-text (narrative) output fields whose mid-sentence truncation is *masked*
+    # by constrained decoding — schema validation passes because the grammar closes
+    # the open string and emits the remaining fields. The engine screens these for
+    # a length-stopped cut and retries/marks them (§3.0 step 6b). Structured fields
+    # (enums, copied identifiers) are excluded: a cut there breaks JSON → schema_fail,
+    # which the ordinary retry/drop path already catches, never silently persisted.
+    free_text_fields: tuple[str, ...] = ()
 
     @abstractmethod
     def content_key(self, inp: dict[str, Any]) -> str:

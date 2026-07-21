@@ -36,6 +36,12 @@ class ChatResponse:
     content: str  # assistant text, ``<think>`` block already stripped
     tool_calls: list[Any] | None  # any tool_calls ⇒ role treats as schema failure (§5.3)
     latency_ms: int
+    # Why generation stopped, normalized to the OpenAI vocabulary ("stop" |
+    # "length" | ...). ``"length"`` means the num_predict/max_tokens cap was hit —
+    # the sole reliable signal that a schema-valid body may be a *masked* mid-field
+    # truncation (constrained decoding closes the open string + trailing fields so
+    # validation still passes). ``None`` when the server did not surface it.
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -175,7 +181,10 @@ class OllamaClient:
         if not isinstance(message, dict) or "content" not in message:
             raise LlmTransportError("malformed /api/chat body: no message.content")
         content = _strip_think(str(message.get("content", "")))
-        return ChatResponse(content, message.get("tool_calls"), latency_ms)
+        # Ollama surfaces the stop cause as ``done_reason`` ("stop" | "length" | …),
+        # already sharing the OpenAI vocabulary.
+        finish_reason = payload.get("done_reason")
+        return ChatResponse(content, message.get("tool_calls"), latency_ms, finish_reason)
 
     def _post_openai(
         self,
@@ -201,9 +210,12 @@ class OllamaClient:
             resp = self._client.post("/v1/chat/completions", json=body)
             resp.raise_for_status()
             payload = resp.json()
-            choice = payload["choices"][0]["message"]
+            choice_obj = payload["choices"][0]
+            choice = choice_obj["message"]
         except (httpx.HTTPError, ValueError, KeyError, IndexError) as exc:
             raise LlmTransportError(str(exc)) from exc
         latency_ms = int((time.monotonic() - started) * 1000)
         content = _strip_think(str(choice.get("content") or ""))
-        return ChatResponse(content, choice.get("tool_calls"), latency_ms)
+        # llama.cpp / vLLM report ``finish_reason`` on the choice ("stop" | "length").
+        finish_reason = choice_obj.get("finish_reason")
+        return ChatResponse(content, choice.get("tool_calls"), latency_ms, finish_reason)

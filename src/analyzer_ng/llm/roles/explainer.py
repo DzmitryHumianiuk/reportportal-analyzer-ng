@@ -38,7 +38,13 @@ _SCHEMA: dict[str, Any] = {
 class ExplainerRole(Role):
     name = "explainer"
     ttl_days = 90
-    num_predict = 300
+    # Budget audit (§3.0): a 2-3 sentence ``explanation`` (schema cap 700 chars ≈
+    # ~230 tokens; the grammar does not enforce maxLength) plus up to two exact
+    # ``quoted_lines`` (log lines, easily ~70 tokens) plus JSON overhead needs
+    # ~350-400 tokens. The old 300 starved the free-text ``explanation`` (same
+    # masked-truncation hazard as coldstart). 512 leaves headroom, still bounded.
+    num_predict = 512
+    free_text_fields = ("explanation",)
     schema = _SCHEMA
 
     def content_key(self, inp: dict[str, Any]) -> str:
@@ -107,7 +113,10 @@ class AbstainExplainerRole(ExplainerRole):
 
     name = "explainer"  # llm_event.role CHECK set — no migration change (§6.1)
     ttl_days = 90
-    num_predict = 220  # a decline needs fewer tokens than a match rationale
+    # A decline narrative is shorter than a match rationale (prompt: 1-3 sentences),
+    # but 220 still starved the free-text ``explanation``. 384 covers a 1-3 sentence
+    # decline + up to two short quotes with margin. ``free_text_fields`` inherited.
+    num_predict = 384
 
     def content_key(self, inp: dict[str, Any]) -> str:
         # Distinct from the match explainer key so the shared cache never collides.

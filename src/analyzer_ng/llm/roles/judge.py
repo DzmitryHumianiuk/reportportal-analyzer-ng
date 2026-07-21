@@ -38,7 +38,12 @@ def _schema_for_k(k: int) -> dict[str, Any]:
 class JudgeRole(Role):
     name = "judge"
     ttl_days = 14  # candidate sets drift (§3.0)
-    num_predict = 200
+    # Budget audit (§3.0): the ``reason`` string (schema cap 300 chars ≈ ~110 tokens,
+    # not grammar-enforced) plus the ``choice`` enum + keys (~30 tokens) needs ~150
+    # tokens. The old 200 could clip the free-text ``reason`` mid-sentence (masked
+    # truncation). 320 gives a 1-2 sentence rationale comfortable headroom.
+    num_predict = 320
+    free_text_fields = ("reason",)
 
     # ``schema`` is per-call (depends on K); a default is provided for callers that
     # want the shape without an input (K=3).
@@ -71,7 +76,8 @@ class JudgeRole(Role):
             f"QUERY failure facts:\n```json\n{fact_json}\n```\n"
             f"{block}\n\n"
             f"CANDIDATES:\n{candidates_block}\n\n"
-            "Which candidate is the same failure as the query?"
+            "Which candidate is the same failure as the query? Give the reason in 1-2 "
+            "short\nsentences and finish the last sentence."
         )
         return _SYSTEM, user
 

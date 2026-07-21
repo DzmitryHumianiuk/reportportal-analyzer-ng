@@ -74,7 +74,9 @@ _SYSTEM = (
     "R13 429/408, rate limiting, quota exceeded on shared services -> si, med\n"
     'R14 Concurrency artifacts: deadlock/optimistic-lock/"database is locked" in '
     "test\n"
-    "    parallel runs -> ab, low"
+    "    parallel runs -> ab, low\n\n"
+    'Keep "reason" to 2-3 short sentences (at most ~280 characters) and finish the '
+    "last\nsentence — never stop mid-sentence."
 )
 
 _SCHEMA: dict[str, Any] = {
@@ -111,7 +113,15 @@ _SCHEMA: dict[str, Any] = {
 class ColdStartRole(Role):
     name = "coldstart"
     ttl_days = 90
-    num_predict = 300
+    # Budget audit (§3.0): the ``reason`` string (≤300 chars ≈ ~110 tokens; note
+    # llama.cpp's JSON-schema→GBNF converter does NOT enforce maxLength, so only
+    # this cap actually bounds the string) plus the label/confidence/rule/keys JSON
+    # overhead (~40 tokens) needs ~150 tokens of headroom. The old 300 left the 4B
+    # model room to over-run the reason and get cut mid-sentence (live: item 3688,
+    # "...the exception is a"). 384 gives a well-behaved 2-3 sentence reason margin
+    # while staying bounded for a CPU-hosted 4B call.
+    num_predict = 384
+    free_text_fields = ("reason",)
     schema = _SCHEMA
 
     def content_key(self, inp: dict[str, Any]) -> str:
