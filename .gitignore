@@ -13,6 +13,7 @@ models/
 tests/golden/**/*.actual.json
 .claude/
 .DS_Store
+CLAUDE.md
 
 # local design deliberations and planning notes (kept out of the repo)
 .notes/
