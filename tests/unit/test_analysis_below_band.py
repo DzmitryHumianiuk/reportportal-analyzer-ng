@@ -68,7 +68,10 @@ def _rep() -> Any:
 
 def _cand(item_id: int, cosine: float, issue_type: str = "ab001") -> Candidate:
     return Candidate(
-        item_id=item_id, mode_id=None, cosine=cosine, issue_type=issue_type,
+        item_id=item_id,
+        mode_id=None,
+        cosine=cosine,
+        issue_type=issue_type,
         label_source="human",
     )
 

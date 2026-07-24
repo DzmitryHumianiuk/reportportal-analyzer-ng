@@ -109,8 +109,11 @@ def test_failed_attempt_cooldown_throttles_hotloop_then_allows_retry():
     labels = FakeLabels(rows, new_events=1000)
     store = FakeModelStore()
     r = Retrainer(
-        labels, store, gate=lambda _m, _r: False,
-        failed_cooldown=timedelta(minutes=5), clock=lambda: NOW,
+        labels,
+        store,
+        gate=lambda _m, _r: False,
+        failed_cooldown=timedelta(minutes=5),
+        clock=lambda: NOW,
     )
     first = r.maybe_retrain(reason="route", now=NOW)
     assert first.reason == "gate_rejected"
@@ -169,8 +172,12 @@ def test_ships_install_wide_and_per_project_calibrators():
 
     big = synth_frame(n=CALIB_MIN_EVENTS + 40, seed=10, project_ids=(1,))
     small = [
-        {"project_id": 2, "item_id": 9000 + i, "new_label": big[i]["new_label"],
-         "features": big[i]["features"]}
+        {
+            "project_id": 2,
+            "item_id": 9000 + i,
+            "new_label": big[i]["new_label"],
+            "features": big[i]["features"],
+        }
         for i in range(40)
     ]
     r, store, _ = _retrainer(big + small)

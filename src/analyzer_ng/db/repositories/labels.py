@@ -52,9 +52,7 @@ class PgLabelStore(StoreBase):
             params.append(project_id)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         with self._conn() as conn:
-            cur = conn.execute(
-                f"SELECT count(*) FROM analyzer.label_event{where}", params
-            )
+            cur = conn.execute(f"SELECT count(*) FROM analyzer.label_event{where}", params)
             return int(require_row(cur)[0])
 
     def fetch_training_frame(

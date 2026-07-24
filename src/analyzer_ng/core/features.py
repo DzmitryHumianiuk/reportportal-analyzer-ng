@@ -98,14 +98,13 @@ def _onehot_defs(prefix: str, levels: tuple[str, ...]) -> tuple[FeatureDef, ...]
     )
 
 
-def _set_onehot(
-    values: dict[str, float], prefix: str, levels: tuple[str, ...], value: str
-) -> None:
+def _set_onehot(values: dict[str, float], prefix: str, levels: tuple[str, ...], value: str) -> None:
     """Set the one-hot block for ``prefix``: the column for ``value`` (or ``unknown``
     when ``value`` is not a known level) to 1.0, every other column to 0.0."""
     active = value if value in levels else LLM_UNKNOWN
     for lvl in levels:
         values[f"{prefix}_{lvl}"] = 1.0 if lvl == active else 0.0
+
 
 # Base issue-type groups the model predicts; ``ti`` is the abstain outcome.
 BASE_LABELS = ("pb", "ab", "si", "nd")
@@ -412,8 +411,10 @@ def extract_features(ctx: FeatureContext) -> dict[str, float]:
         total_mass = 0.0
         for i, c in enumerate(cands):
             age = ages[i] if i < len(ages) else 0.0
-            w = max(0.0, _cos(c)) * decay(age, per_day=ctx.time_decay_per_day) * src_weight(
-                c.label_source
+            w = (
+                max(0.0, _cos(c))
+                * decay(age, per_day=ctx.time_decay_per_day)
+                * src_weight(c.label_source)
             )
             total_mass += w
             b = _base(c.issue_type)
@@ -442,9 +443,7 @@ def extract_features(ctx: FeatureContext) -> dict[str, float]:
         values["test_fail_rate_30d"] = _clamp01(ctx.window_failures / ctx.window_runs)
     values["flips_30d"] = _clamp01(math.log1p(max(0, ctx.window_flips)) / math.log1p(20))
 
-    values["co_failure_group_size"] = _clamp01(
-        math.log1p(max(0, ctx.group_size)) / math.log1p(200)
-    )
+    values["co_failure_group_size"] = _clamp01(math.log1p(max(0, ctx.group_size)) / math.log1p(200))
     if ctx.launch_failures > 0:
         values["group_dominance"] = _clamp01(ctx.group_size / ctx.launch_failures)
     if ctx.launch_items > 0:
@@ -499,8 +498,7 @@ def extract_features(ctx: FeatureContext) -> dict[str, float]:
     if ctx.has_hash_top1:
         values["status_codes_match_top1"] = (
             1.0
-            if ctx.query_status_codes
-            and set(ctx.query_status_codes) == set(ctx.top1_status_codes)
+            if ctx.query_status_codes and set(ctx.query_status_codes) == set(ctx.top1_status_codes)
             else 0.0
         )
     # identifier_jaccard_top1 (v5): the best available neighbour — exact-hash top-1 when
@@ -516,9 +514,7 @@ def extract_features(ctx: FeatureContext) -> dict[str, float]:
     if neighbour_tokens is not None:
         neighbour_ids = identifier_tokens(neighbour_tokens)
         values["identifier_jaccard_top1"] = (
-            _clamp01(jaccard(query_ids, neighbour_ids))
-            if (query_ids or neighbour_ids)
-            else 0.0
+            _clamp01(jaccard(query_ids, neighbour_ids)) if (query_ids or neighbour_ids) else 0.0
         )
     values["hash_gate_blocked"] = 1.0 if ctx.hash_gate_blocked else 0.0
 

@@ -20,6 +20,7 @@ Examples
   python3 generate.py --phase 2
   python3 generate.py --day 2026-07-01
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,11 +32,11 @@ from collections import defaultdict
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-from gen import config                                    # noqa: E402
-from gen.corpus import load_corpus                        # noqa: E402
-from gen.schedule import Scheduler, H, P, DECOY           # noqa: E402
-from gen.expected import build_manifest                   # noqa: E402
-from gen import rp as rpmod                               # noqa: E402
+from gen import config  # noqa: E402
+from gen import rp as rpmod  # noqa: E402
+from gen.corpus import load_corpus  # noqa: E402
+from gen.expected import build_manifest  # noqa: E402
+from gen.schedule import H, P, Scheduler  # noqa: E402
 
 FEA_LABEL_BUDGET = 15  # keep frontend-apps cold (< 20 label_events) -- see SCENARIOS §1
 
@@ -93,29 +94,37 @@ def dry_run(plan, phase=None, day=None, launch=None):
             roles = defaultdict(int)
             for pi in la.items:
                 roles[pi.role] += 1
-            cases = sorted({s for pi in la.items for s in pi.item.scenario_refs
-                            if s.startswith("BENCH-")})
+            cases = sorted(
+                {s for pi in la.items for s in pi.item.scenario_refs if s.startswith("BENCH-")}
+            )
             extra = f"  cases={','.join(cases)}" if cases else ""
-            print(f"    [{la.date} {la.hour:02d}h ph{la.phase}] {la.project}/"
-                  f"{la.name}: {len(la.items)} items "
-                  f"(H={roles['H']} P={roles['P']} D={roles['D']}){extra}")
+            print(
+                f"    [{la.date} {la.hour:02d}h ph{la.phase}] {la.project}/"
+                f"{la.name}: {len(la.items)} items "
+                f"(H={roles['H']} P={roles['P']} D={roles['D']}){extra}"
+            )
     print("=" * 72)
 
     print("\nPer-project roll-up (target from SCENARIOS.md §3.2 in brackets):")
-    targets = {config.WSU: (78, 900, 320), config.PSV: (46, 320, 80),
-               config.FEA: (40, 230, 18)}
-    hdr = f"  {'project':16} {'launches':>9} {'items':>7} {'H':>5} {'P':>5} {'decoy':>6} {'logs':>7}"
+    targets = {config.WSU: (78, 900, 320), config.PSV: (46, 320, 80), config.FEA: (40, 230, 18)}
+    hdr = (
+        f"  {'project':16} {'launches':>9} {'items':>7} {'H':>5} {'P':>5} {'decoy':>6} {'logs':>7}"
+    )
     print(hdr)
     tot = dict(launches=0, items=0, H=0, P=0, D=0, logs=0)
     for proj in config.PROJECTS:
         b = by_proj[proj]
         tl, ti_, _ = targets[proj]
-        print(f"  {proj:16} {b['launches']:>4}[{tl:>3}] {b['items']:>7} "
-              f"{b['H']:>5} {b['P']:>5} {b['D']:>6} {b['logs']:>7}")
+        print(
+            f"  {proj:16} {b['launches']:>4}[{tl:>3}] {b['items']:>7} "
+            f"{b['H']:>5} {b['P']:>5} {b['D']:>6} {b['logs']:>7}"
+        )
         for k in tot:
             tot[k] += b[k]
-    print(f"  {'TOTAL':16} {tot['launches']:>9} {tot['items']:>7} "
-          f"{tot['H']:>5} {tot['P']:>5} {tot['D']:>6} {tot['logs']:>7}")
+    print(
+        f"  {'TOTAL':16} {tot['launches']:>9} {tot['items']:>7} "
+        f"{tot['H']:>5} {tot['P']:>5} {tot['D']:>6} {tot['logs']:>7}"
+    )
     print("  spec §3.2 targets: ~164 launches, ~1450 failed items, ~418 label_events")
 
     print("\nPer-phase:")
@@ -154,8 +163,9 @@ def dry_run(plan, phase=None, day=None, launch=None):
 # real upload
 # ---------------------------------------------------------------------------
 def run_upload(plan, args):
-    client = rpmod.RPClient(uat_base=args.rp_uat, api_base=args.rp_api,
-                            log_workers=args.log_workers)
+    client = rpmod.RPClient(
+        uat_base=args.rp_uat, api_base=args.rp_api, log_workers=args.log_workers
+    )
     print("login ...", flush=True)
     client.login()
 
@@ -172,10 +182,12 @@ def run_upload(plan, args):
     for ph in phases:
         if ph in (4, 5):
             continue  # handled after the launch phases
-        sel = [la for la in filter_plan(plan, phase=ph, day=args.day)
-               if la.project in projects
-               and (args.launch is None
-                    or args.launch.lower() in la.name.lower())]
+        sel = [
+            la
+            for la in filter_plan(plan, phase=ph, day=args.day)
+            if la.project in projects
+            and (args.launch is None or args.launch.lower() in la.name.lower())
+        ]
         if not sel:
             continue
         print(f"\n===== PHASE {ph}: {len(sel)} launches =====", flush=True)
@@ -203,12 +215,14 @@ def run_upload(plan, args):
                 # NB: FEA label budget must still be accounted for skipped FEA
                 # launches so a resumed run keeps the same cap arithmetic.
                 if ph in (0, 1, 2) and la.project == config.FEA:
-                    would = sum(1 for pi in la.items if pi.role == H
-                                and pi.item.ground_truth not in (None, "ti"))
+                    would = sum(
+                        1
+                        for pi in la.items
+                        if pi.role == H and pi.item.ground_truth not in (None, "ti")
+                    )
                     fea_budget -= min(would, max(fea_budget, 0))
                 n_skip += 1
-                print(f"  SKIP [{la.date}] {la.project}/{la.name} ({res['reason']})",
-                      flush=True)
+                print(f"  SKIP [{la.date}] {la.project}/{la.name} ({res['reason']})", flush=True)
                 continue
             n_up += 1
             n_items = len(la.items)
@@ -230,9 +244,11 @@ def run_upload(plan, args):
                 if lid:
                     client.analyze(la.project, lid)
                     analyzed = f" analyze(lid={lid})"
-            print(f"  [{la.date}] {la.project}/{la.name}: "
-                  f"{n_items} items, {n_logs} logs, {labels} labels{analyzed}",
-                  flush=True)
+            print(
+                f"  [{la.date}] {la.project}/{la.name}: "
+                f"{n_items} items, {n_logs} logs, {labels} labels{analyzed}",
+                flush=True,
+            )
         print(f"  --- phase {ph}: {n_up} uploaded, {n_skip} skipped ---", flush=True)
 
     # Phase 4: S43 feedback sweep (best-effort)
@@ -242,8 +258,7 @@ def run_upload(plan, args):
     if (args.phase in (None, 5)) and not args.smoke:
         _phase5_routes(client, plan, args)
 
-    print(f"\nlabel_events replayed: "
-          f"{ {k: label_totals[k] for k in config.PROJECTS} }")
+    print(f"\nlabel_events replayed: { {k: label_totals[k] for k in config.PROJECTS} }")
     return client
 
 
@@ -268,11 +283,17 @@ def _phase4_sweep(client, plan, args):
     # (best-effort: re-label a sample of WSU+PSV probe items to their ground truth)
     try:
         for proj in (config.WSU, config.PSV):
-            probes = [(la, pi) for la in plan if la.project == proj
-                      for pi in la.items if pi.role == P and pi.item.ground_truth
-                      and pi.item.ground_truth != "ti"]
-            print(f"  {proj}: {len(probes)} probe items available for sweep "
-                  f"(defect_update replay is driven per-item by numeric id lookup)")
+            probes = [
+                (la, pi)
+                for la in plan
+                if la.project == proj
+                for pi in la.items
+                if pi.role == P and pi.item.ground_truth and pi.item.ground_truth != "ti"
+            ]
+            print(
+                f"  {proj}: {len(probes)} probe items available for sweep "
+                f"(defect_update replay is driven per-item by numeric id lookup)"
+            )
     except Exception as e:  # pragma: no cover
         print(f"  sweep skipped: {e}")
     print("  NOTE: full sweep replays run as part of a complete upload; see README.")
@@ -281,8 +302,9 @@ def _phase4_sweep(client, plan, args):
 def _phase5_routes(client, plan, args):
     print("\n===== PHASE 5: route calls (S44) + isolation (S45) =====", flush=True)
     try:
-        demo = next((la for la in plan if la.project == config.WSU
-                     and "Probe Launch" in la.name), None)
+        demo = next(
+            (la for la in plan if la.project == config.WSU and "Probe Launch" in la.name), None
+        )
         if demo:
             # cluster twice -> stable clusterIds
             lid = None
@@ -328,8 +350,11 @@ def _history_launches(plan, launch=None):
     Bench History launches) scoped: without it every remediation pass would
     walk, reset, and re-analyze the WHOLE stand history.
     """
-    return [la for la in plan if la.phase in (0, 2)
-            and (launch is None or launch.lower() in la.name.lower())]
+    return [
+        la
+        for la in plan
+        if la.phase in (0, 2) and (launch is None or launch.lower() in la.name.lower())
+    ]
 
 
 def _labelable_items(client, la, fea_budget):
@@ -363,8 +388,7 @@ def replay_only(client, plan, args, exclude_ids):
     label_event -> passed in as exclude_ids, so already-landed events never double.
     """
     print("\n===== REPLAY-ONLY: history defect_update triage =====", flush=True)
-    print(f"  excluding {len(exclude_ids)} items that already have a label_event",
-          flush=True)
+    print(f"  excluding {len(exclude_ids)} items that already have a label_event", flush=True)
     if args.launch:
         print(f"  scoped to launches whose name contains {args.launch!r}", flush=True)
     per = defaultdict(lambda: dict(replayed=0, skipped=0, no_launch=0))
@@ -383,21 +407,30 @@ def replay_only(client, plan, args, exclude_ids):
             if rid in exclude_ids:
                 per[la.project]["skipped"] += 1
                 continue
-            issues.append({"testItemId": rid, "issue": {
-                "issueType": config.ISSUE_LOCATOR[gt], "autoAnalyzed": False,
-                "ignoreAnalyzer": False, "comment": "demo triage"}})
+            issues.append(
+                {
+                    "testItemId": rid,
+                    "issue": {
+                        "issueType": config.ISSUE_LOCATOR[gt],
+                        "autoAnalyzed": False,
+                        "ignoreAnalyzer": False,
+                        "comment": "demo triage",
+                    },
+                }
+            )
             exclude_ids.add(rid)
             per[la.project]["replayed"] += 1
         for k in range(0, len(issues), 50):
-            client.defect_update(la.project, issues[k:k + 50])
+            client.defect_update(la.project, issues[k : k + 50])
         if issues:
-            print(f"  [{la.date}] {la.project}/{la.name}: {len(issues)} defect_updates",
-                  flush=True)
+            print(f"  [{la.date}] {la.project}/{la.name}: {len(issues)} defect_updates", flush=True)
     print("  per-project replayed / skipped / no-launch:")
     for p in config.PROJECTS:
         b = per[p]
-        print(f"    {p:18} replayed={b['replayed']:4} skipped={b['skipped']:4} "
-              f"no_launch={b['no_launch']:3}")
+        print(
+            f"    {p:18} replayed={b['replayed']:4} skipped={b['skipped']:4} "
+            f"no_launch={b['no_launch']:3}"
+        )
     return per
 
 
@@ -411,8 +444,7 @@ def analyze_history(client, plan, args):
     replay_only re-applies the human labels, whose label_events then join to those
     features. Order-independent (uses the ground_truth attribute).
     """
-    print("\n===== ANALYZE-HISTORY: reset->analyze so history items get features =====",
-          flush=True)
+    print("\n===== ANALYZE-HISTORY: reset->analyze so history items get features =====", flush=True)
     for p in (config.WSU, config.PSV, config.FEA):
         client.set_analyzer(p, enabled=True)
     if args.launch:
@@ -426,18 +458,30 @@ def analyze_history(client, plan, args):
             continue
         la.find_lid = found["id"]
         labelable, fea_budget = _labelable_items(client, la, fea_budget)
-        reset = [{"testItemId": it["id"], "issue": {
-            "issueType": "ti001", "autoAnalyzed": False,
-            "ignoreAnalyzer": False, "comment": "demo re-analyze reset"}}
-            for it in labelable if it.get("issue_type") != "ti001"]
+        reset = [
+            {
+                "testItemId": it["id"],
+                "issue": {
+                    "issueType": "ti001",
+                    "autoAnalyzed": False,
+                    "ignoreAnalyzer": False,
+                    "comment": "demo re-analyze reset",
+                },
+            }
+            for it in labelable
+            if it.get("issue_type") != "ti001"
+        ]
         for k in range(0, len(reset), 50):
-            client.defect_update(la.project, reset[k:k + 50])
+            client.defect_update(la.project, reset[k : k + 50])
         per[la.project]["reset"] += len(reset)
         if labelable:
             client.analyze(la.project, la.find_lid)
             per[la.project]["analyzed_launches"] += 1
-            print(f"  [{la.date}] {la.project}/{la.name}: reset {len(reset)} -> "
-                  f"analyze(lid={la.find_lid})", flush=True)
+            print(
+                f"  [{la.date}] {la.project}/{la.name}: reset {len(reset)} -> "
+                f"analyze(lid={la.find_lid})",
+                flush=True,
+            )
     print("  per-project reset / analyzed-launches:")
     for p in config.PROJECTS:
         print(f"    {p:18} reset={per[p]['reset']:4} launches={per[p]['analyzed_launches']:3}")
@@ -448,17 +492,40 @@ def analyze_history(client, plan, args):
 # re-index history under a new analyzer image (recompute failure_signature)
 # ---------------------------------------------------------------------------
 _PROJ_BY_ID = {3: config.WSU, 4: config.PSV, 5: config.FEA}
-_LEVEL_NUM = {"trace": 5000, "debug": 10000, "info": 20000, "warn": 30000,
-              "warning": 30000, "error": 40000, "fatal": 50000}
+_LEVEL_NUM = {
+    "trace": 5000,
+    "debug": 10000,
+    "info": 20000,
+    "warn": 30000,
+    "warning": 30000,
+    "error": 40000,
+    "fatal": 50000,
+}
 _PG_DEPLOY = "deploy/analyzer-pg"
 _RMQ_POD = "pod/reportportal-rabbitmq-0"
 
 
 def _psql_json(sql):
     import subprocess
-    out = subprocess.run(["kubectl", "exec", _PG_DEPLOY, "--", "psql", "-U", "analyzer",
-                          "-d", "analyzer", "-tAc", sql], capture_output=True,
-                         text=True, timeout=120)
+
+    out = subprocess.run(
+        [
+            "kubectl",
+            "exec",
+            _PG_DEPLOY,
+            "--",
+            "psql",
+            "-U",
+            "analyzer",
+            "-d",
+            "analyzer",
+            "-tAc",
+            sql,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     if out.returncode != 0:
         raise RuntimeError(f"psql failed: {out.stderr[:300]}")
     return json.loads(out.stdout.strip() or "[]")
@@ -468,14 +535,34 @@ def _amqp_publish(routing_key, payload_obj):
     """Publish one message to exchange analyzer-default via the rabbitmq pod-local
     management API (stdin-fed curl, so large index payloads dodge arg limits)."""
     import subprocess
-    body = json.dumps({"properties": {"content_type": "application/json"},
-                       "routing_key": routing_key,
-                       "payload": json.dumps(payload_obj),
-                       "payload_encoding": "string"})
-    cmd = ["kubectl", "exec", "-i", _RMQ_POD, "-c", "rabbitmq", "--", "curl", "-s",
-           "-u", "rabbitmq:rabbitmqpassword", "-H", "content-type:application/json",
-           "-XPOST", "http://localhost:15672/api/exchanges/analyzer/analyzer-default/publish",
-           "--data-binary", "@-"]
+
+    body = json.dumps(
+        {
+            "properties": {"content_type": "application/json"},
+            "routing_key": routing_key,
+            "payload": json.dumps(payload_obj),
+            "payload_encoding": "string",
+        }
+    )
+    cmd = [
+        "kubectl",
+        "exec",
+        "-i",
+        _RMQ_POD,
+        "-c",
+        "rabbitmq",
+        "--",
+        "curl",
+        "-s",
+        "-u",
+        "rabbitmq:rabbitmqpassword",
+        "-H",
+        "content-type:application/json",
+        "-XPOST",
+        "http://localhost:15672/api/exchanges/analyzer/analyzer-default/publish",
+        "--data-binary",
+        "@-",
+    ]
     out = subprocess.run(cmd, input=body, capture_output=True, text=True, timeout=60)
     return out.stdout.strip()
 
@@ -490,15 +577,17 @@ def reindex_history(client, args):
     keep empty status_codes and the discriminant gate blocks inherits for the
     wrong reason (empty-vs-populated) instead of on a real 500-vs-503 mismatch.
     """
-    print("\n===== REINDEX-HISTORY: recompute failure_signature under current image =====",
-          flush=True)
+    print(
+        "\n===== REINDEX-HISTORY: recompute failure_signature under current image =====", flush=True
+    )
     meta = _psql_json(
         "select coalesce(json_agg(json_build_object("
         "'item_id',item_id,'project_id',project_id,'launch_id',launch_id,"
         "'launch_name',launch_name,'unique_id',unique_id,'issue_type',issue_type,"
         "'tch',test_case_hash,'name',item_name,'aa',is_auto_analyzed,"
         "'start_ms',(extract(epoch from start_time)*1000)::bigint)),'[]') "
-        "from analyzer.test_item where launch_name <> 'Probe Launch - Demo Day';")
+        "from analyzer.test_item where launch_name <> 'Probe Launch - Demo Day';"
+    )
     by_launch = defaultdict(list)
     for m in meta:
         by_launch[(m["project_id"], m["launch_id"], m["launch_name"])].append(m)
@@ -515,15 +604,27 @@ def reindex_history(client, args):
             logs = logs_by_item.get(m["item_id"], [])
             if not any(l["logLevel"] >= 40000 for l in logs):
                 continue  # no ERROR logs -> no signature (passing/filler item)
-            test_items.append({
-                "testItemId": m["item_id"], "isAutoAnalyzed": bool(m["aa"]),
-                "uniqueId": m["unique_id"] or "", "issueType": m["issue_type"] or "",
-                "testCaseHash": int(m["tch"] or 0), "testItemName": m["name"] or "",
-                "startTime": _ts7(m["start_ms"]), "logs": logs})
+            test_items.append(
+                {
+                    "testItemId": m["item_id"],
+                    "isAutoAnalyzed": bool(m["aa"]),
+                    "uniqueId": m["unique_id"] or "",
+                    "issueType": m["issue_type"] or "",
+                    "testCaseHash": int(m["tch"] or 0),
+                    "testItemName": m["name"] or "",
+                    "startTime": _ts7(m["start_ms"]),
+                    "logs": logs,
+                }
+            )
         if not test_items:
             continue
-        launch = {"launchId": lid, "project": pid, "launchName": lname,
-                  "launchNumber": 0, "testItems": test_items}
+        launch = {
+            "launchId": lid,
+            "project": pid,
+            "launchName": lname,
+            "launchNumber": 0,
+            "testItems": test_items,
+        }
         _amqp_publish("index", [launch])
         published += 1
         if published % 20 == 0:
@@ -536,10 +637,11 @@ def _ts7(ms):
     # matching amqp.models.timestamp_factory (datetime.timetuple()[0:7]). Preserve the
     # original launch/item time so re-indexing does not reset recency features.
     import datetime as _dt
+
     try:
-        t = _dt.datetime.fromtimestamp(int(ms) / 1000, _dt.timezone.utc).timetuple()
+        t = _dt.datetime.fromtimestamp(int(ms) / 1000, _dt.UTC).timetuple()
     except (TypeError, ValueError):
-        t = _dt.datetime.now(_dt.timezone.utc).timetuple()
+        t = _dt.datetime.now(_dt.UTC).timetuple()
     return [t[0], t[1], t[2], t[3], t[4], t[5], t[6]]
 
 
@@ -548,9 +650,11 @@ def _fetch_launch_logs(client, project, lid):
     by_item = defaultdict(list)
     page = 1
     while True:
-        r = client._send("GET", f"{client.api}/api/v1/{project}/log",
-                         params={"filter.eq.launchId": lid, "page.size": 300,
-                                 "page.page": page})
+        r = client._send(
+            "GET",
+            f"{client.api}/api/v1/{project}/log",
+            params={"filter.eq.launchId": lid, "page.size": 300, "page.page": page},
+        )
         if not r.ok:
             break
         d = r.json()
@@ -560,8 +664,13 @@ def _fetch_launch_logs(client, project, lid):
             if iid is None:
                 continue
             lvl = _LEVEL_NUM.get(str(lg.get("level", "")).lower(), 20000)
-            by_item[iid].append({"logId": int(lg.get("id") or 0), "logLevel": lvl,
-                                  "message": lg.get("message") or ""})
+            by_item[iid].append(
+                {
+                    "logId": int(lg.get("id") or 0),
+                    "logLevel": lvl,
+                    "message": lg.get("message") or "",
+                }
+            )
         pg = d.get("page", {})
         if not content or page >= pg.get("totalPages", 1):
             break
@@ -573,42 +682,71 @@ def _fetch_launch_logs(client, project, lid):
 # main
 # ---------------------------------------------------------------------------
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--phase", type=int, choices=range(6), default=None,
-                    help="run only one of the 5 upload phases (0..5)")
-    ap.add_argument("--day", type=str, default=None,
-                    help="filter to one simulated day YYYY-MM-DD")
-    ap.add_argument("--launch", type=str, default=None,
-                    help="filter to launches whose name contains this substring "
-                         "(case-insensitive; e.g. 'Make Decision Showcase')")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="print the plan, upload nothing")
-    ap.add_argument("--smoke", action="store_true",
-                    help="upload one small launch end-to-end and verify")
-    ap.add_argument("--emit-expected", action="store_true",
-                    help="(re)write demo-data/expected.json from the plan")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--phase",
+        type=int,
+        choices=range(6),
+        default=None,
+        help="run only one of the 5 upload phases (0..5)",
+    )
+    ap.add_argument("--day", type=str, default=None, help="filter to one simulated day YYYY-MM-DD")
+    ap.add_argument(
+        "--launch",
+        type=str,
+        default=None,
+        help="filter to launches whose name contains this substring "
+        "(case-insensitive; e.g. 'Make Decision Showcase')",
+    )
+    ap.add_argument("--dry-run", action="store_true", help="print the plan, upload nothing")
+    ap.add_argument(
+        "--smoke", action="store_true", help="upload one small launch end-to-end and verify"
+    )
+    ap.add_argument(
+        "--emit-expected",
+        action="store_true",
+        help="(re)write demo-data/expected.json from the plan",
+    )
     ap.add_argument("--rp-api", default=config.API_BASE, help="RP api base url")
     ap.add_argument("--rp-uat", default=config.UAT_BASE, help="RP uat base url")
-    ap.add_argument("--log-workers", type=int, default=6,
-                    help="concurrent log POSTers (keep modest for the laptop VM)")
-    ap.add_argument("--replay-only", action="store_true",
-                    help="replay phase-0/2 history defect_update triage (idempotent)")
-    ap.add_argument("--analyze-history", action="store_true",
-                    help="reset+analyze history items so they get suggestion.features")
-    ap.add_argument("--reindex-history", action="store_true",
-                    help="re-publish index route for non-probe launches (recompute "
-                         "failure_signature under the current analyzer image)")
-    ap.add_argument("--exclude-items-file", default=None,
-                    help="newline-separated RP item ids to leave untouched "
-                         "(items that already have a label_event)")
+    ap.add_argument(
+        "--log-workers",
+        type=int,
+        default=6,
+        help="concurrent log POSTers (keep modest for the laptop VM)",
+    )
+    ap.add_argument(
+        "--replay-only",
+        action="store_true",
+        help="replay phase-0/2 history defect_update triage (idempotent)",
+    )
+    ap.add_argument(
+        "--analyze-history",
+        action="store_true",
+        help="reset+analyze history items so they get suggestion.features",
+    )
+    ap.add_argument(
+        "--reindex-history",
+        action="store_true",
+        help="re-publish index route for non-probe launches (recompute "
+        "failure_signature under the current analyzer image)",
+    )
+    ap.add_argument(
+        "--exclude-items-file",
+        default=None,
+        help="newline-separated RP item ids to leave untouched "
+        "(items that already have a label_event)",
+    )
     args = ap.parse_args()
 
     _, plan = build_plan(smoke=args.smoke)
 
     if args.reindex_history:
-        client = rpmod.RPClient(uat_base=args.rp_uat, api_base=args.rp_api,
-                                log_workers=args.log_workers)
+        client = rpmod.RPClient(
+            uat_base=args.rp_uat, api_base=args.rp_api, log_workers=args.log_workers
+        )
         print("login ...", flush=True)
         client.login()
         reindex_history(client, args)
@@ -622,8 +760,9 @@ def main():
                 line = line.strip()
                 if line.isdigit():
                     exclude.add(int(line))
-        client = rpmod.RPClient(uat_base=args.rp_uat, api_base=args.rp_api,
-                                log_workers=args.log_workers)
+        client = rpmod.RPClient(
+            uat_base=args.rp_uat, api_base=args.rp_api, log_workers=args.log_workers
+        )
         print("login ...", flush=True)
         client.login()
         if args.analyze_history:
@@ -639,8 +778,7 @@ def main():
         manifest = build_manifest(full)
         out = os.path.join(HERE, "expected.json")
         json.dump(manifest, open(out, "w"), indent=2, ensure_ascii=False)
-        print(f"wrote {out}: {manifest['probe_count']} probes "
-              f"{manifest['probe_count_by_project']}")
+        print(f"wrote {out}: {manifest['probe_count']} probes {manifest['probe_count_by_project']}")
         if not (args.dry_run or args.smoke):
             return
 
@@ -649,8 +787,9 @@ def main():
         return
 
     if args.smoke:
-        client = rpmod.RPClient(uat_base=args.rp_uat, api_base=args.rp_api,
-                                log_workers=args.log_workers)
+        client = rpmod.RPClient(
+            uat_base=args.rp_uat, api_base=args.rp_api, log_workers=args.log_workers
+        )
         print("login ...", flush=True)
         client.login()
         client.ensure_project(config.WSU)

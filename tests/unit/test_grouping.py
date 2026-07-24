@@ -40,8 +40,15 @@ def test_shuffled_input_gives_identical_groups_and_representatives():
     items = _fp_items(3, fp=11, base_id=1) + _fp_items(2, fp=22, base_id=100)
     # Cosine leftover with fp==0.
     items.append(
-        GroupItem(item_id=500, exception_fp=0, error_hash=7, emb=_unit(0.0, 1.0, 0.0),
-                  has_stacktrace=False, log_count=1, template_ids=(9,))
+        GroupItem(
+            item_id=500,
+            exception_fp=0,
+            error_hash=7,
+            emb=_unit(0.0, 1.0, 0.0),
+            has_stacktrace=False,
+            log_count=1,
+            template_ids=(9,),
+        )
     )
 
     def signature(groups):
@@ -75,8 +82,9 @@ def test_representative_prefers_stacktrace_then_logcount_then_lowest_id():
 
 def test_greedy_cosine_attaches_similar_leftovers():
     a = GroupItem(item_id=1, exception_fp=0, error_hash=1, emb=_unit(1, 0, 0), template_ids=(1,))
-    b = GroupItem(item_id=2, exception_fp=0, error_hash=1, emb=_unit(0.99, 0.14, 0),
-                  template_ids=(1,))
+    b = GroupItem(
+        item_id=2, exception_fp=0, error_hash=1, emb=_unit(0.99, 0.14, 0), template_ids=(1,)
+    )
     c = GroupItem(item_id=3, exception_fp=0, error_hash=2, emb=_unit(0, 1, 0), template_ids=(2,))
     groups = group_launch([a, b, c])
     assert sorted(len(g.members) for g in groups) == [1, 2]
@@ -86,8 +94,13 @@ def test_burst_prior_fires_for_dominant_new_fingerprint():
     # 12 of 20 share a new fingerprint → single group, si_prior ≥ 0.5.
     burst = _fp_items(12, fp=77, base_id=1)
     rest = [
-        GroupItem(item_id=200 + i, exception_fp=1000 + i, error_hash=5000 + i,
-                  emb=_unit(0, 0, 1), template_ids=(1000 + i,))
+        GroupItem(
+            item_id=200 + i,
+            exception_fp=1000 + i,
+            error_hash=5000 + i,
+            emb=_unit(0, 0, 1),
+            template_ids=(1000 + i,),
+        )
         for i in range(8)
     ]
     groups = group_launch(burst + rest, is_error_hash_new=lambda _h: True)
@@ -99,8 +112,13 @@ def test_burst_prior_fires_for_dominant_new_fingerprint():
 def test_burst_prior_zero_below_threshold():
     burst = _fp_items(3, fp=77, base_id=1)
     rest = [
-        GroupItem(item_id=200 + i, exception_fp=1000 + i, error_hash=5000 + i,
-                  emb=_unit(0, 0, 1), template_ids=(1000 + i,))
+        GroupItem(
+            item_id=200 + i,
+            exception_fp=1000 + i,
+            error_hash=5000 + i,
+            emb=_unit(0, 0, 1),
+            template_ids=(1000 + i,),
+        )
         for i in range(17)
     ]
     groups = group_launch(burst + rest, is_error_hash_new=lambda _h: True)

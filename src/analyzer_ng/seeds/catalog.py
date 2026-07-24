@@ -122,14 +122,10 @@ def _build_mode(raw: dict) -> SeedMode:
 
     label = prior.get("label")
     if label not in VALID_LABELS:
-        raise SeedCatalogError(
-            f"mode {mode_key!r} label {label!r} not in {sorted(VALID_LABELS)}"
-        )
+        raise SeedCatalogError(f"mode {mode_key!r} label {label!r} not in {sorted(VALID_LABELS)}")
     confidence = float(prior.get("confidence", 0.0))
     if not 0.0 < confidence <= 1.0:
-        raise SeedCatalogError(
-            f"mode {mode_key!r} confidence {confidence} must satisfy 0 < c <= 1"
-        )
+        raise SeedCatalogError(f"mode {mode_key!r} confidence {confidence} must satisfy 0 < c <= 1")
 
     rules = raw.get("rules") or {}
     exc_re = tuple(_compile(mode_key, "exc_re", p, 0) for p in rules.get("exc_re", []))
@@ -176,7 +172,5 @@ def default_catalog() -> SeedCatalog:
     """The packaged 50-mode catalog (cached; loaded once per process)."""
     catalog = load_catalog()
     if len(catalog) != EXPECTED_MODE_COUNT:
-        raise SeedCatalogError(
-            f"expected {EXPECTED_MODE_COUNT} seed modes, found {len(catalog)}"
-        )
+        raise SeedCatalogError(f"expected {EXPECTED_MODE_COUNT} seed modes, found {len(catalog)}")
     return catalog

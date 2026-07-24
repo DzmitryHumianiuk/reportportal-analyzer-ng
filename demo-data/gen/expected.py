@@ -6,6 +6,7 @@ where SCENARIOS.md states it, the expected decision method
 (hash | kb | gbm | rule_cold). Scoring joins predictions to these rows via the
 `scenario` / `adv_case` item attributes plus the archetype id.
 """
+
 from __future__ import annotations
 
 from . import config
@@ -102,34 +103,41 @@ def build_manifest(plan) -> dict:
             if pi.role != P:
                 continue
             it = pi.item
-            exp = dict(EXPECTED.get(it.archetype_id,
-                                    dict(action="suggest", label=it.ground_truth or "ti",
-                                         method="")))
+            exp = dict(
+                EXPECTED.get(
+                    it.archetype_id,
+                    dict(action="suggest", label=it.ground_truth or "ti", method=""),
+                )
+            )
             label = exp["label"]
             if label in ("per_variant", "varies"):
                 label = it.ground_truth or "ti"
-            probes.append({
-                "archetype_id": it.archetype_id,
-                "project": it.project,
-                "launch": la.name,
-                "date": la.date,
-                "test_name": it.test_name,
-                "scenario": it.scenario_refs,
-                "adv_case": it.adv_case,
-                "ground_truth": it.ground_truth,
-                "expected_action": exp["action"],
-                "expected_label": label,
-                "expected_method": exp["method"],
-            })
+            probes.append(
+                {
+                    "archetype_id": it.archetype_id,
+                    "project": it.project,
+                    "launch": la.name,
+                    "date": la.date,
+                    "test_name": it.test_name,
+                    "scenario": it.scenario_refs,
+                    "adv_case": it.adv_case,
+                    "ground_truth": it.ground_truth,
+                    "expected_action": exp["action"],
+                    "expected_label": label,
+                    "expected_method": exp["method"],
+                }
+            )
     by_project = {}
     for p in probes:
         by_project[p["project"]] = by_project.get(p["project"], 0) + 1
     return {
         "generated_by": "demo-data/generate.py",
         "seed": config.SEED,
-        "note": ("Per-probe expected analyzer outcome. Join to suggestion rows via "
-                 "item attributes scenario:Sxx / adv_case + archetype id. "
-                 "ground_truth 'ti' means the correct outcome is abstain."),
+        "note": (
+            "Per-probe expected analyzer outcome. Join to suggestion rows via "
+            "item attributes scenario:Sxx / adv_case + archetype id. "
+            "ground_truth 'ti' means the correct outcome is abstain."
+        ),
         "probe_count": len(probes),
         "probe_count_by_project": by_project,
         "probes": probes,

@@ -544,9 +544,7 @@ def test_delete_project_purges_derived_data_but_keeps_label_events(pool: Connect
 def _orphan_reaper_seed(pool: ConnectionPool) -> PgRetrievalStore:
     """A project with one labeled item, then genuinely deleted (item orphaned)."""
     store = PgRetrievalStore(pool)
-    store.upsert_items(
-        [TestItemIn(item_id=1, project_id=1, launch_id=1, issue_type="pb001")]
-    )
+    store.upsert_items([TestItemIn(item_id=1, project_id=1, launch_id=1, issue_type="pb001")])
     PgLabelStore(pool).append_event(
         LabelEventIn(project_id=1, item_id=1, new_label="pb001", source="human_ui")
     )
@@ -615,9 +613,7 @@ def test_reap_never_purges_mid_reindex_even_past_grace(pool: ConnectionPool) -> 
     _backdate_tombstone(pool, days=99)  # far past grace — maximally adversarial
 
     # Reindex: RP re-publishes the launch, test_item returns under its stable id.
-    store.upsert_items(
-        [TestItemIn(item_id=1, project_id=1, launch_id=1, issue_type="pb001")]
-    )
+    store.upsert_items([TestItemIn(item_id=1, project_id=1, launch_id=1, issue_type="pb001")])
     purged = store.reap_orphan_label_events(grace_days=30)
 
     assert purged == 0  # unmark cleared the tombstone before any sweep

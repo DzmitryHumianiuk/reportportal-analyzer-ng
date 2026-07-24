@@ -9,21 +9,21 @@ Placement policy per archetype lives in POLICY below and is derived from
 SCENARIOS.md §2/§3/§4. Where the spec's per-day counts (§3.1) contradict its
 roll-up (§3.2), volume is corpus-driven (see README "Deviations").
 """
+
 from __future__ import annotations
 
 import datetime as dt
 import random
 import zlib
 from dataclasses import dataclass, field
-from typing import Optional
 
 from . import config
 from .corpus import Archetype, LogRow, RenderedItem, render_item
 
 # roles
-H = "H"       # history item -> defect_update replay to ground truth
-P = "P"       # probe item -> analyzed, stays ti until analyzer decides
-DECOY = "D"   # passing decoy (status passed)
+H = "H"  # history item -> defect_update replay to ground truth
+P = "P"  # probe item -> analyzed, stays ti until analyzer decides
+DECOY = "D"  # passing decoy (status passed)
 
 
 @dataclass
@@ -36,7 +36,7 @@ class PlannedItem:
 class PlannedLaunch:
     project: str
     name: str
-    date: str          # YYYY-MM-DD (simulated)
+    date: str  # YYYY-MM-DD (simulated)
     hour: int
     phase: int
     attributes: list[dict]
@@ -55,83 +55,83 @@ class PlannedLaunch:
 # ---------------------------------------------------------------------------
 POLICY: dict[str, dict] = {
     # --- webshop-ui (java) -------------------------------------------------
-    "JAVA-SEL-01": dict(target=9, probes=3),                 # S09 chronic VAT
-    "JAVA-SEL-02": dict(target=18, probes=4),                # S12 stale pair
-    "JAVA-SEL-03": dict(target=17, probes=12),               # S05 param variants
-    "JAVA-SEL-04": dict(target=60, probes=0, outage=True),   # S34 grid outage
-    "JAVA-SEL-05": dict(target=12, probes=3),                # S16.A slow-query pb
-    "JAVA-SEL-06": dict(target=12, probes=3),                # S16.B pool si
-    "JAVA-SEL-07": dict(target=3, probes=3),                 # S16.C bare -> abstain
-    "JAVA-SEL-08": dict(target=22, probes=6),                # S15 wrapper chain
-    "JAVA-SEL-09": dict(target=20, probes=4),                # S18.B locator pair
-    "JAVA-SEL-10": dict(target=16, probes=4),                # S19 div0
-    "JAVA-SEL-11": dict(target=10, probes=3),                # S19 tax NPE
-    "JAVA-SEL-12": dict(target=20, probes=12),               # S37 npe look-alikes
-    "JAVA-SEL-13": dict(target=10, probes=5),                # S03 filth twin
-    "JAVA-SEL-14": dict(target=6, probes=3),                 # S01 noise-heavy
-    "JAVA-SEL-15": dict(target=3, probes=3),                 # S04 pathological
-    "JAVA-SEL-16": dict(target=14, probes=4),                # S23.A spam coupon
-    "JAVA-SEL-17": dict(target=8, probes=3),                 # S23.B spam db
-    "JAVA-SEL-18": dict(target=24, probes=6),                # S24 causal chains
-    "JAVA-SEL-19": dict(target=32, probes=8),                # S20 multilingual
-    "JAVA-SEL-20": dict(target=10, probes=4),                # S21.B homoglyph
-    "JAVA-SEL-21": dict(target=4, probes=2),                 # S21.C rtl/emoji
-    "JAVA-SEL-22": dict(target=14, probes=4),                # S22 injection ui
-    "JAVA-SEL-23": dict(target=18, probes=4),                # S29 proxy 502
-    "JAVA-SEL-24": dict(target=14, probes=3),                # S13 fp drift
-    "JAVA-SEL-25": dict(target=10, probes=2),                # S14 declined swap
-    "JAVA-SEL-26": dict(target=10, probes=2),                # S17 assertion val
-    "JAVA-SEL-27": dict(target=18, probes=2),                # S11c/S32 conflict
-    "JAVA-SEL-28": dict(target=3, probes=1, backdate=2),     # S11b stale guard
-    "JAVA-SEL-29": dict(target=5, probes=2),                 # S26a rare token
+    "JAVA-SEL-01": dict(target=9, probes=3),  # S09 chronic VAT
+    "JAVA-SEL-02": dict(target=18, probes=4),  # S12 stale pair
+    "JAVA-SEL-03": dict(target=17, probes=12),  # S05 param variants
+    "JAVA-SEL-04": dict(target=60, probes=0, outage=True),  # S34 grid outage
+    "JAVA-SEL-05": dict(target=12, probes=3),  # S16.A slow-query pb
+    "JAVA-SEL-06": dict(target=12, probes=3),  # S16.B pool si
+    "JAVA-SEL-07": dict(target=3, probes=3),  # S16.C bare -> abstain
+    "JAVA-SEL-08": dict(target=22, probes=6),  # S15 wrapper chain
+    "JAVA-SEL-09": dict(target=20, probes=4),  # S18.B locator pair
+    "JAVA-SEL-10": dict(target=16, probes=4),  # S19 div0
+    "JAVA-SEL-11": dict(target=10, probes=3),  # S19 tax NPE
+    "JAVA-SEL-12": dict(target=20, probes=12),  # S37 npe look-alikes
+    "JAVA-SEL-13": dict(target=10, probes=5),  # S03 filth twin
+    "JAVA-SEL-14": dict(target=6, probes=3),  # S01 noise-heavy
+    "JAVA-SEL-15": dict(target=3, probes=3),  # S04 pathological
+    "JAVA-SEL-16": dict(target=14, probes=4),  # S23.A spam coupon
+    "JAVA-SEL-17": dict(target=8, probes=3),  # S23.B spam db
+    "JAVA-SEL-18": dict(target=24, probes=6),  # S24 causal chains
+    "JAVA-SEL-19": dict(target=32, probes=8),  # S20 multilingual
+    "JAVA-SEL-20": dict(target=10, probes=4),  # S21.B homoglyph
+    "JAVA-SEL-21": dict(target=4, probes=2),  # S21.C rtl/emoji
+    "JAVA-SEL-22": dict(target=14, probes=4),  # S22 injection ui
+    "JAVA-SEL-23": dict(target=18, probes=4),  # S29 proxy 502
+    "JAVA-SEL-24": dict(target=14, probes=3),  # S13 fp drift
+    "JAVA-SEL-25": dict(target=10, probes=2),  # S14 declined swap
+    "JAVA-SEL-26": dict(target=10, probes=2),  # S17 assertion val
+    "JAVA-SEL-27": dict(target=18, probes=2),  # S11c/S32 conflict
+    "JAVA-SEL-28": dict(target=3, probes=1, backdate=2),  # S11b stale guard
+    "JAVA-SEL-29": dict(target=5, probes=2),  # S26a rare token
     "JAVA-SEL-30": dict(target=60, probes=10, backdate=8, also_fea=True),  # S07 misc/long-tail
-    "JAVA-SEL-31": dict(target=10, probes=4),                # S45.A healthcheck (WSU half)
+    "JAVA-SEL-31": dict(target=10, probes=4),  # S45.A healthcheck (WSU half)
     # S46 bench-showcase archetypes are placed ONLY by _place_showcase()
     # (target=0 keeps generic placement away so their fingerprints stay fresh).
-    "JAVA-SEL-32": dict(target=0, probes=0),                 # S46 novel -> AI guess only
-    "JAVA-SEL-33": dict(target=0, probes=0),                 # S46 info-only -> silent
-    "JAVA-SEL-34": dict(target=0, probes=0),                 # S46 fresh-fp burst
+    "JAVA-SEL-32": dict(target=0, probes=0),  # S46 novel -> AI guess only
+    "JAVA-SEL-33": dict(target=0, probes=0),  # S46 info-only -> silent
+    "JAVA-SEL-34": dict(target=0, probes=0),  # S46 fresh-fp burst
     # S46 Showcase 2 archetypes: placed ONLY by _place_bench_history() (their
     # dedicated labeled history) and _place_showcase2() (the probe items).
     # target=0 keeps generic placement away so no OTHER launch can ever share
     # their error_hash and re-create the stage-A collapse.
-    "JAVA-SEL-35": dict(target=0, probes=0),                 # S46b suggest-confirm
-    "JAVA-SEL-36": dict(target=0, probes=0),                 # S46b suggest-disagree
-    "JAVA-SEL-37": dict(target=0, probes=0),                 # S46b declined dock
-    "JAVA-SEL-38": dict(target=0, probes=0),                 # S46b AI guess only
+    "JAVA-SEL-35": dict(target=0, probes=0),  # S46b suggest-confirm
+    "JAVA-SEL-36": dict(target=0, probes=0),  # S46b suggest-disagree
+    "JAVA-SEL-37": dict(target=0, probes=0),  # S46b declined dock
+    "JAVA-SEL-38": dict(target=0, probes=0),  # S46b AI guess only
     # --- payments-services (dotnet) ----------------------------------------
-    "NET-XUN-01": dict(target=9, probes=2, backdate=2),      # S10 fx-rates episodes
-    "NET-XUN-02": dict(target=10, probes=3),                 # S18.A 500 npe
-    "NET-XUN-03": dict(target=10, probes=3),                 # S18.A 503 unavailable
-    "NET-XUN-04": dict(target=9, probes=3),                  # S25 idempotency
-    "NET-XUN-05": dict(target=6, probes=2),                  # S33 conn refused
-    "NET-XUN-06": dict(target=3, probes=1),                  # S33 db deadlock
-    "NET-XUN-07": dict(target=3, probes=1),                  # S33 429 throttle
-    "NET-XUN-08": dict(target=9, probes=3),                  # S41 flag off nd
-    "NET-XUN-09": dict(target=6, probes=0, outage=True),     # S34 gateway-adjacent
-    "NET-XUN-10": dict(target=11, probes=3),                 # S30 kb candidate
-    "NET-XUN-11": dict(target=5, probes=2),                  # S22.C injection
-    "NET-XUN-12": dict(target=5, probes=2),                  # S22.D injection
-    "NET-XUN-13": dict(target=10, probes=4),                 # S45.A healthcheck (PSV half)
-    "NET-XUN-14": dict(target=6, probes=6),                  # S45.B kb-borrow probe
-    "NET-XUN-15": dict(target=2, probes=2),                  # S39c novel nullref
-    "NET-XUN-16": dict(target=15, probes=6),                 # S27/S38 scope+mixed
+    "NET-XUN-01": dict(target=9, probes=2, backdate=2),  # S10 fx-rates episodes
+    "NET-XUN-02": dict(target=10, probes=3),  # S18.A 500 npe
+    "NET-XUN-03": dict(target=10, probes=3),  # S18.A 503 unavailable
+    "NET-XUN-04": dict(target=9, probes=3),  # S25 idempotency
+    "NET-XUN-05": dict(target=6, probes=2),  # S33 conn refused
+    "NET-XUN-06": dict(target=3, probes=1),  # S33 db deadlock
+    "NET-XUN-07": dict(target=3, probes=1),  # S33 429 throttle
+    "NET-XUN-08": dict(target=9, probes=3),  # S41 flag off nd
+    "NET-XUN-09": dict(target=6, probes=0, outage=True),  # S34 gateway-adjacent
+    "NET-XUN-10": dict(target=11, probes=3),  # S30 kb candidate
+    "NET-XUN-11": dict(target=5, probes=2),  # S22.C injection
+    "NET-XUN-12": dict(target=5, probes=2),  # S22.D injection
+    "NET-XUN-13": dict(target=10, probes=4),  # S45.A healthcheck (PSV half)
+    "NET-XUN-14": dict(target=6, probes=6),  # S45.B kb-borrow probe
+    "NET-XUN-15": dict(target=2, probes=2),  # S39c novel nullref
+    "NET-XUN-16": dict(target=15, probes=6),  # S27/S38 scope+mixed
     # --- frontend-apps (playwright + cypress) ------------------------------
-    "TS-PW-01": dict(target=20, probes=6),                   # S40 flaky week
-    "TS-PW-02": dict(target=20, probes=0, outage=True),      # S34 conn refused
-    "TS-PW-03": dict(target=2, probes=2, cold=True),         # S18.C locale price
-    "TS-PW-04": dict(target=2, probes=1, cold=True),         # S33 dns
-    "TS-PW-05": dict(target=2, probes=1, cold=True),         # S33 tls
-    "TS-PW-06": dict(target=2, probes=1, cold=True),         # S33 disk full
-    "TS-PW-07": dict(target=3, probes=1, cold=True),         # S33 401
-    "TS-PW-08": dict(target=4, probes=2, cold=True),         # S33 conn timeout tie
-    "TS-PW-09": dict(target=10, probes=4, cold=True),        # S33 negatives
-    "TS-PW-10": dict(target=4, probes=2, cold=True),         # S33/S40 retry passed
-    "TS-PW-11": dict(target=3, probes=3, cold=True),         # S16 bare timeout cold
-    "TS-PW-12": dict(target=2, probes=2, cold=True),         # S39d feature-default
-    "TS-PW-13": dict(target=2, probes=2, cold=True),         # S02 zero-error
-    "TS-CY-01": dict(target=6, probes=0, outage=True),       # S34 admin assertion
-    "TS-CY-02": dict(target=3, probes=1),                    # daily noise pb
+    "TS-PW-01": dict(target=20, probes=6),  # S40 flaky week
+    "TS-PW-02": dict(target=20, probes=0, outage=True),  # S34 conn refused
+    "TS-PW-03": dict(target=2, probes=2, cold=True),  # S18.C locale price
+    "TS-PW-04": dict(target=2, probes=1, cold=True),  # S33 dns
+    "TS-PW-05": dict(target=2, probes=1, cold=True),  # S33 tls
+    "TS-PW-06": dict(target=2, probes=1, cold=True),  # S33 disk full
+    "TS-PW-07": dict(target=3, probes=1, cold=True),  # S33 401
+    "TS-PW-08": dict(target=4, probes=2, cold=True),  # S33 conn timeout tie
+    "TS-PW-09": dict(target=10, probes=4, cold=True),  # S33 negatives
+    "TS-PW-10": dict(target=4, probes=2, cold=True),  # S33/S40 retry passed
+    "TS-PW-11": dict(target=3, probes=3, cold=True),  # S16 bare timeout cold
+    "TS-PW-12": dict(target=2, probes=2, cold=True),  # S39d feature-default
+    "TS-PW-13": dict(target=2, probes=2, cold=True),  # S02 zero-error
+    "TS-CY-01": dict(target=6, probes=0, outage=True),  # S34 admin assertion
+    "TS-CY-02": dict(target=3, probes=1),  # daily noise pb
 }
 
 
@@ -210,25 +210,23 @@ SHOWCASE2_LAUNCH = "Make Decision Showcase 2"
 # drifters plus two near-showcase items whose ground_truth=ti keeps them
 # unlabeled (the replay skips ti on purpose).
 BENCH_HISTORY: list[tuple[str, str, int, str, tuple[int, ...]]] = [
-    ("Bench History Confirm", "2026-07-08", 9, "JAVA-SEL-35",
-     (1, 2, 3, 1, 2, 3)),
-    ("Bench History Split", "2026-07-08", 10, "JAVA-SEL-36",
-     (1, 2, 3, 4, 5, 6, 7, 8)),
-    ("Bench History Weak", "2026-07-09", 9, "JAVA-SEL-37",
-     (1, 2, 3, 4)),
+    ("Bench History Confirm", "2026-07-08", 9, "JAVA-SEL-35", (1, 2, 3, 1, 2, 3)),
+    ("Bench History Split", "2026-07-08", 10, "JAVA-SEL-36", (1, 2, 3, 4, 5, 6, 7, 8)),
+    ("Bench History Weak", "2026-07-09", 9, "JAVA-SEL-37", (1, 2, 3, 4)),
 ]
 
 
 def _policy(arc: Archetype) -> dict:
-    p = dict(target=len(arc.variants), probes=0, backdate=0,
-             outage=False, cold=False, also_fea=False)
+    p = dict(
+        target=len(arc.variants), probes=0, backdate=0, outage=False, cold=False, also_fea=False
+    )
     p.update(POLICY.get(arc.archetype_id, {}))
     return p
 
 
 def _dt_ms(date: str, hour: int, second_offset: int) -> int:
     y, m, d = (int(x) for x in date.split("-"))
-    base = dt.datetime(y, m, d, hour, 0, 0, tzinfo=dt.timezone.utc)
+    base = dt.datetime(y, m, d, hour, 0, 0, tzinfo=dt.UTC)
     return int(base.timestamp() * 1000) + second_offset * 1000
 
 
@@ -328,24 +326,36 @@ class Scheduler:
         project = la.project
         gen = _FILLER[project]
         idx = self.rng.randrange(len(gen["fail"]))
-        name = gen["names"][self.rng.randrange(len(gen["names"]))] + \
-            f" #{self.rng.randrange(1000)}"
+        name = gen["names"][self.rng.randrange(len(gen["names"]))] + f" #{self.rng.randrange(1000)}"
         if failed:
             # ~35% get a real label (H), rest stay ti (unlabeled tail)
             gt = self.rng.choice(["pb", "ab", "si", "nd"] + ["ti"] * 6)
             tmpl = gen["fail"][idx]
-            logs = [LogRow("info", gen["info"][self.rng.randrange(len(gen["info"]))]),
-                    LogRow("error", tmpl)]
+            logs = [
+                LogRow("info", gen["info"][self.rng.randrange(len(gen["info"]))]),
+                LogRow("error", tmpl),
+            ]
             status = "failed"
         else:
             gt = None
-            logs = [LogRow("info", gen["info"][self.rng.randrange(len(gen["info"]))]),
-                    LogRow("info", gen["pass"][self.rng.randrange(len(gen["pass"]))])]
+            logs = [
+                LogRow("info", gen["info"][self.rng.randrange(len(gen["info"]))]),
+                LogRow("info", gen["pass"][self.rng.randrange(len(gen["pass"]))]),
+            ]
             status = "passed"
         return RenderedItem(
-            archetype_id="FILLER", variant_idx=0, seq=self.rng.randrange(1 << 30),
-            project=project, test_name=name, status=status, ground_truth=gt,
-            logs=logs, scenario_refs=["filler"], adv_case=None, attachments=[])
+            archetype_id="FILLER",
+            variant_idx=0,
+            seq=self.rng.randrange(1 << 30),
+            project=project,
+            test_name=name,
+            status=status,
+            ground_truth=gt,
+            logs=logs,
+            scenario_refs=["filler"],
+            adv_case=None,
+            attachments=[],
+        )
 
     def _project_launches(self, project, *, phase=None, date=None, name_contains=None):
         out = []
@@ -408,8 +418,9 @@ class Scheduler:
 
         # S07: byte-identical long-tail copies into FEA
         if pol["also_fea"] and not self.smoke:
-            fea_hist = self._project_launches(config.FEA, phase=2) or \
-                self._project_launches(config.FEA, phase=1)
+            fea_hist = self._project_launches(config.FEA, phase=2) or self._project_launches(
+                config.FEA, phase=1
+            )
             copies = max(6, min(nvar, 12))
             for i in range(copies):
                 vidx = i % nvar
@@ -422,8 +433,13 @@ class Scheduler:
     # analyzed once and each item then shows its own modal variant.
     def _place_showcase(self):
         la = self._get_launch(
-            config.WSU, SHOWCASE_LAUNCH, config.DEMO_DAY, 21, 3,
-            attrs=[{"key": "scenario", "value": "S46"}])
+            config.WSU,
+            SHOWCASE_LAUNCH,
+            config.DEMO_DAY,
+            21,
+            3,
+            attrs=[{"key": "scenario", "value": "S46"}],
+        )
         seq = 90_000
         cycle: dict[str, int] = {}
         for tag, aid, vidx, count in BENCH_SHOWCASE:
@@ -438,8 +454,7 @@ class Scheduler:
                     v = cycle.get(aid, 0) % nvar
                     cycle[aid] = cycle.get(aid, 0) + 1
                 it = render_item(arc, v, seq, config.WSU)
-                it.scenario_refs = sorted(
-                    set(it.scenario_refs) | {"S46", f"BENCH-{tag}"})
+                it.scenario_refs = sorted(set(it.scenario_refs) | {"S46", f"BENCH-{tag}"})
                 la.items.append(PlannedItem(it, P))
                 seq += 1
 
@@ -454,8 +469,8 @@ class Scheduler:
             if arc is None:
                 continue
             la = self._get_launch(
-                config.WSU, lname, date, hour, 2,
-                attrs=[{"key": "scenario", "value": "S46"}])
+                config.WSU, lname, date, hour, 2, attrs=[{"key": "scenario", "value": "S46"}]
+            )
             for v in vidxs:
                 it = render_item(arc, v, seq, config.WSU)
                 it.scenario_refs = sorted(set(it.scenario_refs) | {"S46"})
@@ -466,8 +481,13 @@ class Scheduler:
     # first). Four probe items, one per previously-collapsed Bench branch.
     def _place_showcase2(self):
         la = self._get_launch(
-            config.WSU, SHOWCASE2_LAUNCH, config.DEMO_DAY, 22, 3,
-            attrs=[{"key": "scenario", "value": "S46"}])
+            config.WSU,
+            SHOWCASE2_LAUNCH,
+            config.DEMO_DAY,
+            22,
+            3,
+            attrs=[{"key": "scenario", "value": "S46"}],
+        )
         seq = 96_000
         for tag, aid, vidx, count in BENCH_SHOWCASE_2:
             arc = self.arcs.get(aid)
@@ -476,8 +496,7 @@ class Scheduler:
             nvar = len(arc.variants)
             for _ in range(count):
                 it = render_item(arc, vidx % nvar, seq, config.WSU)
-                it.scenario_refs = sorted(
-                    set(it.scenario_refs) | {"S46", f"BENCH-{tag}"})
+                it.scenario_refs = sorted(set(it.scenario_refs) | {"S46", f"BENCH-{tag}"})
                 la.items.append(PlannedItem(it, P))
                 seq += 1
 
@@ -506,21 +525,29 @@ class Scheduler:
 
 _FILLER = {
     config.WSU: {
-        "names": ["Checkout. Cart. Update quantity", "Catalog. Search. Filter by brand",
-                  "Account. Profile. Update address", "Checkout. Shipping. Select method"],
-        "info": ["[STEP] Open page and wait for load",
-                 "[API] GET /v2/session -> 200 in 84 ms"],
+        "names": [
+            "Checkout. Cart. Update quantity",
+            "Catalog. Search. Filter by brand",
+            "Account. Profile. Update address",
+            "Checkout. Shipping. Select method",
+        ],
+        "info": ["[STEP] Open page and wait for load", "[API] GET /v2/session -> 200 in 84 ms"],
         "fail": [
             "java.lang.AssertionError: expected [true] but found [false]\n\tat com.hawkins.shop.checkout.MiscTest.run(MiscTest.java:41)",
-            "org.openqa.selenium.NoSuchElementException: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\".add-to-cart\"}\n\tat com.hawkins.shop.catalog.MiscTest.run(MiscTest.java:52)",
+            'org.openqa.selenium.NoSuchElementException: no such element: Unable to locate element: {"method":"css selector","selector":".add-to-cart"}\n\tat com.hawkins.shop.catalog.MiscTest.run(MiscTest.java:52)',
         ],
         "pass": ["[STEP] Assertion passed: element visible", "Test finished OK in 1.2 s"],
     },
     config.PSV: {
-        "names": ["TransferApiTests.Post_Transfer_Returns201",
-                  "LedgerApiTests.Get_Balance_Ok", "RefundApiTests.Post_Refund_Ok"],
-        "info": ["[API] POST /v1/transfers -> 201 in 63 ms",
-                 "[STEP] Build RestSharp request with idempotency key"],
+        "names": [
+            "TransferApiTests.Post_Transfer_Returns201",
+            "LedgerApiTests.Get_Balance_Ok",
+            "RefundApiTests.Post_Refund_Ok",
+        ],
+        "info": [
+            "[API] POST /v1/transfers -> 201 in 63 ms",
+            "[STEP] Build RestSharp request with idempotency key",
+        ],
         "fail": [
             "Xunit.Sdk.EqualException: Assert.Equal() Failure\nExpected: 200\nActual:   500\n   at Hawkins.Payments.Tests.MiscTests.Run()",
             "System.Net.Http.HttpRequestException: Response status code does not indicate success: 502 (Bad Gateway).\n   at Hawkins.Payments.Client.ApiClient.SendAsync()",
@@ -528,8 +555,12 @@ _FILLER = {
         "pass": ["[STEP] Assert 201 Created -> OK", "Request completed in 58 ms"],
     },
     config.FEA: {
-        "names": ["storefront/cart.spec.ts", "storefront/search.spec.ts",
-                  "storefront/pdp.spec.ts", "Legacy Admin > Dashboard loads"],
+        "names": [
+            "storefront/cart.spec.ts",
+            "storefront/search.spec.ts",
+            "storefront/pdp.spec.ts",
+            "Legacy Admin > Dashboard loads",
+        ],
         "info": ["[STEP] page.goto('/cart')", "cy:command  ✔ visit  /admin"],
         "fail": [
             "Error: expect(received).toBeVisible()\nCall log:\n  - waiting for locator('[data-test=cart]')\n    at cart.spec.ts:22:18",

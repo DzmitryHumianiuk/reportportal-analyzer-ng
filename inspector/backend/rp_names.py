@@ -43,7 +43,9 @@ _ISSUE_TYPE_SQL = (
 # Per-item launch + ancestor path (an ltree of item ids whose last label is the
 # item's own id). Used to build the RP UI deep-link. item->launch/path is
 # immutable in RP, so results are memoized permanently (no TTL).
-_ITEM_PATH_SQL = "SELECT item_id, launch_id, path::text AS path FROM test_item WHERE item_id = ANY(%s)"
+_ITEM_PATH_SQL = (
+    "SELECT item_id, launch_id, path::text AS path FROM test_item WHERE item_id = ANY(%s)"
+)
 
 
 @dataclass(frozen=True)
@@ -87,9 +89,7 @@ class RPNameResolver:
         """(Re)load both maps from RP. Raises on any connection/query error."""
         projects: dict[int, str] = {}
         defects: dict[int, dict[str, dict[str, Any]]] = {}
-        with psycopg.connect(
-            self._dsn, autocommit=True, connect_timeout=_CONNECT_TIMEOUT
-        ) as conn:
+        with psycopg.connect(self._dsn, autocommit=True, connect_timeout=_CONNECT_TIMEOUT) as conn:
             conn.execute("SET default_transaction_read_only = on")
             conn.execute(f"SET statement_timeout = '{_STATEMENT_TIMEOUT_MS}ms'")
             with conn.cursor(row_factory=dict_row) as cur:
@@ -168,9 +168,7 @@ class RPNameResolver:
         missing = [i for i in item_ids if i not in self._item_meta]
         if not missing:
             return
-        with psycopg.connect(
-            self._dsn, autocommit=True, connect_timeout=_CONNECT_TIMEOUT
-        ) as conn:
+        with psycopg.connect(self._dsn, autocommit=True, connect_timeout=_CONNECT_TIMEOUT) as conn:
             conn.execute("SET default_transaction_read_only = on")
             conn.execute(f"SET statement_timeout = '{_STATEMENT_TIMEOUT_MS}ms'")
             with conn.cursor(row_factory=dict_row) as cur:

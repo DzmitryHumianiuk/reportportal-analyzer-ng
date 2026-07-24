@@ -34,6 +34,7 @@ def _rp_block(rp: RPNameResolver | None, project_id: int) -> dict[str, Any]:
         "defects": {},
     }
 
+
 # Label class palette keys (frontend maps to colors). pb/ab/si/nd + ti/other.
 LABEL_GROUPS = ("pb", "ab", "si", "nd", "ti")
 
@@ -333,8 +334,7 @@ def item_journey(
         # Total analyzed failing items in this launch — makes the burst share /
         # dominance concrete (same count the launches list reports as item_count).
         lfc = db.one(
-            "SELECT count(*) AS n FROM analyzer.test_item "
-            "WHERE project_id = %s AND launch_id = %s",
+            "SELECT count(*) AS n FROM analyzer.test_item WHERE project_id = %s AND launch_id = %s",
             (project_id, item["launch_id"]),
         )
         launch_failed_count = lfc["n"] if lfc else 0
@@ -370,9 +370,14 @@ def item_journey(
             LIMIT %s
             """,
             (
-                project_id, item["launch_id"], grouping["group_id"],
-                project_id, item["launch_id"], grouping["fingerprint"],
-                item_id, _GROUP_MEMBER_CAP,
+                project_id,
+                item["launch_id"],
+                grouping["group_id"],
+                project_id,
+                item["launch_id"],
+                grouping["fingerprint"],
+                item_id,
+                _GROUP_MEMBER_CAP,
             ),
         )
         for m in member_rows:
@@ -443,8 +448,10 @@ def item_journey(
                 "predicted_group": _grp(classical["predicted_label"]),
                 "confidence": c_conf,
                 "band": (
-                    "auto" if c_conf >= TAU_AUTO
-                    else "suggest" if c_conf >= TAU_SUGGEST
+                    "auto"
+                    if c_conf >= TAU_AUTO
+                    else "suggest"
+                    if c_conf >= TAU_SUGGEST
                     else "abstain"
                 ),
                 "model_ver": classical["model_ver"],
@@ -744,9 +751,7 @@ def llm_events(
     }
 
 
-def llm_cache(
-    db: Database, project_id: int, role: str, limit: int
-) -> dict[str, Any]:
+def llm_cache(db: Database, project_id: int, role: str, limit: int) -> dict[str, Any]:
     """Cache rows for a role (default extractor), ordered by reuse. Includes the
     honest 'hits undercounts feature-time reads' via the caption on the client."""
     rows = db.rows(
@@ -1351,8 +1356,9 @@ def _maturity(db: Database, project_id: int) -> dict[str, Any]:
 # Summary counters
 # --------------------------------------------------------------------------- #
 def summary(db: Database, project_id: int, rp: RPNameResolver | None = None) -> dict[str, Any]:
-    row = db.one(
-        """
+    row = (
+        db.one(
+            """
         SELECT
           count(*)                                             AS suggestions,
           count(*) FILTER (WHERE outcome = 'accepted')         AS accepted,
@@ -1363,10 +1369,13 @@ def summary(db: Database, project_id: int, rp: RPNameResolver | None = None) -> 
           count(*) FILTER (WHERE llm_used)                     AS llm_used
         FROM analyzer.suggestion WHERE project_id = %s
         """,
-        (project_id,),
-    ) or {}
-    counts = db.one(
-        """
+            (project_id,),
+        )
+        or {}
+    )
+    counts = (
+        db.one(
+            """
         SELECT
           (SELECT count(*) FROM analyzer.test_item WHERE project_id = %s)          AS items,
           (SELECT count(*) FROM analyzer.failure_signature WHERE project_id = %s)  AS signatures,
@@ -1377,8 +1386,10 @@ def summary(db: Database, project_id: int, rp: RPNameResolver | None = None) -> 
           (SELECT count(*) FROM analyzer.failure_mode WHERE project_id = %s)       AS modes,
           (SELECT count(*) FROM analyzer.label_event WHERE project_id = %s)        AS label_events
         """,
-        (project_id,) * 7,
-    ) or {}
+            (project_id,) * 7,
+        )
+        or {}
+    )
     return {
         "project_id": project_id,
         "rp": _rp_block(rp, project_id),
@@ -1435,18 +1446,22 @@ def signatures(
     (Stage-A label-bleed candidates: members carrying >1 distinct non-ti label).
     """
     # ---- project-wide fingerprint-space summary (never search-scoped) ----
-    summ = db.one(
-        """
+    summ = (
+        db.one(
+            """
         SELECT count(DISTINCT error_hash)  AS distinct_error_hash,
                count(DISTINCT exception_fp) AS distinct_exception_fp,
                count(*)                     AS items_with_signatures,
                count(*) FILTER (WHERE emb IS NOT NULL) AS embedded
         FROM analyzer.failure_signature WHERE project_id = %s
         """,
-        (project_id,),
-    ) or {}
-    conflict_total = db.one(
-        """
+            (project_id,),
+        )
+        or {}
+    )
+    conflict_total = (
+        db.one(
+            """
         SELECT count(*) AS n FROM (
             SELECT fs.error_hash
             FROM analyzer.failure_signature fs
@@ -1458,8 +1473,10 @@ def signatures(
                                  AND ti.issue_type_group <> 'ti') > 1
         ) t
         """,
-        (project_id,),
-    ) or {}
+            (project_id,),
+        )
+        or {}
+    )
 
     params: list[Any] = [project_id]
     search_clause = ""

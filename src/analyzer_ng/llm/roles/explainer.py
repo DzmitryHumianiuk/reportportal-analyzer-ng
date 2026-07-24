@@ -120,10 +120,7 @@ class AbstainExplainerRole(ExplainerRole):
 
     def content_key(self, inp: dict[str, Any]) -> str:
         # Distinct from the match explainer key so the shared cache never collides.
-        return (
-            f"abstain|{inp['error_hash']}|{inp['reason_code']}|"
-            f"{inp.get('candidate_key', '')}"
-        )
+        return f"abstain|{inp['error_hash']}|{inp['reason_code']}|{inp.get('candidate_key', '')}"
 
     def build_prompt(self, inp: dict[str, Any], nonce: str) -> tuple[str, str]:
         fact_json, fact_leaves = prepare_fact_block(inp["fact_block"])

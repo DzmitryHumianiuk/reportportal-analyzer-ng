@@ -390,9 +390,7 @@ class WorkerPool:
             duration_ms = int((time.monotonic() - started) * 1000)
             self._metrics.observe_request(item.routing_key, "success", time.monotonic() - started)
             # §9.1 completion line — carries duration_ms plus the bound context fields.
-            logger.info(
-                "handled '%s'", item.routing_key, extra={"duration_ms": duration_ms}
-            )
+            logger.info("handled '%s'", item.routing_key, extra={"duration_ms": duration_ms})
             return
 
     def _publish_reply(self, item: ProcessingItem, reply: str | None) -> None:

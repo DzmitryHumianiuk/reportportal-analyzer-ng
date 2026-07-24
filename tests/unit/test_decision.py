@@ -150,9 +150,7 @@ def test_stage_a_msg_identical_still_inherits():
         _hm(1, "pb001", "rp", msg_tokens={"widget", "render"}),
         _hm(2, "pb001", "rp", msg_tokens={"widget", "render"}),
     ]
-    got = stage_a_inherit(
-        9, matches, query_msg_tokens=frozenset({"widget", "render"}), now=NOW
-    )
+    got = stage_a_inherit(9, matches, query_msg_tokens=frozenset({"widget", "render"}), now=NOW)
     assert got is not None
 
 
@@ -181,9 +179,7 @@ def test_stage_a_mixed_crowd_filtered_to_zero():
     ]
     assert stage_a_inherit(9, matches, query_status_codes=("503",), now=NOW) is None
     res = decide(
-        DecisionInputs(
-            exception_fp=9, hash_matches=matches, query_status_codes=("503",)
-        ),
+        DecisionInputs(exception_fp=9, hash_matches=matches, query_status_codes=("503",)),
         now=NOW,
     )
     assert res.method != METHOD_HASH
@@ -204,9 +200,7 @@ _NPE = "java.lang.NullPointerException: Cannot invoke"
 _AUTH = frozenset(
     f'{_NPE} "com.hawkins.shop.auth.Session.userId()" because "session" is null'.split()
 )
-_TAX = frozenset(
-    f'{_NPE} "com.hawkins.shop.tax.Region.rate()" because "region" is null'.split()
-)
+_TAX = frozenset(f'{_NPE} "com.hawkins.shop.tax.Region.rate()" because "region" is null'.split())
 
 
 def test_stage_a_identifier_divergence_blocks_despite_boilerplate():
@@ -225,11 +219,15 @@ def test_stage_a_identical_identifiers_still_inherit():
 def test_stage_a_boilerplate_only_falls_back_to_all_tokens():
     # No identifier tokens on either side → fall back to all-token Jaccard (unchanged
     # behaviour): identical boilerplate still inherits, disjoint still blocks.
-    same = [_hm(1, "pb001", "rp", msg_tokens={"timeout", "db"}),
-            _hm(2, "pb001", "rp", msg_tokens={"timeout", "db"})]
+    same = [
+        _hm(1, "pb001", "rp", msg_tokens={"timeout", "db"}),
+        _hm(2, "pb001", "rp", msg_tokens={"timeout", "db"}),
+    ]
     assert stage_a_inherit(9, same, query_msg_tokens=frozenset({"timeout", "db"}), now=NOW)
-    other = [_hm(1, "pb001", "rp", msg_tokens={"widget", "render"}),
-             _hm(2, "pb001", "rp", msg_tokens={"widget", "render"})]
+    other = [
+        _hm(1, "pb001", "rp", msg_tokens={"widget", "render"}),
+        _hm(2, "pb001", "rp", msg_tokens={"widget", "render"}),
+    ]
     q = frozenset({"checkout", "cart"})
     assert stage_a_inherit(9, other, query_msg_tokens=q, now=NOW) is None
 
@@ -239,8 +237,14 @@ def test_stage_a_boilerplate_only_falls_back_to_all_tokens():
 # --------------------------------------------------------------------------- #
 def _kbc(mode_id, cosine, jac, fp, purity, support, status):
     return Candidate(
-        item_id=None, mode_id=mode_id, cosine=cosine, jaccard_templates=jac,
-        same_exception_fp=fp, mode_purity=purity, mode_support=support, mode_status=status,
+        item_id=None,
+        mode_id=mode_id,
+        cosine=cosine,
+        jaccard_templates=jac,
+        same_exception_fp=fp,
+        mode_purity=purity,
+        mode_support=support,
+        mode_status=status,
         issue_type="si001",
     )
 
@@ -263,9 +267,7 @@ def test_kb_short_circuit_requires_all_conditions():
 # Full decide() paths + policy bands
 # --------------------------------------------------------------------------- #
 def test_decide_stage_a_auto():
-    res = decide(
-        DecisionInputs(exception_fp=99, hash_matches=[_hm(7, "pb001", "rp")]), now=NOW
-    )
+    res = decide(DecisionInputs(exception_fp=99, hash_matches=[_hm(7, "pb001", "rp")]), now=NOW)
     assert res.method == METHOD_HASH
     assert res.action == ACTION_AUTO
     assert res.confidence == 0.95
@@ -759,8 +761,12 @@ class TestRelevantProvenance:
 
     def test_gbm_result_carries_candidate_source(self):
         cand = Candidate(
-            item_id=11, mode_id=None, issue_type="ab001",
-            label_source="ai_suggested", cosine=0.9, rrf_score=0.03,
+            item_id=11,
+            mode_id=None,
+            issue_type="ab001",
+            label_source="ai_suggested",
+            cosine=0.9,
+            rrf_score=0.03,
             same_exception_fp=True,
         )
         inputs = DecisionInputs(

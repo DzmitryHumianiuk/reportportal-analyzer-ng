@@ -153,9 +153,7 @@ class IndexPipeline:
                 errors = True
 
         took_ms = int((time.monotonic() - started) * 1000)
-        return BulkResponse(
-            took=took_ms, errors=errors, items=[], logResults=log_results, status=0
-        )
+        return BulkResponse(took=took_ms, errors=errors, items=[], logResults=log_results, status=0)
 
     # ------------------------------------------------------------------ #
     def _index_project(

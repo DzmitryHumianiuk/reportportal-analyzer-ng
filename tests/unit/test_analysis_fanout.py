@@ -231,9 +231,18 @@ def test_hash_inherit_not_fanned_to_different_identity_member() -> None:
     retr = SpyRetrieval(stored, pb_hash=stored[REP_ITEM].error_hash)
     engine = _engine(retr, pipe)
 
-    results = engine.analyze([_launch([_item(REP_ITEM, _MSG_REGION),
-                                       _item(SHARE_ITEM, _MSG_REGION),
-                                       _item(DIFF_ITEM, _MSG_SESSION)], launch_id=1)])
+    results = engine.analyze(
+        [
+            _launch(
+                [
+                    _item(REP_ITEM, _MSG_REGION),
+                    _item(SHARE_ITEM, _MSG_REGION),
+                    _item(DIFF_ITEM, _MSG_SESSION),
+                ],
+                launch_id=1,
+            )
+        ]
+    )
 
     # Rep + its hash-twin inherit pb (exact-identity match); the victim does NOT.
     assert retr.auto_labeled.get(REP_ITEM) == "pb001"
@@ -263,8 +272,9 @@ def test_homogeneous_group_still_fans_out_group_decision() -> None:
     retr = SpyRetrieval(twin_only, pb_hash=stored[REP_ITEM].error_hash)
     engine = _engine(retr, pipe)
 
-    engine.analyze([_launch([_item(REP_ITEM, _MSG_REGION),
-                             _item(SHARE_ITEM, _MSG_REGION)], launch_id=1)])
+    engine.analyze(
+        [_launch([_item(REP_ITEM, _MSG_REGION), _item(SHARE_ITEM, _MSG_REGION)], launch_id=1)]
+    )
 
     assert retr.auto_labeled.get(REP_ITEM) == "pb001"
     assert retr.auto_labeled.get(SHARE_ITEM) == "pb001"  # fanned to the same-identity twin
@@ -299,12 +309,12 @@ HIST_SI = 9  # labeled-si history with pool-exhausted context
 
 def _item_ctx(item_id: int, err_msg: str, ctx_msgs: list[str]) -> TestItem:
     logs = [
-        Log(logId=item_id * 10 + 1 + i, logLevel=WARN, message=c)
-        for i, c in enumerate(ctx_msgs)
+        Log(logId=item_id * 10 + 1 + i, logLevel=WARN, message=c) for i, c in enumerate(ctx_msgs)
     ]
     logs.append(Log(logId=item_id * 10, logLevel=ERROR, message=err_msg))
-    return TestItem(testItemId=item_id, isAutoAnalyzed=False, testItemName="t",
-                    testCaseHash=0, logs=logs)
+    return TestItem(
+        testItemId=item_id, isAutoAnalyzed=False, testItemName="t", testCaseHash=0, logs=logs
+    )
 
 
 def _ctx_items() -> list[TestItem]:
@@ -341,15 +351,30 @@ class CtxRetrieval(SpyRetrieval):
         if error_hash != self._pb_hash:
             return []
         base = {
-            "issue_type_group": "", "is_auto_analyzed": False, "launch_id": 999,
-            "launch_name": "hist", "exception_fp": self._stored[CTX_REP].exception_fp,
-            "status_codes": [], "label_source": "human", "label_ts": datetime.now(UTC),
+            "issue_type_group": "",
+            "is_auto_analyzed": False,
+            "launch_id": 999,
+            "launch_name": "hist",
+            "exception_fp": self._stored[CTX_REP].exception_fp,
+            "status_codes": [],
+            "label_source": "human",
+            "label_ts": datetime.now(UTC),
         }
         return [
-            {**base, "item_id": HIST_PB, "issue_type": "pb001", "issue_type_group": "pb",
-             "msg_text": self._stored[CTX_REP].msg_text},  # SLOW-QUERY context
-            {**base, "item_id": HIST_SI, "issue_type": "si001", "issue_type_group": "si",
-             "msg_text": self._stored[CTX_POOL_ITEM].msg_text},  # pool-exhausted context
+            {
+                **base,
+                "item_id": HIST_PB,
+                "issue_type": "pb001",
+                "issue_type_group": "pb",
+                "msg_text": self._stored[CTX_REP].msg_text,
+            },  # SLOW-QUERY context
+            {
+                **base,
+                "item_id": HIST_SI,
+                "issue_type": "si001",
+                "issue_type_group": "si",
+                "msg_text": self._stored[CTX_POOL_ITEM].msg_text,
+            },  # pool-exhausted context
         ]
 
 
@@ -409,13 +434,18 @@ def _item_ctx_ts(item_id: int, err_msg: str, ctx_msgs: list[str], *, scramble: b
         for i, c in enumerate(ctx_msgs)
     ]
     logs.append(
-        Log(logId=item_id * 10, logLevel=ERROR, message=err_msg,
-            logTime=(*_TS_BASE, len(ctx_msgs) + 1, 0))
+        Log(
+            logId=item_id * 10,
+            logLevel=ERROR,
+            message=err_msg,
+            logTime=(*_TS_BASE, len(ctx_msgs) + 1, 0),
+        )
     )
     if scramble:
         logs.reverse()  # ERROR now precedes its context on the wire
-    return TestItem(testItemId=item_id, isAutoAnalyzed=False, testItemName="t",
-                    testCaseHash=0, logs=logs)
+    return TestItem(
+        testItemId=item_id, isAutoAnalyzed=False, testItemName="t", testCaseHash=0, logs=logs
+    )
 
 
 def test_wire_order_independence_via_logtime() -> None:

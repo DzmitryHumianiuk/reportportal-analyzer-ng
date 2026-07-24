@@ -146,9 +146,7 @@ def _build_inner(cfg: Config) -> FastAPI:
         return payloads.signatures(db, project, q, conflicts, limit, offset, rp)
 
     @app.get("/api/signature-hash")
-    def api_signature_hash(
-        project: int = Query(...), error_hash: str = Query(...)
-    ) -> Any:
+    def api_signature_hash(project: int = Query(...), error_hash: str = Query(...)) -> Any:
         data = payloads.signature_hash(db, project, error_hash, rp)
         if data is None:
             raise HTTPException(status_code=404, detail="error_hash not found")

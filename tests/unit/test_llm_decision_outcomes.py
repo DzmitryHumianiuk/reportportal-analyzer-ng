@@ -113,9 +113,16 @@ def test_abstain_without_suggestion_id_skips_explainer() -> None:
 def test_stage_a_inherit_enqueues_no_llm_explainer() -> None:
     sc = FakeSidecar()
     dec = DecisionResult(
-        label="pb", issue_type="pb001", confidence=0.95, method=METHOD_HASH,
-        action="auto", abstain_reason=None, relevant_item_id=42, matched_mode_id=None,
-        features={}, relevant_label_source="human",
+        label="pb",
+        issue_type="pb001",
+        confidence=0.95,
+        method=METHOD_HASH,
+        action="auto",
+        abstain_reason=None,
+        relevant_item_id=42,
+        matched_mode_id=None,
+        features={},
+        relevant_label_source="human",
     )
     _engine(sc)._enqueue_llm(7, 1, 1, dec, suggestion_id=5)
     roles = [c[0] for c in sc.calls]
@@ -128,8 +135,14 @@ def test_stage_a_inherit_enqueues_no_llm_explainer() -> None:
 def test_match_suggest_band_still_enqueues_explainer() -> None:
     sc = FakeSidecar()
     dec = DecisionResult(
-        label="pb", issue_type="pb001", confidence=0.60, method=METHOD_GBM,
-        action="suggest", abstain_reason=None, relevant_item_id=9, matched_mode_id=None,
+        label="pb",
+        issue_type="pb001",
+        confidence=0.60,
+        method=METHOD_GBM,
+        action="suggest",
+        abstain_reason=None,
+        relevant_item_id=9,
+        matched_mode_id=None,
         features={},
     )
     _engine(sc)._enqueue_llm(7, 1, 1, dec, suggestion_id=5)
@@ -141,29 +154,48 @@ def test_match_suggest_band_still_enqueues_explainer() -> None:
 # --------------------------------------------------------------------------- #
 def test_stage_a_explanation_human_labeled() -> None:
     dec = DecisionResult(
-        label="pb", issue_type="pb001", confidence=0.95, method=METHOD_HASH,
-        action="auto", abstain_reason=None, relevant_item_id=42, matched_mode_id=None,
-        features={}, relevant_label_source="human",
+        label="pb",
+        issue_type="pb001",
+        confidence=0.95,
+        method=METHOD_HASH,
+        action="auto",
+        abstain_reason=None,
+        relevant_item_id=42,
+        matched_mode_id=None,
+        features={},
+        relevant_label_source="human",
     )
     assert AnalysisEngine._stage_a_explanation(dec) == (
-        "Inherited from item 42 (human-labeled pb001, same error_hash, "
-        "discriminant gate passed)."
+        "Inherited from item 42 (human-labeled pb001, same error_hash, discriminant gate passed)."
     )
 
 
 def test_stage_a_explanation_non_human_source_and_other_paths() -> None:
     ai = DecisionResult(
-        label="pb", issue_type="pb001", confidence=0.95, method=METHOD_HASH,
-        action="auto", abstain_reason=None, relevant_item_id=7, matched_mode_id=None,
-        features={}, relevant_label_source="ai_suggested",
+        label="pb",
+        issue_type="pb001",
+        confidence=0.95,
+        method=METHOD_HASH,
+        action="auto",
+        abstain_reason=None,
+        relevant_item_id=7,
+        matched_mode_id=None,
+        features={},
+        relevant_label_source="ai_suggested",
     )
     assert AnalysisEngine._stage_a_explanation(ai) == (
         "Inherited from item 7 (pb001, same error_hash, discriminant gate passed)."
     )
     # Non-Stage-A decisions get no deterministic sentence.
     gbm = DecisionResult(
-        label="pb", issue_type="pb001", confidence=0.6, method=METHOD_GBM,
-        action="suggest", abstain_reason=None, relevant_item_id=7, matched_mode_id=None,
+        label="pb",
+        issue_type="pb001",
+        confidence=0.6,
+        method=METHOD_GBM,
+        action="suggest",
+        abstain_reason=None,
+        relevant_item_id=7,
+        matched_mode_id=None,
         features={},
     )
     assert AnalysisEngine._stage_a_explanation(gbm) is None
@@ -255,14 +287,22 @@ def test_abstain_fact_loader_skips_pure_empty_abstain() -> None:
     no_cands = {"suggestion_id": 1, "candidates": []}
     assert loader("abstain_explainer", 7, 4998, no_cands) is None  # nothing to explain
     # Missing suggestion row entirely → also skipped.
-    assert PgLlmFactLoader(_FakeFacts(None)).__call__(
-        "abstain_explainer", 7, 4998, {"suggestion_id": 1, "candidates": []}
-    ) is None
+    assert (
+        PgLlmFactLoader(_FakeFacts(None)).__call__(
+            "abstain_explainer", 7, 4998, {"suggestion_id": 1, "candidates": []}
+        )
+        is None
+    )
     # Has a suggestion_id and candidates but no row → load_signature None → skip.
-    assert PgLlmFactLoader(_FakeFacts(None)).__call__(
-        "abstain_explainer", 7, 4998,
-        {"suggestion_id": 1, "candidates": [{"id": 1, "label": "pb001", "similarity": 0.9}]},
-    ) is None
+    assert (
+        PgLlmFactLoader(_FakeFacts(None)).__call__(
+            "abstain_explainer",
+            7,
+            4998,
+            {"suggestion_id": 1, "candidates": [{"id": 1, "label": "pb001", "similarity": 0.9}]},
+        )
+        is None
+    )
 
 
 # --------------------------------------------------------------------------- #

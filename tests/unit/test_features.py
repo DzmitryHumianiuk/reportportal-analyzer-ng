@@ -21,8 +21,15 @@ from analyzer_ng.db.repositories.models import Candidate
 
 
 def _cand(**kw):
-    base = dict(item_id=1, mode_id=None, cosine=0.9, rrf_score=0.03, jaccard_templates=0.5,
-               issue_type="pb001", label_source="rp")
+    base = dict(
+        item_id=1,
+        mode_id=None,
+        cosine=0.9,
+        rrf_score=0.03,
+        jaccard_templates=0.5,
+        issue_type="pb001",
+        label_source="rp",
+    )
     base.update(kw)
     return Candidate(**base)
 
@@ -96,16 +103,28 @@ def test_empty_context_returns_defaults_no_nan():
 
 def test_all_ranges_respected_on_rich_context():
     cands = [
-        _cand(item_id=1, cosine=0.95, issue_type="pb001", same_error_hash=True,
-              same_exception_fp=True, same_test_case=True),
+        _cand(
+            item_id=1,
+            cosine=0.95,
+            issue_type="pb001",
+            same_error_hash=True,
+            same_exception_fp=True,
+            same_test_case=True,
+        ),
         _cand(item_id=2, cosine=0.80, issue_type="ab001", label_source="human"),
         _cand(item_id=3, cosine=0.70, issue_type="si001", label_source="ai_suggested"),
     ]
     ctx = FeatureContext(
         candidates=cands,
         candidate_ages_days=[10.0, 45.0, 200.0],
-        kb_best=KBMatch(mode_id=7, score_mode=0.82, purity=0.9, support=25,
-                        same_exception_fp=True, status="confirmed"),
+        kb_best=KBMatch(
+            mode_id=7,
+            score_mode=0.82,
+            purity=0.9,
+            support=25,
+            same_exception_fp=True,
+            status="confirmed",
+        ),
         seed=SeedSignal(label="si", confidence=0.8),
         flakiness_score=0.3,
         window_runs=20,
@@ -276,9 +295,7 @@ def test_status_codes_match_top1_encoding():
 
 def test_status_codes_present_zero_means_nothing_to_compare():
     # Query carries no status code → present=0 ("nothing to compare"), match stays 0.
-    absent = extract_features(
-        FeatureContext(top1_status_codes=("500",), has_hash_top1=True)
-    )
+    absent = extract_features(FeatureContext(top1_status_codes=("500",), has_hash_top1=True))
     assert absent["status_codes_present"] == 0.0
     assert absent["status_codes_match_top1"] == 0.0
     # No top-1 evidence at all → match stays at its 0.0 default even if present=1.
@@ -403,9 +420,7 @@ def test_to_vector_for_old_list_drops_new_columns():
     # assembles exactly its own trained columns in its own order — columns it never saw
     # are dropped (schema-robust serving invariant).
     old_names = [f.name for f in FEATURES][:41]
-    full = extract_features(
-        FeatureContext(query_status_codes=("503",), has_hash_top1=True)
-    )
+    full = extract_features(FeatureContext(query_status_codes=("503",), has_hash_top1=True))
     vec = to_vector_for(full, old_names)
     assert len(vec) == 41
     assert vec == [float(full[n]) for n in old_names]
@@ -430,8 +445,6 @@ def test_to_vector_for_new_list_backfills_missing_with_defaults():
 def test_launch_fail_fraction_zero_when_total_unknown():
     # §6.4 #31: 0 when the launch's total item count is unknown (launch_items=0),
     # even though group_dominance still uses the known failing count.
-    values = extract_features(
-        FeatureContext(group_size=3, launch_failures=6, launch_items=0)
-    )
+    values = extract_features(FeatureContext(group_size=3, launch_failures=6, launch_items=0))
     assert values["launch_fail_fraction"] == 0.0
     assert values["group_dominance"] == 3 / 6

@@ -15,20 +15,20 @@ for the laptop VM stand -- resilience:
     name + startTime) is skipped; an in-progress leftover from a crash is
     deleted by its exact queried id and re-uploaded cleanly.
 """
+
 from __future__ import annotations
 
 import datetime as dt
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
 import requests
 
 from . import config
 
-TIMEOUT = 120                      # per-call read timeout (s)
-BACKOFF = [2, 4, 8, 16, 30]        # retry sleeps; len == max attempts
+TIMEOUT = 120  # per-call read timeout (s)
+BACKOFF = [2, 4, 8, 16, 30]  # retry sleeps; len == max attempts
 _RETRYABLE_EXC = (
     requests.exceptions.ReadTimeout,
     requests.exceptions.ConnectTimeout,
@@ -45,11 +45,11 @@ class _LandedError(Exception):
 
 def _ms(date: str, hour: int, sec: int) -> int:
     y, m, d = (int(x) for x in date.split("-"))
-    base = dt.datetime(y, m, d, hour, 0, 0, tzinfo=dt.timezone.utc)
+    base = dt.datetime(y, m, d, hour, 0, 0, tzinfo=dt.UTC)
     return int(base.timestamp() * 1000) + sec * 1000
 
 
-def _to_ms(v) -> Optional[int]:
+def _to_ms(v) -> int | None:
     """Normalise an RP startTime (ISO string or epoch ms) to epoch ms."""
     if v is None:
         return None
@@ -66,8 +66,9 @@ def _to_ms(v) -> Optional[int]:
 
 
 class RPClient:
-    def __init__(self, uat_base=config.UAT_BASE, api_base=config.API_BASE,
-                 log_workers=6, verbose=True):
+    def __init__(
+        self, uat_base=config.UAT_BASE, api_base=config.API_BASE, log_workers=6, verbose=True
+    ):
         self.uat = uat_base.rstrip("/")
         self.api = api_base.rstrip("/")
         self.s = requests.Session()
@@ -107,17 +108,26 @@ class RPClient:
 
     def _log_retry(self, method, url, attempt, reason):
         if self.verbose:
-            print(f"    retry {attempt + 1}/{len(BACKOFF)} {method} "
-                  f"{url.rsplit('/', 2)[-2:] and '/'.join(url.rsplit('/', 2)[-2:])} "
-                  f"({reason}); backoff {BACKOFF[attempt]}s", file=sys.stderr, flush=True)
+            print(
+                f"    retry {attempt + 1}/{len(BACKOFF)} {method} "
+                f"{url.rsplit('/', 2)[-2:] and '/'.join(url.rsplit('/', 2)[-2:])} "
+                f"({reason}); backoff {BACKOFF[attempt]}s",
+                file=sys.stderr,
+                flush=True,
+            )
 
     # -- auth --------------------------------------------------------------
     def login(self):
         r = self._send(
-            "POST", f"{self.uat}/uat/sso/oauth/token",
+            "POST",
+            f"{self.uat}/uat/sso/oauth/token",
             headers={"Authorization": f"Basic {config.OAUTH_BASIC}"},
-            data={"grant_type": "password", "username": config.SUPERADMIN,
-                  "password": config.SUPERPW})
+            data={
+                "grant_type": "password",
+                "username": config.SUPERADMIN,
+                "password": config.SUPERPW,
+            },
+        )
         r.raise_for_status()
         self.token = r.json()["access_token"]
         self.s.headers.update({"Authorization": f"Bearer {self.token}"})
@@ -125,8 +135,11 @@ class RPClient:
 
     # -- admin -------------------------------------------------------------
     def ensure_project(self, name: str) -> bool:
-        r = self._send("POST", f"{self.api}/api/v1/project",
-                       json={"projectName": name, "entryType": "INTERNAL"})
+        r = self._send(
+            "POST",
+            f"{self.api}/api/v1/project",
+            json={"projectName": name, "entryType": "INTERNAL"},
+        )
         if r.status_code in (200, 201):
             return True
         if r.status_code == 409 or "exist" in r.text.lower():
@@ -135,35 +148,46 @@ class RPClient:
         return False
 
     def set_analyzer(self, project: str, enabled: bool, mode="ALL"):
-        self._send("PUT", f"{self.api}/api/v1/project/{project}", json={
-            "configuration": {"attributes": {
-                "analyzer.isAutoAnalyzerEnabled": "true" if enabled else "false",
-                "analyzer.autoAnalyzerMode": mode,
-                "analyzer.minShouldMatch": "5",
-                "analyzer.numberOfLogLines": "-1",
-                "analyzer.indexingRunning": "true",
-            }}})
+        self._send(
+            "PUT",
+            f"{self.api}/api/v1/project/{project}",
+            json={
+                "configuration": {
+                    "attributes": {
+                        "analyzer.isAutoAnalyzerEnabled": "true" if enabled else "false",
+                        "analyzer.autoAnalyzerMode": mode,
+                        "analyzer.minShouldMatch": "5",
+                        "analyzer.numberOfLogLines": "-1",
+                        "analyzer.indexingRunning": "true",
+                    }
+                }
+            },
+        )
 
     # -- resume / lookup ---------------------------------------------------
-    def find_launch(self, project, name, start_ms) -> Optional[dict]:
+    def find_launch(self, project, name, start_ms) -> dict | None:
         """Return {id,uuid,status} for a launch matching name+startTime, else None."""
-        r = self._send("GET", f"{self.api}/api/v1/{project}/launch",
-                       params={"filter.eq.name": name, "page.size": 100})
+        r = self._send(
+            "GET",
+            f"{self.api}/api/v1/{project}/launch",
+            params={"filter.eq.name": name, "page.size": 100},
+        )
         if not r.ok:
             return None
         for l in r.json().get("content", []):
             if l.get("name") == name and _to_ms(l.get("startTime")) == start_ms:
-                return {"id": l.get("id"), "uuid": l.get("uuid"),
-                        "status": l.get("status")}
+                return {"id": l.get("id"), "uuid": l.get("uuid"), "status": l.get("status")}
         return None
 
-    def find_item(self, project, launch_id, name, start_ms) -> Optional[str]:
+    def find_item(self, project, launch_id, name, start_ms) -> str | None:
         """Return the uuid of an item matching launchId+name+startTime, else None."""
         if launch_id is None:
             return None
-        r = self._send("GET", f"{self.api}/api/v1/{project}/item",
-                       params={"filter.eq.launchId": launch_id,
-                               "filter.eq.name": name, "page.size": 100})
+        r = self._send(
+            "GET",
+            f"{self.api}/api/v1/{project}/item",
+            params={"filter.eq.launchId": launch_id, "filter.eq.name": name, "page.size": 100},
+        )
         if not r.ok:
             return None
         for it in r.json().get("content", []):
@@ -190,21 +214,34 @@ class RPClient:
         if existing:
             status = (existing.get("status") or "").upper()
             if status in ("PASSED", "FAILED", "FINISHED", "STOPPED"):
-                return {"skipped": True, "reason": f"exists {status}",
-                        "luuid": existing.get("uuid"), "lid": existing.get("id"),
-                        "project": la.project, "items": []}
+                return {
+                    "skipped": True,
+                    "reason": f"exists {status}",
+                    "luuid": existing.get("uuid"),
+                    "lid": existing.get("id"),
+                    "project": la.project,
+                    "items": [],
+                }
             # IN_PROGRESS / INTERRUPTED crash leftover -> delete by exact id, redo
             if existing.get("id") is not None:
                 self.delete_launch(la.project, existing["id"])
 
         # --- create launch (non-idempotent; adopt on lost response) ------
         attrs = list(la.attributes) + [{"key": "demo", "value": "analyzer-ng"}]
-        body = {"name": la.name, "startTime": lstart, "mode": "DEFAULT",
-                "attributes": attrs,
-                "description": f"[{la.date}] phase {la.phase} demo launch"}
+        body = {
+            "name": la.name,
+            "startTime": lstart,
+            "mode": "DEFAULT",
+            "attributes": attrs,
+            "description": f"[{la.date}] phase {la.phase} demo launch",
+        }
         try:
-            r = self._send("POST", f"{self.api}/api/v2/{la.project}/launch", json=body,
-                           find_existing=lambda: self.find_launch(la.project, la.name, lstart))
+            r = self._send(
+                "POST",
+                f"{self.api}/api/v2/{la.project}/launch",
+                json=body,
+                find_existing=lambda: self.find_launch(la.project, la.name, lstart),
+            )
             r.raise_for_status()
             luuid = r.json()["id"]
         except _LandedError as e:
@@ -218,13 +255,22 @@ class RPClient:
         for pi in la.items:
             it = pi.item
             istart = _ms(la.date, la.hour, sec)
-            ib = {"name": it.test_name, "startTime": istart, "type": "STEP",
-                  "launchUuid": luuid, "attributes": self._item_attrs(it)}
+            ib = {
+                "name": it.test_name,
+                "startTime": istart,
+                "type": "STEP",
+                "launchUuid": luuid,
+                "attributes": self._item_attrs(it),
+            }
             try:
                 ir = self._send(
-                    "POST", f"{self.api}/api/v2/{la.project}/item", json=ib,
-                    find_existing=lambda n=it.test_name, s=istart:
-                        self.find_item(la.project, lid, n, s))
+                    "POST",
+                    f"{self.api}/api/v2/{la.project}/item",
+                    json=ib,
+                    find_existing=lambda n=it.test_name, s=istart: self.find_item(
+                        la.project, lid, n, s
+                    ),
+                )
                 ir.raise_for_status()
                 iuuid = ir.json()["id"]
             except _LandedError as e:
@@ -242,8 +288,11 @@ class RPClient:
             sec += 2
 
         self._post_logs(log_jobs)
-        self._send("PUT", f"{self.api}/api/v2/{la.project}/launch/{luuid}/finish",
-                   json={"endTime": _ms(la.date, la.hour, sec + 5)})
+        self._send(
+            "PUT",
+            f"{self.api}/api/v2/{la.project}/launch/{luuid}/finish",
+            json={"endTime": _ms(la.date, la.hour, sec + 5)},
+        )
         return {"luuid": luuid, "lid": lid, "project": la.project, "items": reported}
 
     def _item_attrs(self, it) -> list[dict]:
@@ -262,8 +311,13 @@ class RPClient:
 
         def one(job):
             project, iuuid, luuid, t, level, msg = job
-            body = {"itemUuid": iuuid, "launchUuid": luuid, "time": t,
-                    "level": level.upper(), "message": msg}
+            body = {
+                "itemUuid": iuuid,
+                "launchUuid": luuid,
+                "time": t,
+                "level": level.upper(),
+                "message": msg,
+            }
             try:
                 self._send("POST", f"{self.api}/api/v2/{project}/log", json=body)
             except Exception as e:  # pragma: no cover
@@ -273,7 +327,7 @@ class RPClient:
             list(ex.map(one, jobs))
 
     # -- numeric ids / feedback / analysis --------------------------------
-    def numeric_launch(self, project, luuid, retries=8) -> Optional[int]:
+    def numeric_launch(self, project, luuid, retries=8) -> int | None:
         for _ in range(retries):
             r = self._send("GET", f"{self.api}/api/v1/{project}/launch/uuid/{luuid}")
             if r.ok and r.json().get("id"):
@@ -281,7 +335,7 @@ class RPClient:
             time.sleep(1)
         return None
 
-    def numeric_item(self, project, iuuid, retries=8) -> Optional[int]:
+    def numeric_item(self, project, iuuid, retries=8) -> int | None:
         for _ in range(retries):
             r = self._send("GET", f"{self.api}/api/v1/{project}/item/uuid/{iuuid}")
             if r.ok and r.json().get("id"):
@@ -305,17 +359,32 @@ class RPClient:
             nid = self.numeric_item(project, iuuid)
             if nid is None:
                 continue
-            issues.append({"testItemId": nid, "issue": {
-                "issueType": config.ISSUE_LOCATOR[gt], "autoAnalyzed": False,
-                "ignoreAnalyzer": False, "comment": f"demo triage {pi.item.archetype_id}"}})
+            issues.append(
+                {
+                    "testItemId": nid,
+                    "issue": {
+                        "issueType": config.ISSUE_LOCATOR[gt],
+                        "autoAnalyzed": False,
+                        "ignoreAnalyzer": False,
+                        "comment": f"demo triage {pi.item.archetype_id}",
+                    },
+                }
+            )
         for i in range(0, len(issues), 50):
-            self.defect_update(project, issues[i:i + 50])
+            self.defect_update(project, issues[i : i + 50])
         return len(issues)
 
     def analyze(self, project, launch_id):
-        self._send("POST", f"{self.api}/api/v1/{project}/launch/analyze", json={
-            "launchId": launch_id, "analyzerMode": "ALL",
-            "analyzerTypeName": "autoAnalyzer", "analyzeItemsMode": ["TO_INVESTIGATE"]})
+        self._send(
+            "POST",
+            f"{self.api}/api/v1/{project}/launch/analyze",
+            json={
+                "launchId": launch_id,
+                "analyzerMode": "ALL",
+                "analyzerTypeName": "autoAnalyzer",
+                "analyzeItemsMode": ["TO_INVESTIGATE"],
+            },
+        )
 
     def suggest(self, project, item_id):
         r = self._send("GET", f"{self.api}/api/v1/{project}/item/suggest/{item_id}")
@@ -323,20 +392,29 @@ class RPClient:
 
     # -- route calls (Phase 5, S44) ---------------------------------------
     def cluster(self, project, launch_id):
-        r = self._send("POST", f"{self.api}/api/v1/{project}/launch/cluster", json={
-            "launchId": launch_id, "project": project,
-            "analyzerMode": "ALL", "removeNumbers": False})
+        r = self._send(
+            "POST",
+            f"{self.api}/api/v1/{project}/launch/cluster",
+            json={
+                "launchId": launch_id,
+                "project": project,
+                "analyzerMode": "ALL",
+                "removeNumbers": False,
+            },
+        )
         return r.status_code, (r.text[:200] if r.text else "")
 
     def suggest_patterns(self, project, launch_id):
-        r = self._send(
-            "GET", f"{self.api}/api/v1/{project}/launch/{launch_id}/suggest_patterns")
+        r = self._send("GET", f"{self.api}/api/v1/{project}/launch/{launch_id}/suggest_patterns")
         return r.status_code, (r.text[:200] if r.text else "")
 
     # -- verification helpers ---------------------------------------------
     def item_log_count(self, project, item_id):
-        r = self._send("GET", f"{self.api}/api/v1/{project}/log",
-                       params={"filter.eq.item": item_id, "page.size": 1})
+        r = self._send(
+            "GET",
+            f"{self.api}/api/v1/{project}/log",
+            params={"filter.eq.item": item_id, "page.size": 1},
+        )
         if r.ok:
             return r.json().get("page", {}).get("totalElements")
         return None
@@ -347,9 +425,11 @@ class RPClient:
         by_name: dict = {}
         page = 1
         while True:
-            r = self._send("GET", f"{self.api}/api/v1/{project}/item",
-                           params={"filter.eq.launchId": launch_id,
-                                   "page.size": 100, "page.page": page})
+            r = self._send(
+                "GET",
+                f"{self.api}/api/v1/{project}/item",
+                params={"filter.eq.launchId": launch_id, "page.size": 100, "page.page": page},
+            )
             if not r.ok:
                 break
             d = r.json()
@@ -376,24 +456,29 @@ class RPClient:
         out = []
         page = 1
         while True:
-            r = self._send("GET", f"{self.api}/api/v1/{project}/item",
-                           params={"filter.eq.launchId": launch_id,
-                                   "page.size": 100, "page.page": page})
+            r = self._send(
+                "GET",
+                f"{self.api}/api/v1/{project}/item",
+                params={"filter.eq.launchId": launch_id, "page.size": 100, "page.page": page},
+            )
             if not r.ok:
                 break
             d = r.json()
             content = d.get("content", [])
             for it in content:
                 gt = None
-                for a in (it.get("attributes") or []):
+                for a in it.get("attributes") or []:
                     if a.get("key") == "ground_truth":
                         gt = a.get("value")
-                out.append({
-                    "id": it.get("id"), "name": it.get("name"),
-                    "ground_truth": gt,
-                    "issue_type": (it.get("issue") or {}).get("issueType"),
-                    "status": it.get("status"),
-                })
+                out.append(
+                    {
+                        "id": it.get("id"),
+                        "name": it.get("name"),
+                        "ground_truth": gt,
+                        "issue_type": (it.get("issue") or {}).get("issueType"),
+                        "status": it.get("status"),
+                    }
+                )
             pg = d.get("page", {})
             if not content or page >= pg.get("totalPages", 1):
                 break
@@ -401,11 +486,13 @@ class RPClient:
         return out
 
     def project_launch_count(self, project):
-        r = self._send("GET", f"{self.api}/api/v1/{project}/launch",
-                       params={"page.size": 1})
+        r = self._send("GET", f"{self.api}/api/v1/{project}/launch", params={"page.size": 1})
         return r.json().get("page", {}).get("totalElements") if r.ok else None
 
     def project_item_count(self, project):
-        r = self._send("GET", f"{self.api}/api/v1/{project}/item",
-                       params={"page.size": 1, "filter.eq.hasChildren": "false"})
+        r = self._send(
+            "GET",
+            f"{self.api}/api/v1/{project}/item",
+            params={"page.size": 1, "filter.eq.hasChildren": "false"},
+        )
         return r.json().get("page", {}).get("totalElements") if r.ok else None

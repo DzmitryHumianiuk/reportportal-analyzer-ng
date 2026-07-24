@@ -58,8 +58,13 @@ def test_stage_a_hash_inherit():
 
 def test_stage_ab_mode_match():
     mode = {
-        "mode_id": 7, "status": "confirmed", "label": "si", "title": "t",
-        "purity": 0.8, "support": 5, "seed_key": "conn_timeout",
+        "mode_id": 7,
+        "status": "confirmed",
+        "label": "si",
+        "title": "t",
+        "purity": 0.8,
+        "support": 5,
+        "seed_key": "conn_timeout",
     }
     m, _ = _matching_decision(_FakeDB(mode), 1, _sug(matched_mode_id=7))
     assert m["stage"] == "AB"

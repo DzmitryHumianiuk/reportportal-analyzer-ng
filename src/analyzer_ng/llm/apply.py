@@ -83,9 +83,7 @@ def apply_judge(
             "prompt_hash": prompt_hash,
         }
     }
-    ops.annotate_judge(
-        project_id, item_id, chosen_item_id=chosen_item_id, features_patch=patch
-    )
+    ops.annotate_judge(project_id, item_id, chosen_item_id=chosen_item_id, features_patch=patch)
 
 
 def apply_coldstart(

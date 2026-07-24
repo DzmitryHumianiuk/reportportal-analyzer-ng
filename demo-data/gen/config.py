@@ -4,6 +4,7 @@ Everything here is derived from demo-data/SCENARIOS.md. Where SCENARIOS.md is
 ambiguous the choice that maximises analyzer-mechanism coverage is taken; those
 choices are catalogued in README.md "Deviations".
 """
+
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
@@ -66,6 +67,7 @@ BACKDATED_DAYS = [
     ("2026-05-20", FEA),
 ]
 
+
 # Working timeline (§3.1). Each day lists, per project, the launches that run
 # and the nightly failed-count hint from the table (used as a soft floor for
 # filler; the real volume is corpus-driven -- see README Deviations).
@@ -79,7 +81,7 @@ def _wsu_nightlies():
 
 
 def _wsu_smokes(n):
-    return [(f"PR Smoke #{i+1}", 0) for i in range(n)]
+    return [(f"PR Smoke #{i + 1}", 0) for i in range(n)]
 
 
 TIMELINE = [
@@ -111,6 +113,7 @@ PROBE_DAYS = ["2026-07-15", "2026-07-16", "2026-07-17"]
 OUTAGE_DAY = "2026-07-01"
 DEMO_DAY = "2026-07-17"
 SWEEP_DAY = "2026-07-16"
+
 
 # Per-project nightly launch templates used to build the launch skeleton on a
 # given working day.

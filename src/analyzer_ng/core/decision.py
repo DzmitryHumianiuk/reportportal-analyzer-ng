@@ -233,7 +233,7 @@ def stage_a_inherit(
     if not matches:
         return None
 
-    newest = max(matches, key=lambda m: (m.label_ts or datetime.min.replace(tzinfo=UTC)))
+    newest = max(matches, key=lambda m: m.label_ts or datetime.min.replace(tzinfo=UTC))
 
     # Guard: newest match age ≤ 180 days.
     if _age_days(newest.label_ts, now) > STAGE_A_MAX_AGE_DAYS:
@@ -243,9 +243,7 @@ def stage_a_inherit(
     unanimous = len(labels) == 1
     human = newest.label_source in ("rp", "human")
     # ≥2 unanimous items, OR a single human-sourced label with confidence ≥ 0.9 (§6.1).
-    single_human = (
-        len(matches) == 1 and human and newest.confidence >= STAGE_A_HUMAN_MIN_CONF
-    )
+    single_human = len(matches) == 1 and human and newest.confidence >= STAGE_A_HUMAN_MIN_CONF
     if not ((len(matches) >= 2 and unanimous) or single_human):
         return None
 
@@ -388,9 +386,7 @@ def decide(
         relevant_is_auto_analyzed: bool = False,
     ) -> DecisionResult:
         action = (
-            ACTION_ABSTAIN
-            if label == "ti"
-            else _band_action(confidence, short_circuit, tau_auto)
+            ACTION_ABSTAIN if label == "ti" else _band_action(confidence, short_circuit, tau_auto)
         )
         default_probs = {label: confidence} if label != "ti" else {}
         return DecisionResult(
@@ -588,29 +584,45 @@ def _gbm_result(
             flabel = _base(floor.issue_type)
             locator = floor.issue_type or default_locator(flabel)
             return result_fn(
-                flabel, locator, TAU_SUGGEST, METHOD_GBM,
-                relevant_item_id=floor.item_id, probs=probs, model_version=version,
+                flabel,
+                locator,
+                TAU_SUGGEST,
+                METHOD_GBM,
+                relevant_item_id=floor.item_id,
+                probs=probs,
+                model_version=version,
                 relevant_label_source=floor.label_source,
             )
         return result_fn(
-            "ti", "ti", p, METHOD_GBM,
-            abstain_reason="gbm_below_suggest", probs=probs, model_version=version,
+            "ti",
+            "ti",
+            p,
+            METHOD_GBM,
+            abstain_reason="gbm_below_suggest",
+            probs=probs,
+            model_version=version,
         )
-    if (
-        p < tau_auto
-        and stage_c
-        and _boilerplate_only_top1(stage_c[0], query_msg_tokens)
-    ):
+    if p < tau_auto and stage_c and _boilerplate_only_top1(stage_c[0], query_msg_tokens):
         return result_fn(
-            "ti", "ti", p, METHOD_GBM,
-            abstain_reason="gbm_boilerplate_only_neighbor", probs=probs, model_version=version,
+            "ti",
+            "ti",
+            p,
+            METHOD_GBM,
+            abstain_reason="gbm_boilerplate_only_neighbor",
+            probs=probs,
+            model_version=version,
         )
     cand = _pick_relevant(stage_c, label)
     locator = cand.issue_type if cand is not None and cand.issue_type else default_locator(label)
     rel = cand.item_id if cand is not None else None
     return result_fn(
-        label, locator, p, METHOD_GBM,
-        relevant_item_id=rel, probs=probs, model_version=version,
+        label,
+        locator,
+        p,
+        METHOD_GBM,
+        relevant_item_id=rel,
+        probs=probs,
+        model_version=version,
         relevant_label_source=cand.label_source if cand is not None else None,
     )
 

@@ -18,6 +18,7 @@ jsonb (`same_error_hash_top1`, `kb_purity`, `kb_top1_score`). Action is derived
 from the analyzer's own bands (decision.py): pred=='ti' -> abstain;
 conf>=0.75 -> auto; conf>=0.45 -> suggest; else abstain.
 """
+
 from __future__ import annotations
 
 import json
@@ -29,14 +30,26 @@ from collections import defaultdict
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-from gen import config, rp as rpmod  # noqa: E402
+from gen import config  # noqa: E402
+from gen import rp as rpmod
 
 PROBE_LAUNCHES = {config.WSU: 270, config.PSV: 271, config.FEA: 272}
 PG_DEPLOY = "deploy/analyzer-pg"
 TAU_AUTO, TAU_SUGGEST = 0.75, 0.45
 
-BASE = {"pb001": "pb", "ab001": "ab", "si001": "si", "nd001": "nd", "ti001": "ti",
-        "ti": "ti", "pb": "pb", "ab": "ab", "si": "si", "nd": "nd", None: "ti"}
+BASE = {
+    "pb001": "pb",
+    "ab001": "ab",
+    "si001": "si",
+    "nd001": "nd",
+    "ti001": "ti",
+    "ti": "ti",
+    "pb": "pb",
+    "ab": "ab",
+    "si": "si",
+    "nd": "nd",
+    None: "ti",
+}
 
 
 def base(lbl):
@@ -52,14 +65,16 @@ def fetch_probe_items(client):
     for project, lid in PROBE_LAUNCHES.items():
         page = 1
         while True:
-            r = client._send("GET", f"{client.api}/api/v1/{project}/item",
-                             params={"filter.eq.launchId": lid, "page.size": 100,
-                                     "page.page": page})
+            r = client._send(
+                "GET",
+                f"{client.api}/api/v1/{project}/item",
+                params={"filter.eq.launchId": lid, "page.size": 100, "page.page": page},
+            )
             d = r.json()
             content = d.get("content", [])
             for it in content:
                 scen, adv, gt, arc = [], None, None, None
-                for a in (it.get("attributes") or []):
+                for a in it.get("attributes") or []:
                     k, v = a.get("key"), a.get("value")
                     if k == "scenario":
                         scen.append(v)
@@ -69,9 +84,14 @@ def fetch_probe_items(client):
                         gt = v
                     elif k == "archetype":
                         arc = v
-                items[it["id"]] = {"name": it.get("name"), "project": project,
-                                   "scenarios": scen, "adv_case": adv,
-                                   "ground_truth": gt, "archetype": arc}
+                items[it["id"]] = {
+                    "name": it.get("name"),
+                    "project": project,
+                    "scenarios": scen,
+                    "adv_case": adv,
+                    "ground_truth": gt,
+                    "archetype": arc,
+                }
             pg = d.get("page", {})
             if not content or page >= pg.get("totalPages", 1):
                 break
@@ -96,8 +116,23 @@ def fetch_suggestions():
         " order by item_id, created_at desc, suggestion_id desc) t;"
     )
     out = subprocess.run(
-        ["kubectl", "exec", PG_DEPLOY, "--", "psql", "-U", "analyzer", "-d",
-         "analyzer", "-tAc", sql], capture_output=True, text=True, timeout=120)
+        [
+            "kubectl",
+            "exec",
+            PG_DEPLOY,
+            "--",
+            "psql",
+            "-U",
+            "analyzer",
+            "-d",
+            "analyzer",
+            "-tAc",
+            sql,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     if out.returncode != 0:
         raise RuntimeError(f"psql failed: {out.stderr[:400]}")
     rows = json.loads(out.stdout.strip() or "[]")
@@ -110,8 +145,11 @@ def load_expected():
     by_ag, by_a = {}, {}
     for p in doc["probes"]:
         arc, gt = p["archetype_id"], p.get("ground_truth")
-        row = {"action": p["expected_action"], "label": p["expected_label"],
-               "method": p["expected_method"]}
+        row = {
+            "action": p["expected_action"],
+            "label": p["expected_label"],
+            "method": p["expected_method"],
+        }
         by_ag.setdefault((arc, gt), row)
         by_a.setdefault(arc, row)
     return by_ag, by_a
@@ -157,15 +195,21 @@ def is_debatable(exp, got_action, got_method, got_label, truth, project):
     # a calibration gap in expected.json, not analyzer misbehavior. (After the
     # history replay the label evidence is richer than the spec's 'suggest' assumed.)
     if exp["action"] == "suggest" and got_action == "auto" and got_label == truth:
-        return ("spec expected suggest; analyzer auto-labeled the CORRECT label "
-                "(post-replay history richer than the spec's suggest assumption)")
+        return (
+            "spec expected suggest; analyzer auto-labeled the CORRECT label "
+            "(post-replay history richer than the spec's suggest assumption)"
+        )
     # rule_cold can only auto or abstain -> a 'suggest' expectation is unmeetable there
     if exp["action"] == "suggest" and got_method == "rule_cold" and got_label == truth:
         return "spec expected suggest but a rule_cold/seed path can only auto or abstain"
     # cold FEA probe expected a trained-model band, but the install GBM only trained
     # post-hoc (this remediation) -> method/band is a timeline artifact
-    if project == config.FEA and exp["method"] == "gbm" and got_method != "gbm" \
-            and got_label == truth:
+    if (
+        project == config.FEA
+        and exp["method"] == "gbm"
+        and got_method != "gbm"
+        and got_label == truth
+    ):
         return "FEA cold: expected gbm but project was cold at analysis time"
     return None
 
@@ -202,19 +246,31 @@ def score():
         method_ok = (got_method == exp["method"]) if exp["method"] else None
         debate = is_debatable(exp, got_action, got_method, got_label, truth, it["project"])
 
-        rows.append({
-            "item_id": iid, "project": it["project"], "archetype": arc,
-            "scenarios": it["scenarios"], "adv_case": it["adv_case"],
-            "test_name": it["name"], "ground_truth": truth,
-            "exp_action": exp["action"], "exp_label": base(exp["label"]),
-            "exp_method": exp["method"],
-            "got_action": got_action, "got_label": got_label,
-            "got_method": got_method, "conf": conf,
-            "action_ok": action_ok, "label_ok": label_ok,
-            "conf_wrong": conf_wrong, "abstain_expected": is_abstain_expected,
-            "abstain_ok": abstain_ok, "method_ok": method_ok,
-            "debatable": debate,
-        })
+        rows.append(
+            {
+                "item_id": iid,
+                "project": it["project"],
+                "archetype": arc,
+                "scenarios": it["scenarios"],
+                "adv_case": it["adv_case"],
+                "test_name": it["name"],
+                "ground_truth": truth,
+                "exp_action": exp["action"],
+                "exp_label": base(exp["label"]),
+                "exp_method": exp["method"],
+                "got_action": got_action,
+                "got_label": got_label,
+                "got_method": got_method,
+                "conf": conf,
+                "action_ok": action_ok,
+                "label_ok": label_ok,
+                "conf_wrong": conf_wrong,
+                "abstain_expected": is_abstain_expected,
+                "abstain_ok": abstain_ok,
+                "method_ok": method_ok,
+                "debatable": debate,
+            }
+        )
     return rows
 
 
@@ -231,7 +287,8 @@ def agg(rows):
     meth = [r for r in real if r["method_ok"] is not None]
     method_ok = sum(1 for r in meth if r["method_ok"])
     return {
-        "n": n, "n_debatable": len(rows) - n,
+        "n": n,
+        "n_debatable": len(rows) - n,
         "action_acc": round(action_ok / n, 3) if n else None,
         "label_acc_decided": round(label_ok / len(decided), 3) if decided else None,
         "n_decided": len(decided),
@@ -263,7 +320,7 @@ def render(rows):
 
     scen_rows = defaultdict(list)
     for r in rows:
-        for s in (r["scenarios"] or ["<none>"]):
+        for s in r["scenarios"] or ["<none>"]:
             scen_rows[s].append(r)
     per_scenario = {s: agg(rs) for s, rs in scen_rows.items()}
 
@@ -282,15 +339,24 @@ def render(rows):
         if r["label_ok"] is False:
             return 2
         return 9
-    fails = sorted([r for r in rows if not r["debatable"]
-                    and (r["conf_wrong"] or not r["action_ok"] or r["label_ok"] is False)],
-                   key=sev)[:10]
+
+    fails = sorted(
+        [
+            r
+            for r in rows
+            if not r["debatable"]
+            and (r["conf_wrong"] or not r["action_ok"] or r["label_ok"] is False)
+        ],
+        key=sev,
+    )[:10]
     debatable = [r for r in rows if r["debatable"]]
 
     manifest = {
-        "probe_launches": PROBE_LAUNCHES, "scored_items": len(rows),
+        "probe_launches": PROBE_LAUNCHES,
+        "scored_items": len(rows),
         "items": [_item_rec(r) for r in rows],
-        "overall": overall, "per_project": per_project,
+        "overall": overall,
+        "per_project": per_project,
         "per_scenario": {s: {**m, "verdict": verdict(m)} for s, m in per_scenario.items()},
         "adversarial": adversarial,
         "top_failures": [_fail_row(r) for r in fails],
@@ -306,37 +372,56 @@ def _item_rec(r):
     so identity is (project, archetype, test_name, ground_truth))."""
     return {
         "key": f"{r['project']}|{r['archetype']}|{r['test_name']}|{r['ground_truth']}",
-        "item_id": r["item_id"], "project": r["project"], "archetype": r["archetype"],
-        "test_name": r["test_name"], "scenarios": r["scenarios"], "adv_case": r["adv_case"],
+        "item_id": r["item_id"],
+        "project": r["project"],
+        "archetype": r["archetype"],
+        "test_name": r["test_name"],
+        "scenarios": r["scenarios"],
+        "adv_case": r["adv_case"],
         "ground_truth": r["ground_truth"],
-        "exp_action": r["exp_action"], "exp_label": r["exp_label"],
-        "got_action": r["got_action"], "got_label": r["got_label"],
-        "got_method": r["got_method"], "conf": r["conf"],
-        "action_ok": r["action_ok"], "label_ok": r["label_ok"],
-        "conf_wrong": r["conf_wrong"], "abstain_ok": r["abstain_ok"],
+        "exp_action": r["exp_action"],
+        "exp_label": r["exp_label"],
+        "got_action": r["got_action"],
+        "got_label": r["got_label"],
+        "got_method": r["got_method"],
+        "conf": r["conf"],
+        "action_ok": r["action_ok"],
+        "label_ok": r["label_ok"],
+        "conf_wrong": r["conf_wrong"],
+        "abstain_ok": r["abstain_ok"],
         "debatable": bool(r["debatable"]),
     }
 
 
 def _fail_row(r):
-    return {"item_id": r["item_id"], "project": r["project"], "archetype": r["archetype"],
-            "scenarios": r["scenarios"], "adv_case": r["adv_case"],
-            "test_name": r["test_name"], "ground_truth": r["ground_truth"],
-            "expected": f"{r['exp_action']}/{r['exp_label']}"
-                        + (f"/{r['exp_method']}" if r['exp_method'] else ""),
-            "got": f"{r['got_action']}/{r['got_label']}"
-                   + (f"/{r['got_method']}" if r['got_method'] else "")
-                   + (f" conf={r['conf']:.2f}" if r['conf'] is not None else ""),
-            "reason": r["debatable"] or _hypothesis(r)}
+    return {
+        "item_id": r["item_id"],
+        "project": r["project"],
+        "archetype": r["archetype"],
+        "scenarios": r["scenarios"],
+        "adv_case": r["adv_case"],
+        "test_name": r["test_name"],
+        "ground_truth": r["ground_truth"],
+        "expected": f"{r['exp_action']}/{r['exp_label']}"
+        + (f"/{r['exp_method']}" if r["exp_method"] else ""),
+        "got": f"{r['got_action']}/{r['got_label']}"
+        + (f"/{r['got_method']}" if r["got_method"] else "")
+        + (f" conf={r['conf']:.2f}" if r["conf"] is not None else ""),
+        "reason": r["debatable"] or _hypothesis(r),
+    }
 
 
 def _hypothesis(r):
     if r["conf_wrong"]:
-        return (f"HARD FAIL: auto-labeled {r['got_label']} but truth is {r['ground_truth']}"
-                " -- confident wrong label")
+        return (
+            f"HARD FAIL: auto-labeled {r['got_label']} but truth is {r['ground_truth']}"
+            " -- confident wrong label"
+        )
     if r["exp_action"] == "abstain" and r["got_action"] != "abstain":
-        return (f"should abstain ({r['ground_truth']}) but {r['got_action']}'d "
-                f"{r['got_label']} -- over-confident on an undecidable item")
+        return (
+            f"should abstain ({r['ground_truth']}) but {r['got_action']}'d "
+            f"{r['got_label']} -- over-confident on an undecidable item"
+        )
     if r["exp_action"] == "auto" and r["got_action"] == "suggest":
         return "expected auto-inherit but only suggested -- history/hash signal weaker than spec assumes"
     if r["exp_action"] == "suggest" and r["got_action"] == "auto":
@@ -354,46 +439,72 @@ def adv_verdict(fam, rs, all_rows):
     v = verdict(m)
     # ADV-9 cross-project isolation: byte-identical twins must get project-local labels
     if fam == "ADV-9":
-        wsu = [r for r in all_rows if r["adv_case"] and r["adv_case"].startswith("ADV-9")
-               and r["project"] == config.WSU and "S45" in "".join(r["scenarios"])]
-        psv = [r for r in all_rows if r["adv_case"] and r["adv_case"].startswith("ADV-9")
-               and r["project"] == config.PSV and "S45" in "".join(r["scenarios"])]
+        wsu = [
+            r
+            for r in all_rows
+            if r["adv_case"]
+            and r["adv_case"].startswith("ADV-9")
+            and r["project"] == config.WSU
+            and "S45" in "".join(r["scenarios"])
+        ]
+        psv = [
+            r
+            for r in all_rows
+            if r["adv_case"]
+            and r["adv_case"].startswith("ADV-9")
+            and r["project"] == config.PSV
+            and "S45" in "".join(r["scenarios"])
+        ]
         wl = {r["got_label"] for r in wsu if r["got_action"] != "abstain"}
         pl = {r["got_label"] for r in psv if r["got_action"] != "abstain"}
         leaked = bool(wl & pl) and (wl == pl)
-        line = (f"WSU twin labels={sorted(wl) or ['abstain']}, PSV twin labels={sorted(pl) or ['abstain']}"
-                f" -> {'LEAK (identical)' if leaked else 'project-local (no leak)'}")
+        line = (
+            f"WSU twin labels={sorted(wl) or ['abstain']}, PSV twin labels={sorted(pl) or ['abstain']}"
+            f" -> {'LEAK (identical)' if leaked else 'project-local (no leak)'}"
+        )
         v = "FAIL" if leaked else ("PASS" if (wsu or psv) else "N/A")
     return {"verdict": v, "line": line, **m}
 
 
 def _bar(m):
-    return (f"action_acc={m['action_acc']}  label_acc={m['label_acc_decided']}  "
-            f"conf_wrong={m['confidently_wrong']}  abstain_recall={m['abstain_recall']}  "
-            f"method_match={m['method_match']}")
+    return (
+        f"action_acc={m['action_acc']}  label_acc={m['label_acc_decided']}  "
+        f"conf_wrong={m['confidently_wrong']}  abstain_recall={m['abstain_recall']}  "
+        f"method_match={m['method_match']}"
+    )
 
 
 def _write_md(man, per_scenario, fails, debatable):
     o = man["overall"]
     L = []
     L.append("# analyzer-ng demo -- probe scorecard\n")
-    L.append(f"Scored **{man['scored_items']}** probe items from launches "
-             f"{man['probe_launches']} against `expected.json`. "
-             f"Debatable (expectation/timing artifacts, excluded from fault counts): "
-             f"**{o['n_debatable']}**.\n")
+    L.append(
+        f"Scored **{man['scored_items']}** probe items from launches "
+        f"{man['probe_launches']} against `expected.json`. "
+        f"Debatable (expectation/timing artifacts, excluded from fault counts): "
+        f"**{o['n_debatable']}**.\n"
+    )
     L.append("## Summary\n")
-    L.append("| scope | n | action acc | label acc (decided) | confidently-wrong | abstain recall | method match |")
+    L.append(
+        "| scope | n | action acc | label acc (decided) | confidently-wrong | abstain recall | method match |"
+    )
     L.append("|---|---:|---:|---:|---:|---:|---:|")
-    L.append(f"| **overall** | {o['n']} | {o['action_acc']} | {o['label_acc_decided']} "
-             f"| {o['confidently_wrong']} | {o['abstain_recall']} | {o['method_match']} |")
+    L.append(
+        f"| **overall** | {o['n']} | {o['action_acc']} | {o['label_acc_decided']} "
+        f"| {o['confidently_wrong']} | {o['abstain_recall']} | {o['method_match']} |"
+    )
     for p in config.PROJECTS:
         m = man["per_project"][p]
-        L.append(f"| {p} | {m['n']} | {m['action_acc']} | {m['label_acc_decided']} "
-                 f"| {m['confidently_wrong']} | {m['abstain_recall']} | {m['method_match']} |")
-    L.append("\n_action = auto/suggest/abstain (analyzer bands τ_auto=0.75, τ_suggest=0.45); "
-             "label acc over non-abstains vs ground truth; confidently-wrong = auto-labeled with "
-             "wrong label (hard fail); method match where expected_method is specified "
-             "(hash/kb sub-classified best-effort, see header)._\n")
+        L.append(
+            f"| {p} | {m['n']} | {m['action_acc']} | {m['label_acc_decided']} "
+            f"| {m['confidently_wrong']} | {m['abstain_recall']} | {m['method_match']} |"
+        )
+    L.append(
+        "\n_action = auto/suggest/abstain (analyzer bands τ_auto=0.75, τ_suggest=0.45); "
+        "label acc over non-abstains vs ground truth; confidently-wrong = auto-labeled with "
+        "wrong label (hard fail); method match where expected_method is specified "
+        "(hash/kb sub-classified best-effort, see header)._\n"
+    )
 
     L.append("## Per-scenario\n")
     L.append("| scenario | n | verdict | action acc | label acc | conf-wrong | notes |")
@@ -402,8 +513,10 @@ def _write_md(man, per_scenario, fails, debatable):
         m = per_scenario[s]
         vd = verdict(m)
         note = "clean" if vd == "PASS" else ("hard fail" if m["confidently_wrong"] else "mixed")
-        L.append(f"| {s} | {m['n']} | {vd} | {m['action_acc']} | {m['label_acc_decided']} "
-                 f"| {m['confidently_wrong']} | {note} |")
+        L.append(
+            f"| {s} | {m['n']} | {vd} | {m['action_acc']} | {m['label_acc_decided']} "
+            f"| {m['confidently_wrong']} | {note} |"
+        )
 
     L.append("\n## Adversarial families\n")
     L.append("| adv_case | verdict | one-line |")
@@ -416,10 +529,12 @@ def _write_md(man, per_scenario, fails, debatable):
         L.append("_None -- no non-debatable action/label misses._")
     for i, r in enumerate(fails, 1):
         fr = _fail_row(r)
-        L.append(f"{i}. **{fr['archetype']}** ({','.join(fr['scenarios'])}"
-                 f"{'/' + fr['adv_case'] if fr['adv_case'] else ''}) "
-                 f"item {fr['item_id']} `{fr['test_name'][:54]}`  \n"
-                 f"   expected **{fr['expected']}**, got **{fr['got']}** — {fr['reason']}")
+        L.append(
+            f"{i}. **{fr['archetype']}** ({','.join(fr['scenarios'])}"
+            f"{'/' + fr['adv_case'] if fr['adv_case'] else ''}) "
+            f"item {fr['item_id']} `{fr['test_name'][:54]}`  \n"
+            f"   expected **{fr['expected']}**, got **{fr['got']}** — {fr['reason']}"
+        )
 
     L.append("\n## EXPECTED-DEBATABLE (not counted as analyzer failures)\n")
     if not debatable:

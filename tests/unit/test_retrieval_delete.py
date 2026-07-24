@@ -56,9 +56,7 @@ class _RecordingPool:
 
 def _deleted_tables(pool: _RecordingPool) -> set[str]:
     return {
-        sql.split("analyzer.", 1)[1].split()[0]
-        for sql in pool.executed
-        if "DELETE FROM" in sql
+        sql.split("analyzer.", 1)[1].split()[0] for sql in pool.executed if "DELETE FROM" in sql
     }
 
 
@@ -160,9 +158,7 @@ def test_reap_marks_unmarks_and_sweeps_guarded_by_test_item() -> None:
 
     # 2. unmark: a reappeared test_item clears the tombstone (reindex, not deletion).
     unmark = next(
-        s
-        for s in sqls
-        if "DELETE FROM analyzer.label_event_orphan" in s and " EXISTS (" in s
+        s for s in sqls if "DELETE FROM analyzer.label_event_orphan" in s and " EXISTS (" in s
     )
     assert "analyzer.test_item" in unmark
 

@@ -197,9 +197,7 @@ def test_extractor_feature_lookup_tenancy(pool: ConnectionPool) -> None:
 def test_suggestion_ops_coldstart_and_explanation(pool: ConnectionPool) -> None:
     ops = PgSuggestionOps(pool)
     with pool.connection() as conn:
-        conn.execute(
-            "INSERT INTO analyzer.project (project_id) VALUES (7) ON CONFLICT DO NOTHING"
-        )
+        conn.execute("INSERT INTO analyzer.project (project_id) VALUES (7) ON CONFLICT DO NOTHING")
     sid = ops.insert_coldstart(
         project_id=7,
         item_id=100,

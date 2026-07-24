@@ -2,14 +2,14 @@
 RP test items (test name + ordered log rows) with deterministic placeholder
 substitution.
 """
+
 from __future__ import annotations
 
 import glob
 import json
 import os
 import re
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 from . import config
 
@@ -33,7 +33,7 @@ class RenderedItem:
     ground_truth: str  # pb/ab/si/nd/ti (the CORRECT label; ti == abstain)
     logs: list[LogRow]
     scenario_refs: list[str]
-    adv_case: Optional[str]
+    adv_case: str | None
     attachments: list[dict]
 
 
@@ -49,8 +49,8 @@ class Archetype:
     variants: list[dict]
     placeholders: list[str]
     scenario_refs: list[str]
-    adv_case: Optional[str]
-    spam_repeat: Optional[dict]
+    adv_case: str | None
+    spam_repeat: dict | None
     attachments: list[dict]
     expected_behavior: str
 
@@ -58,7 +58,7 @@ class Archetype:
     def project(self) -> str:
         return config.FRAMEWORK_PROJECT[self.framework]
 
-    def variant_label(self, vidx: int, project: Optional[str] = None) -> str:
+    def variant_label(self, vidx: int, project: str | None = None) -> str:
         v = self.variants[vidx]
         if project and v.get("project_labels", {}).get(project):
             return v["project_labels"][project]
@@ -67,7 +67,7 @@ class Archetype:
     def variant_status(self, vidx: int) -> str:
         return self.variants[vidx].get("status", "failed")
 
-    def variant_adv(self, vidx: int) -> Optional[str]:
+    def variant_adv(self, vidx: int) -> str | None:
         return self.variants[vidx].get("adv_case") or self.adv_case
 
 
@@ -116,7 +116,7 @@ def render_item(
     seq: int,
     project: str,
     *,
-    spam_cap: Optional[int] = None,
+    spam_cap: int | None = None,
 ) -> RenderedItem:
     """Render one concrete item for a given variant occurrence."""
     params = dict(arc.variants[variant_idx]["params"])

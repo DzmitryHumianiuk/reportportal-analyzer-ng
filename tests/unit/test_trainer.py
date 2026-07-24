@@ -187,8 +187,12 @@ def test_calibrators_honour_per_project_and_install_thresholds():
     # Project 1 gets ≥300 events; project 2 stays under threshold.
     big = synth_frame(n=CALIB_MIN_EVENTS + 40, seed=6, project_ids=(1,))
     small = [
-        {"project_id": 2, "item_id": 9000 + i, "new_label": big[i]["new_label"],
-         "features": big[i]["features"]}
+        {
+            "project_id": 2,
+            "item_id": 9000 + i,
+            "new_label": big[i]["new_label"],
+            "features": big[i]["features"],
+        }
         for i in range(50)
     ]
     rows = big + small

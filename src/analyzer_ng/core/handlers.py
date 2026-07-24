@@ -318,9 +318,7 @@ class PipelineHandlers(StubHandlers):
         """Version string of the currently served GBM (None when cold)."""
         return self._predictor.active_version() if self._predictor is not None else None
 
-    def _build_engine(
-        self, retrieval: PgRetrievalStore, kb: KBStore, stats: object
-    ) -> None:
+    def _build_engine(self, retrieval: PgRetrievalStore, kb: KBStore, stats: object) -> None:
         assert self._pipeline is not None
         self._engine = AnalysisEngine(
             retrieval=retrieval,
@@ -452,8 +450,8 @@ class PipelineHandlers(StubHandlers):
         normalized: list[tuple[int, str]] = []
         for raw_id, value in request.itemsToUpdate.items():
             issue_type = (
-                value.issueType if isinstance(value, ItemUpdate) else str(value)
-            ).strip().lower()
+                (value.issueType if isinstance(value, ItemUpdate) else str(value)).strip().lower()
+            )
             normalized.append((int(raw_id), issue_type))
 
         existing = self._retrieval.get_items_labels(project, [item_id for item_id, _ in normalized])

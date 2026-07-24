@@ -30,9 +30,9 @@ def test_aggregate_counts_suggestions_outcomes_and_abstain():
 def test_auto_labeled_and_auto_corrected_track_the_auto_band():
     rows = synth_suggestions(
         [
-            (1, 0, "pb001", 0.90, "accepted"),   # auto-labeled, accepted
+            (1, 0, "pb001", 0.90, "accepted"),  # auto-labeled, accepted
             (1, 0, "ab001", 0.80, "corrected"),  # auto-labeled, later corrected (safety!)
-            (1, 0, "si001", 0.50, "accepted"),   # suggested-only (below τ_auto)
+            (1, 0, "si001", 0.50, "accepted"),  # suggested-only (below τ_auto)
         ]
     )
     [dm] = aggregate_daily(rows)

@@ -130,12 +130,18 @@ def test_index_writes_real_rows_lowercased_and_stats(
         assert stats == [(1234567, 1, 1), (7654321, 1, 1)]
 
         # Drain3 state persisted + template mirror populated.
-        assert conn.execute(
-            "SELECT count(*) FROM analyzer.drain3_state WHERE project_id=%s", (PROJECT,)
-        ).fetchone()[0] == 1
-        assert conn.execute(
-            "SELECT count(*) FROM analyzer.log_template WHERE project_id=%s", (PROJECT,)
-        ).fetchone()[0] >= 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM analyzer.drain3_state WHERE project_id=%s", (PROJECT,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM analyzer.log_template WHERE project_id=%s", (PROJECT,)
+            ).fetchone()[0]
+            >= 1
+        )
 
 
 def test_concurrent_burst_index_one_project_serializes_no_loss(store_dsn: str) -> None:

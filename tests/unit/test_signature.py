@@ -175,8 +175,10 @@ def test_info_context_is_not_folded():
     """Only WARN+ is context; INFO/DEBUG is too noisy to be a stable discriminant."""
     with_info = build_item_signature(
         "Order.history",
-        [LogInput("[STEP] Open account order history for user U-40021", log_level=20000),
-         LogInput(_TIMEOUT_ERR, log_level=40000)],
+        [
+            LogInput("[STEP] Open account order history for user U-40021", log_level=20000),
+            LogInput(_TIMEOUT_ERR, log_level=40000),
+        ],
         DrainManager(),
     )
     bare = _timeout_with_context(None)

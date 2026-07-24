@@ -63,9 +63,9 @@ class ReauthOn401Test(unittest.TestCase):
             ]
         )
         out = client.post("/api/v2/proj/item", {"name": "x"})
-        self.assertEqual(out, {"id": "abc"})          # returns the post-refresh body
-        self.assertEqual(len(login_calls), 1)          # re-login happened exactly once
-        self.assertEqual(len(client.s.calls), 2)       # original + one retry
+        self.assertEqual(out, {"id": "abc"})  # returns the post-refresh body
+        self.assertEqual(len(login_calls), 1)  # re-login happened exactly once
+        self.assertEqual(len(client.s.calls), 2)  # original + one retry
 
     def test_401_twice_raises_with_body(self) -> None:
         client, login_calls = _client(
@@ -75,8 +75,8 @@ class ReauthOn401Test(unittest.TestCase):
             client.post("/api/v2/proj/item", {"name": "x"})
         self.assertIn("nope-second", str(ctx.exception))  # second 401 body is surfaced
         self.assertIn("-> 401", str(ctx.exception))
-        self.assertEqual(len(login_calls), 1)             # tried to refresh once
-        self.assertEqual(len(client.s.calls), 2)          # original + one retry, no more
+        self.assertEqual(len(login_calls), 1)  # tried to refresh once
+        self.assertEqual(len(client.s.calls), 2)  # original + one retry, no more
 
     def test_get_also_reauths(self) -> None:
         client, login_calls = _client(

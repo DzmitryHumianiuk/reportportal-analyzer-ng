@@ -20,6 +20,7 @@ Usage:
   python3 llm_demo.py --verify
   python3 llm_demo.py --case judge --judge-blend 2   # iterate the blend
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,9 +33,10 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-from gen import config, rp as rpmod            # noqa: E402
-from gen.corpus import load_corpus, render_item, LogRow, RenderedItem  # noqa: E402
-from gen.schedule import PlannedLaunch, PlannedItem, H, P  # noqa: E402
+from gen import config  # noqa: E402
+from gen import rp as rpmod
+from gen.corpus import LogRow, RenderedItem, load_corpus, render_item  # noqa: E402
+from gen.schedule import H, P, PlannedItem, PlannedLaunch  # noqa: E402
 
 LLM_PROJECT = "llm-demo"
 DEMO_DATE = "2026-07-20"
@@ -43,9 +45,25 @@ PROJ_ID = {config.WSU: 3, config.PSV: 4, config.FEA: 5}
 
 
 def psql(sql):
-    out = subprocess.run(["kubectl", "exec", PG, "--", "psql", "-U", "analyzer",
-                          "-d", "analyzer", "-tAF|", "-c", sql],
-                         capture_output=True, text=True, timeout=60)
+    out = subprocess.run(
+        [
+            "kubectl",
+            "exec",
+            PG,
+            "--",
+            "psql",
+            "-U",
+            "analyzer",
+            "-d",
+            "analyzer",
+            "-tAF|",
+            "-c",
+            sql,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     return out.stdout.strip()
 
 
@@ -53,15 +71,30 @@ def psql(sql):
 # item builders
 # --------------------------------------------------------------------------- #
 def ritem(project, name, gt, logs, archetype="LLM-DEMO", scenario="llm_demo"):
-    return RenderedItem(archetype_id=archetype, variant_idx=0, seq=0, project=project,
-                        test_name=name, status="failed", ground_truth=gt,
-                        logs=[LogRow(l, m) for l, m in logs],
-                        scenario_refs=[scenario], adv_case=None, attachments=[])
+    return RenderedItem(
+        archetype_id=archetype,
+        variant_idx=0,
+        seq=0,
+        project=project,
+        test_name=name,
+        status="failed",
+        ground_truth=gt,
+        logs=[LogRow(l, m) for l, m in logs],
+        scenario_refs=[scenario],
+        adv_case=None,
+        attachments=[],
+    )
 
 
 def _launch(project, name, hour, items_roles):
-    la = PlannedLaunch(project=project, name=name, date=DEMO_DATE, hour=hour,
-                       phase=3, attributes=[{"key": "demo", "value": "llm"}])
+    la = PlannedLaunch(
+        project=project,
+        name=name,
+        date=DEMO_DATE,
+        hour=hour,
+        phase=3,
+        attributes=[{"key": "demo", "value": "llm"}],
+    )
     la.items = [PlannedItem(it, role) for it, role in items_roles]
     return la
 
@@ -78,8 +111,10 @@ def _fresh_launch(client, project, name, hour, items_roles, enable_aa=True):
     la = _launch(project, name, hour, items_roles)
     res = client.report_launch(la)
     lid = res.get("lid") or client.numeric_launch(project, res["luuid"])
-    print(f"  uploaded {project}/{name} luuid={res['luuid']} lid={lid} "
-          f"({len(la.items)} items)", flush=True)
+    print(
+        f"  uploaded {project}/{name} luuid={res['luuid']} lid={lid} ({len(la.items)} items)",
+        flush=True,
+    )
     return res, lid
 
 
@@ -93,8 +128,16 @@ def case_coldstart(client):
     client.set_analyzer(LLM_PROJECT, enabled=True)
     arcs = load_corpus(os.path.join(HERE, "corpus"))
     # 8 items with clear, distinct failure classes drawn from the corpus
-    picks = ["JAVA-SEL-01", "JAVA-SEL-02", "JAVA-SEL-04", "JAVA-SEL-08",
-             "JAVA-SEL-23", "NET-XUN-05", "NET-XUN-08", "TS-PW-06"]
+    picks = [
+        "JAVA-SEL-01",
+        "JAVA-SEL-02",
+        "JAVA-SEL-04",
+        "JAVA-SEL-08",
+        "JAVA-SEL-23",
+        "NET-XUN-05",
+        "NET-XUN-08",
+        "TS-PW-06",
+    ]
     items = []
     for aid in picks:
         arc = arcs.get(aid)
@@ -114,8 +157,7 @@ def case_coldstart(client):
 # case 2: explainer
 # --------------------------------------------------------------------------- #
 def case_explainer(client):
-    print("\n===== CASE 2: EXPLAINER (webshop-ui near-twins of human history) =====",
-          flush=True)
+    print("\n===== CASE 2: EXPLAINER (webshop-ui near-twins of human history) =====", flush=True)
     arcs = load_corpus(os.path.join(HERE, "corpus"))
     items = []
     for aid in ["JAVA-SEL-01", "JAVA-SEL-23", "JAVA-SEL-02"]:  # pb / si / ab chronic modes
@@ -127,8 +169,7 @@ def case_explainer(client):
     res, lid = _fresh_launch(client, config.WSU, "LLM Explainer Showcase", 13, items)
     if lid:
         client.analyze(config.WSU, lid)
-        print(f"  analyze(lid={lid}) triggered — explainer fills explanation async",
-              flush=True)
+        print(f"  analyze(lid={lid}) triggered — explainer fills explanation async", flush=True)
     return {"project": config.WSU, "lid": lid, "n": len(items)}
 
 
@@ -138,47 +179,59 @@ def case_explainer(client):
 # Blends of the cart-discount NPE (pb) and the auth-session NPE (ab); each variant
 # shifts the lexical mix so we can walk p* into the mid-band empirically.
 JUDGE_BLENDS = {
-    1: ("java.lang.NullPointerException: Cannot invoke \"com.hawkins.shop.model.Money.amount()\" "
-        "because \"session\" is null\n"
+    1: (
+        'java.lang.NullPointerException: Cannot invoke "com.hawkins.shop.model.Money.amount()" '
+        'because "session" is null\n'
         "\tat com.hawkins.shop.checkout.CheckoutSessionService.resolveCartTotals(CheckoutSessionService.java:88)\n"
         "\tat com.hawkins.shop.checkout.CheckoutSessionTest.resolveTotals(CheckoutSessionTest.java:57)\n"
         "\tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n"
-        "\tat org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:677)"),
-    2: ("java.lang.NullPointerException: Cannot invoke \"com.hawkins.shop.model.Money.amount()\" "
-        "because the return value of \"com.hawkins.shop.auth.Session.userId()\" is null\n"
+        "\tat org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:677)"
+    ),
+    2: (
+        'java.lang.NullPointerException: Cannot invoke "com.hawkins.shop.model.Money.amount()" '
+        'because the return value of "com.hawkins.shop.auth.Session.userId()" is null\n'
         "\tat com.hawkins.shop.checkout.CheckoutSessionService.applyDiscount(CheckoutSessionService.java:142)\n"
         "\tat com.hawkins.shop.checkout.CheckoutSessionTest.resolveTotals(CheckoutSessionTest.java:57)\n"
         "\tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n"
-        "\tat org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:677)"),
-    3: ("java.lang.NullPointerException: Cannot invoke \"com.hawkins.shop.cart.CartLine.getDiscount()\" "
-        "because \"session\" is null\n"
+        "\tat org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:677)"
+    ),
+    3: (
+        'java.lang.NullPointerException: Cannot invoke "com.hawkins.shop.cart.CartLine.getDiscount()" '
+        'because "session" is null\n'
         "\tat com.hawkins.shop.checkout.CheckoutSessionService.resolve(CheckoutSessionService.java:96)\n"
         "\tat com.hawkins.shop.auth.SessionFilter.doFilter(SessionFilter.java:96)\n"
-        "\tat com.hawkins.shop.checkout.CheckoutSessionTest.resolveTotals(CheckoutSessionTest.java:57)"),
+        "\tat com.hawkins.shop.checkout.CheckoutSessionTest.resolveTotals(CheckoutSessionTest.java:57)"
+    ),
     # 4-6: near-twin of the cart-discount pb trace (high cosine -> conf up) with an
     # auth-session token/frame mixed in to keep the ab family in the candidate set.
-    4: ("java.lang.NullPointerException: Cannot invoke \"com.hawkins.shop.model.Money.amount()\" "
-        "because the return value of \"com.hawkins.shop.cart.CartLine.getDiscount()\" is null\n"
+    4: (
+        'java.lang.NullPointerException: Cannot invoke "com.hawkins.shop.model.Money.amount()" '
+        'because the return value of "com.hawkins.shop.cart.CartLine.getDiscount()" is null\n'
         "\tat com.hawkins.shop.checkout.CartService.applyDiscount(CartService.java:188)\n"
         "\tat com.hawkins.shop.checkout.CartService.recalculate(CartService.java:142)\n"
         "\tat com.hawkins.shop.auth.SessionFilter.doFilter(SessionFilter.java:96)\n"
         "\tat com.hawkins.shop.checkout.CartDiscountTest.applyPercentageDiscount(CartDiscountTest.java:73)\n"
         "\tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n"
-        "\tat org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:677)"),
-    5: ("java.lang.NullPointerException: Cannot invoke \"com.hawkins.shop.auth.Session.userId()\" "
-        "because the return value of \"com.hawkins.shop.cart.CartLine.getDiscount()\" is null\n"
+        "\tat org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:677)"
+    ),
+    5: (
+        'java.lang.NullPointerException: Cannot invoke "com.hawkins.shop.auth.Session.userId()" '
+        'because the return value of "com.hawkins.shop.cart.CartLine.getDiscount()" is null\n'
         "\tat com.hawkins.shop.checkout.CartService.applyDiscount(CartService.java:188)\n"
         "\tat com.hawkins.shop.checkout.CartService.recalculate(CartService.java:142)\n"
         "\tat com.hawkins.shop.checkout.CartDiscountTest.applyPercentageDiscount(CartDiscountTest.java:73)\n"
         "\tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n"
-        "\tat org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:677)"),
-    6: ("java.lang.NullPointerException: Cannot invoke \"com.hawkins.shop.model.Money.amount()\" "
-        "because \"session\" is null\n"
+        "\tat org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:677)"
+    ),
+    6: (
+        'java.lang.NullPointerException: Cannot invoke "com.hawkins.shop.model.Money.amount()" '
+        'because "session" is null\n'
         "\tat com.hawkins.shop.checkout.CartService.applyDiscount(CartService.java:188)\n"
         "\tat com.hawkins.shop.auth.SessionFilter.doFilter(SessionFilter.java:96)\n"
         "\tat com.hawkins.shop.auth.SessionFilterTest.rejectExpiredCookie(SessionFilterTest.java:61)\n"
         "\tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n"
-        "\tat org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:677)"),
+        "\tat org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:677)"
+    ),
 }
 
 
@@ -190,7 +243,7 @@ JUDGE_BLENDS = {
 LOCATOR_SELECTOR = "#checkout-submit-btn-v3"
 _LOCATOR_TRACE = (
     "org.openqa.selenium.NoSuchElementException: no such element: Unable to locate element: "
-    "{\"method\":\"css selector\",\"selector\":\"" + LOCATOR_SELECTOR + "\"}\n"
+    '{"method":"css selector","selector":"' + LOCATOR_SELECTOR + '"}\n'
     "  (Session info: chrome=126.0.6478.126)\n"
     "Build info: version: '4.21.0', revision: '4a2ae60b1e'\n"
     "Driver info: org.openqa.selenium.chrome.ChromeDriver\n"
@@ -198,7 +251,8 @@ _LOCATOR_TRACE = (
     "\tat org.openqa.selenium.remote.RemoteWebDriver.findElement(RemoteWebDriver.java:388)\n"
     "\tat com.hawkins.shop.checkout.PaymentSubmitTest.submitWithSavedCard(PaymentSubmitTest.java:115)\n"
     "\tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n"
-    "\tat org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:677)")
+    "\tat org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:677)"
+)
 
 
 def case_judge_anchored(client, wait_s=45):
@@ -213,22 +267,26 @@ def case_judge_anchored(client, wait_s=45):
     """
     print("\n===== CASE 3: JUDGE (in-launch labeled anchors, mixed pb/ab) =====", flush=True)
     arcs = load_corpus(os.path.join(HERE, "corpus"))
-    pb = render_item(arcs["JAVA-SEL-09"], 0, 0, config.WSU)   # #checkout-submit-btn -> pb
+    pb = render_item(arcs["JAVA-SEL-09"], 0, 0, config.WSU)  # #checkout-submit-btn -> pb
     pb.test_name = "Checkout. Payment. Submit order (anchor pb) [llm-judge]"
     pb.ground_truth = "pb"
-    ab = render_item(arcs["JAVA-SEL-09"], 2, 0, config.WSU)   # #chk-submit-button-v2 -> ab
+    ab = render_item(arcs["JAVA-SEL-09"], 2, 0, config.WSU)  # #chk-submit-button-v2 -> ab
     ab.test_name = "Checkout. Payment. Submit order (anchor ab) [llm-judge]"
     ab.ground_truth = "ab"
     probe = render_item(arcs["JAVA-SEL-09"], 2, 0, config.WSU)
     probe.test_name = "Checkout. Payment. Submit order (probe) [llm-judge]"
     probe.ground_truth = "ti"
     # novel selector so the probe is not an exact hash of either anchor
-    probe.logs = [LogRow(l.level, l.message.replace("#chk-submit-button-v2",
-                                                    "#chk-submit-btn-v3")) for l in probe.logs]
+    probe.logs = [
+        LogRow(l.level, l.message.replace("#chk-submit-button-v2", "#chk-submit-btn-v3"))
+        for l in probe.logs
+    ]
     for it in (pb, ab, probe):
-        it.scenario_refs = ["llm_judge"]; it.archetype_id = "LLM-JUDGE"
-    res, lid = _fresh_launch(client, config.WSU, "LLM Judge Showcase", 14,
-                             [(pb, H), (ab, H), (probe, P)])
+        it.scenario_refs = ["llm_judge"]
+        it.archetype_id = "LLM-JUDGE"
+    res, lid = _fresh_launch(
+        client, config.WSU, "LLM Judge Showcase", 14, [(pb, H), (ab, H), (probe, P)]
+    )
     if not lid:
         return {}
     # label the two anchors so the probe retrieves mixed labelled candidates
@@ -240,8 +298,10 @@ def case_judge_anchored(client, wait_s=45):
     nid = client.numeric_item(config.WSU, probe_uuid)
     print(f"  probe nid={nid}; waiting {wait_s}s for analyze decision...", flush=True)
     time.sleep(wait_s)
-    conf = psql(f"select round(confidence::numeric,3) from suggestion where project_id=3 "
-                f"and item_id={nid} order by created_at desc limit 1;")
+    conf = psql(
+        f"select round(confidence::numeric,3) from suggestion where project_id=3 "
+        f"and item_id={nid} order by created_at desc limit 1;"
+    )
     print(f"  probe analyze confidence={conf}", flush=True)
     before = _suggest_order(client, nid)
     print(f"  suggest #1 (pre-judge): {before}", flush=True)
@@ -249,21 +309,31 @@ def case_judge_anchored(client, wait_s=45):
     time.sleep(wait_s)
     after = _suggest_order(client, nid)
     print(f"  suggest #2 (post-judge): {after}", flush=True)
-    judged = psql(f"select outcome from llm_event where role='judge' and item_id={nid} "
-                  f"order by created_at desc limit 1;")
+    judged = psql(
+        f"select outcome from llm_event where role='judge' and item_id={nid} "
+        f"order by created_at desc limit 1;"
+    )
     print(f"  llm_event role=judge outcome={judged or '(none)'}", flush=True)
-    return {"project": config.WSU, "lid": lid, "probe_nid": nid, "conf": conf,
-            "order_before": before, "order_after": after, "judge_outcome": judged}
+    return {
+        "project": config.WSU,
+        "lid": lid,
+        "probe_nid": nid,
+        "conf": conf,
+        "order_before": before,
+        "order_after": after,
+        "judge_outcome": judged,
+    }
 
 
 def case_judge(client, blend=1, wait_s=45):
-    print(f"\n===== CASE 3: JUDGE (mid-band locator discriminant, blend={blend}) =====",
-          flush=True)
+    print(f"\n===== CASE 3: JUDGE (mid-band locator discriminant, blend={blend}) =====", flush=True)
     if blend in JUDGE_BLENDS:  # legacy NPE blends (kept for the record)
         name = "Checkout. Session. Resolve cart session totals [llm-judge-demo]"
-        info = [("info", "[STEP] Resolve cart totals for authenticated checkout session"),
-                ("debug", "[API] POST /v2/checkout/CART-88231/session -> 500 in 61 ms"),
-                ("error", JUDGE_BLENDS[blend])]
+        info = [
+            ("info", "[STEP] Resolve cart totals for authenticated checkout session"),
+            ("debug", "[API] POST /v2/checkout/CART-88231/session -> 500 in 61 ms"),
+            ("error", JUDGE_BLENDS[blend]),
+        ]
     if blend not in JUDGE_BLENDS:
         # default (blend 7+): render the REAL JAVA-SEL-09 locator archetype so the
         # error_hash / exception_fp / test_case_hash match the labeled pb & ab family
@@ -278,28 +348,39 @@ def case_judge(client, blend=1, wait_s=45):
         it = ritem(config.WSU, name, "pb", info, archetype="LLM-JUDGE", scenario="llm_judge")
     res, lid = _fresh_launch(client, config.WSU, "LLM Judge Showcase", 14, [(it, P)])
     if not lid:
-        print("  ERROR: no launch id"); return {}
+        print("  ERROR: no launch id")
+        return {}
     client.analyze(config.WSU, lid)
-    print(f"  analyze(lid={lid}); waiting {wait_s}s for the analyze suggestion to land...",
-          flush=True)
+    print(
+        f"  analyze(lid={lid}); waiting {wait_s}s for the analyze suggestion to land...", flush=True
+    )
     time.sleep(wait_s)
     nid = client.numeric_item(config.WSU, res["items"][0][0])
-    conf = psql(f"select round(confidence::numeric,3) from suggestion where project_id=3 "
-                f"and item_id={nid} order by created_at desc limit 1;")
-    pl = psql(f"select predicted_label from suggestion where project_id=3 and item_id={nid} "
-              f"order by created_at desc limit 1;")
-    print(f"  item nid={nid} decision: predicted={pl} confidence={conf} "
-          f"(judge fires iff 0.45<=conf<0.75)", flush=True)
+    conf = psql(
+        f"select round(confidence::numeric,3) from suggestion where project_id=3 "
+        f"and item_id={nid} order by created_at desc limit 1;"
+    )
+    pl = psql(
+        f"select predicted_label from suggestion where project_id=3 and item_id={nid} "
+        f"order by created_at desc limit 1;"
+    )
+    print(
+        f"  item nid={nid} decision: predicted={pl} confidence={conf} "
+        f"(judge fires iff 0.45<=conf<0.75)",
+        flush=True,
+    )
     band_ok = False
     try:
         band_ok = 0.45 <= float(conf) < 0.75
     except ValueError:
         pass
     if not band_ok:
-        print(f"  >> conf {conf} NOT in mid-band; try a different --judge-blend "
-              f"(available: {sorted(JUDGE_BLENDS)})", flush=True)
-        return {"project": config.WSU, "lid": lid, "nid": nid, "conf": conf,
-                "band_ok": False}
+        print(
+            f"  >> conf {conf} NOT in mid-band; try a different --judge-blend "
+            f"(available: {sorted(JUDGE_BLENDS)})",
+            flush=True,
+        )
+        return {"project": config.WSU, "lid": lid, "nid": nid, "conf": conf, "band_ok": False}
 
     # suggest call #1 -> enqueues the judge (async); capture ordering BEFORE verdict
     before = _suggest_order(client, nid)
@@ -308,42 +389,68 @@ def case_judge(client, blend=1, wait_s=45):
     time.sleep(wait_s)
     after = _suggest_order(client, nid)
     print(f"  suggest #2 order (post-judge): {after}", flush=True)
-    judged = psql(f"select outcome from llm_event where role='judge' and project_id=3 "
-                  f"and item_id={nid} order by created_at desc limit 1;")
+    judged = psql(
+        f"select outcome from llm_event where role='judge' and project_id=3 "
+        f"and item_id={nid} order by created_at desc limit 1;"
+    )
     print(f"  llm_event role=judge outcome={judged or '(none yet)'}", flush=True)
-    return {"project": config.WSU, "lid": lid, "nid": nid, "conf": conf,
-            "band_ok": True, "order_before": before, "order_after": after,
-            "judge_outcome": judged}
+    return {
+        "project": config.WSU,
+        "lid": lid,
+        "nid": nid,
+        "conf": conf,
+        "band_ok": True,
+        "order_before": before,
+        "order_after": after,
+        "judge_outcome": judged,
+    }
 
 
 def _suggest_order(client, nid):
     r = client.suggest(config.WSU, nid)
     out = []
-    for s in (r or []):
-        out.append({"pos": s.get("resultPosition"), "rel": s.get("relevantItem"),
-                    "type": s.get("issueType"), "score": s.get("matchScore")})
-    return sorted(out, key=lambda x: (x["pos"] if x["pos"] is not None else 99))
+    for s in r or []:
+        out.append(
+            {
+                "pos": s.get("resultPosition"),
+                "rel": s.get("relevantItem"),
+                "type": s.get("issueType"),
+                "score": s.get("matchScore"),
+            }
+        )
+    return sorted(out, key=lambda x: x["pos"] if x["pos"] is not None else 99)
 
 
 # --------------------------------------------------------------------------- #
 # case 4: honest abstain (no LLM on the label path)
 # --------------------------------------------------------------------------- #
 def case_abstain(client):
-    print("\n===== CASE 4: HONEST ABSTAIN (novel failure, no LLM label path) =====",
-          flush=True)
-    it = ritem(config.WSU, "Ledger. Reconciliation. Verify quantum ledger sync [llm-abstain-demo]",
-               "ti", [
-                   ("info", "[STEP] Reconcile distributed ledger shards"),
-                   ("error", "com.hawkins.shop.ledger.QuantumLedgerDesyncError: shard vector "
-                    "clock divergence detected across 7 replicas; no coherent snapshot\n"
-                    "\tat com.hawkins.shop.ledger.QuantumReconciler.verify(QuantumReconciler.java:412)"),
-               ], archetype="LLM-ABSTAIN", scenario="llm_abstain")
+    print("\n===== CASE 4: HONEST ABSTAIN (novel failure, no LLM label path) =====", flush=True)
+    it = ritem(
+        config.WSU,
+        "Ledger. Reconciliation. Verify quantum ledger sync [llm-abstain-demo]",
+        "ti",
+        [
+            ("info", "[STEP] Reconcile distributed ledger shards"),
+            (
+                "error",
+                "com.hawkins.shop.ledger.QuantumLedgerDesyncError: shard vector "
+                "clock divergence detected across 7 replicas; no coherent snapshot\n"
+                "\tat com.hawkins.shop.ledger.QuantumReconciler.verify(QuantumReconciler.java:412)",
+            ),
+        ],
+        archetype="LLM-ABSTAIN",
+        scenario="llm_abstain",
+    )
     res, lid = _fresh_launch(client, config.WSU, "LLM Honest-Abstain Showcase", 15, [(it, P)])
     if lid:
         client.analyze(config.WSU, lid)
     nid = client.numeric_item(config.WSU, res["items"][0][0]) if res["items"] else None
-    print(f"  item nid={nid}: expect abstain (ti); webshop-ui is not cold so coldstart "
-          f"is skipped -> no LLM on the label path", flush=True)
+    print(
+        f"  item nid={nid}: expect abstain (ti); webshop-ui is not cold so coldstart "
+        f"is skipped -> no LLM on the label path",
+        flush=True,
+    )
     return {"project": config.WSU, "lid": lid, "nid": nid}
 
 
@@ -357,22 +464,35 @@ def verify():
     print("-- llm_cache entries by role --")
     print(psql("select role,count(*),sum(hits) from llm_cache group by role order by role;"))
     print("-- coldstart suggestions in llm-demo (llm_used, method) --")
-    print(psql("select s.item_id, s.predicted_label, round(s.confidence::numeric,2), "
-               "s.model_ver from suggestion s join project p on p.project_id=s.project_id "
-               "where s.model_ver like 'rubric+%' order by s.created_at desc limit 10;"))
+    print(
+        psql(
+            "select s.item_id, s.predicted_label, round(s.confidence::numeric,2), "
+            "s.model_ver from suggestion s join project p on p.project_id=s.project_id "
+            "where s.model_ver like 'rubric+%' order by s.created_at desc limit 10;"
+        )
+    )
     print("-- explainer: non-empty explanations (recent) --")
-    print(psql("select item_id, left(explanation,70) from suggestion "
-               "where explanation is not null and explanation<>'' "
-               "order by created_at desc limit 6;"))
+    print(
+        psql(
+            "select item_id, left(explanation,70) from suggestion "
+            "where explanation is not null and explanation<>'' "
+            "order by created_at desc limit 6;"
+        )
+    )
     print("-- judge events --")
-    print(psql("select project_id,item_id,outcome,latency_ms from llm_event "
-               "where role='judge' order by created_at desc limit 6;"))
+    print(
+        psql(
+            "select project_id,item_id,outcome,latency_ms from llm_event "
+            "where role='judge' order by created_at desc limit 6;"
+        )
+    )
 
 
 # --------------------------------------------------------------------------- #
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--case", choices=["coldstart", "explainer", "judge", "abstain", "all"])
     ap.add_argument("--judge-blend", type=int, default=7)
     ap.add_argument("--wait", type=int, default=45)
@@ -382,7 +502,8 @@ def main():
     args = ap.parse_args()
 
     if args.verify and not args.case:
-        verify(); return
+        verify()
+        return
 
     client = rpmod.RPClient(uat_base=args.rp_uat, api_base=args.rp_api)
     print("login ...", flush=True)
