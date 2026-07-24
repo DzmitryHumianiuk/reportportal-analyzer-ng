@@ -8,10 +8,16 @@ import {
   FEATURE_GROUP_COLORS, INK, MUTED,
 } from '../util.js';
 
-const jstate = { launch: null, item: null, selectItem: null, itemEls: null };
+const jstate = { launch: null, item: null, selectItem: null, itemEls: null, pendingItem: null };
 
 // Seed launch/item from a permalink before renderJourney runs (see app.applyHashState).
-export function setJourneyState({ launch, item }) { jstate.launch = launch; jstate.item = item; }
+// pendingItem remembers the id the LINK asked for: if it never resolves to an
+// indexed item, the view says so instead of silently opening the first item.
+export function setJourneyState({ launch, item }) {
+  jstate.launch = launch;
+  jstate.item = item;
+  jstate.pendingItem = item;
+}
 
 // Navigate the journey to another item in the current launch (member-dot click).
 function navToItem(itemId) {
@@ -85,10 +91,27 @@ export async function renderJourney(root, app) {
       itemList.appendChild(iel);
       jstate.itemEls.set(it.item_id, { it, el: iel });
     }
-    // auto-select first (or previously chosen) item
-    const pick = items.find((x) => x.item_id === jstate.item) || items[0];
-    const idx = items.indexOf(pick);
-    selectItem(pick, itemList.children[idx]);
+    // auto-select first (or previously chosen) item. A permalink naming an item
+    // the analyzer never indexed gets an honest explanation instead of a silent
+    // fall-through to the first item; the hash stays as the link said.
+    const wanted = jstate.pendingItem;
+    jstate.pendingItem = null;
+    const pick = items.find((x) => x.item_id === jstate.item);
+    if (!pick && wanted != null) {
+      jstate.item = null;
+      clear(main).appendChild(emptyState('🕳️',
+        `Item ${wanted} is not in the analyzer's index`,
+        'No journey exists for it. Most often the failure produced no ERROR logs, ' +
+        'so the analyzer had nothing to build a signature from; that is also why ' +
+        'its Make Decision modal stays in the plain stock view. It can also mean ' +
+        'the item belongs to another launch or has not been indexed yet. ' +
+        'Pick an item from the list on the left.',
+        'analyzer.test_item'));
+      return;
+    }
+    const chosen = pick || items[0];
+    const idx = items.indexOf(chosen);
+    selectItem(chosen, itemList.children[idx]);
   }
 
   async function selectItem(it, el) {
@@ -731,11 +754,21 @@ function decisionCard(d) {
     const ex = String(summarySrc.explanation).trim();
     if (!ex || tw.includes(ex)) summarySrc = null;
   }
+  // Track specifically whether the block above is showing the coldstart row's
+  // OWN text (summarySrc === dec), not a different row's explanation (the
+  // classical decision's, shown instead when it has one). Those are two
+  // different pieces of LLM output; one being shown must never suppress the
+  // other — the LLM proposal's own comment always stays reachable somewhere
+  // on the page.
+  const coldstartReasonShownAbove = !!(dec.coldstart_provisional && summarySrc === dec);
   const summaryEl = summarySrc ? decisionSummary(d, dec, summarySrc) : null;
   if (summaryEl) body.appendChild(summaryEl);
 
   // LLM involvement strip (role-accurate, item-scoped) — before the gauge
-  const llmEl = llmStrip(d, dec, method, { explanationShownAbove: !!summaryEl });
+  const llmEl = llmStrip(d, dec, method, {
+    explanationShownAbove: !!summaryEl,
+    coldstartReasonShownAbove,
+  });
   if (llmEl) body.appendChild(llmEl);
 
   // On cold-start provisional items the rubric row carries no feature vector —
@@ -1112,6 +1145,12 @@ function llmStrip(d, dec, method, opts = {}) {
   const E = llm.events || []; // newest-first
   const modelVer = dec.model_ver || '';
   const isColdstart = method === 'llm_coldstart' || modelVer.startsWith('rubric+');
+  // A cold-start proposal can exist in this item's llm_event history even
+  // when a later classical decision superseded it as the governing
+  // suggestion row. Its own comment is still real LLM output on this item
+  // and stays worth showing, clearly marked as no longer in effect, rather
+  // than silently dropped because the current decision took another path.
+  const hasColdstartEvent = E.some((e) => e.role === 'coldstart' && e.outcome === 'ok' && e.output && e.output.reason);
   if (!E.length && !dec.llm_used && !isColdstart) return null;
 
   const roles = [...new Set(E.map((e) => e.role))];
@@ -1131,7 +1170,7 @@ function llmStrip(d, dec, method, opts = {}) {
   if (!skipTakeaway) strip.appendChild(llmTakeaway(dec, method, E, isColdstart, roles));
 
   const tiles = h('div', { class: 'llm-tiles' });
-  if (isColdstart) tiles.appendChild(coldstartTile(dec, E, opts));
+  if (isColdstart || hasColdstartEvent) tiles.appendChild(coldstartTile(dec, E, opts));
   const exp = latestByRole('explainer');
   // Skip the quote tile when the summary block above already carries the text.
   if (exp && exp.outcome === 'ok' && dec.explanation && !opts.explanationShownAbove) {
@@ -1181,19 +1220,31 @@ function llmTakeaway(dec, method, E, isColdstart, roles) {
 function coldstartTile(dec, E, opts = {}) {
   // Dedup: label / model_ver / fixed-conf are already stated by the decision
   // takeaway and the gauge marker — the tile keeps only what is unique to the
-  // rubric run: the matched rule and the model's own rationale.
+  // rubric run: the matched rule and the model's own rationale. This also
+  // renders for a SUPERSEDED cold-start proposal (isCurrent=false): a later
+  // classical decision became the governing suggestion, but the rubric's own
+  // comment is still real LLM output for this item and stays visible here,
+  // clearly marked as no longer in effect.
   const ev = E.find((e) => e.role === 'coldstart' && e.outcome === 'ok' && e.output);
+  const isCurrent = !!dec.coldstart_provisional;
   const cs = dec.coldstart || {};
   const rule = cs.rule || (ev && ev.output && ev.output.rubric_rule_matched) || '—';
   const reason = ev && ev.output && ev.output.reason;
   const tile = h('div', { class: 'llm-tile' });
   tile.appendChild(h('div', { class: 'role-line' },
     h('span', { class: 'role-key' }, 'coldstart'),
-    h('span', { class: 'chip mono' }, `rule ${rule}`)));
-  // The rationale text may already sit in the decision-summary block above.
-  if (reason && !opts.explanationShownAbove) {
+    h('span', { class: 'chip mono' }, `rule ${rule}`),
+    !isCurrent ? h('span', {
+      class: 'chip',
+      title: 'A later classical decision replaced this cold-start proposal. It is no longer the governing suggestion.',
+    }, 'superseded') : null));
+  // The rationale text may already sit in the decision-summary block above —
+  // but only when that block IS this coldstart row's own text, not a
+  // different row's explanation (for example the classical decision's).
+  if (reason && !(isCurrent && opts.coldstartReasonShownAbove)) {
     tile.appendChild(h('div', { class: 'llm-quote' }, renderWithDefectNames(reason),
-      h('span', { class: 'attr' }, 'model rationale — cold-start')));
+      h('span', { class: 'attr' },
+        isCurrent ? "AI proposal's own comment, cold-start" : "AI proposal's own comment, earlier cold-start (superseded)")));
   }
   return tile;
 }

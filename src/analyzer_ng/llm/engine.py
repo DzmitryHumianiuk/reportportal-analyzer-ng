@@ -76,6 +76,11 @@ class RoleResult:
 # --------------------------------------------------------------------------- #
 _TERMINAL_CHARS = ".!?…。！？"  # sentence terminals incl. common CJK
 _TRAILING_CLOSERS = "\"'”’」』）)]}"  # closing quotes/brackets that may follow a terminal
+# Characters that never legitimately END a rationale. A field ending here is a
+# masked cut regardless of the server's finish reason: the model can stop on its
+# own mid-token, e.g. quoting a selenium error "Unable to locate element: {" and
+# halting at the brace (live: item 2958, explanation ended on a dangling "{").
+_HARD_INCOMPLETE = "{[(<:,;=/\\-–—"
 _TRUNCATION_MARKER = " …"  # honest trailing marker for a cut we could not extend away
 
 
@@ -90,11 +95,32 @@ def _ends_complete(text: str) -> bool:
     return core[-1] in _TERMINAL_CHARS
 
 
+def _ends_hard_incomplete(text: str) -> bool:
+    """True if ``text`` ends on a token that can never finish a sentence."""
+    core = text.rstrip().rstrip(_TRAILING_CLOSERS)
+    return bool(core) and core[-1] in _HARD_INCOMPLETE
+
+
 def _looks_truncated(text: str, finish_reason: str | None) -> bool:
-    """A schema-valid field is a masked cut only if the cap was hit AND it ends mid-sentence."""
+    """A schema-valid field is a masked cut when it ends on an obviously-incomplete
+    token (any finish reason), OR the cap was hit AND it ends mid-sentence."""
+    if _ends_hard_incomplete(text):
+        return True
     if finish_reason != "length":
         return False  # server stopped on its own (or didn't say) → trust the text
     return not _ends_complete(text)
+
+
+def _clip_to_clean_end(text: str) -> str:
+    """Trim a mid-sentence tail back to the last sentence terminal so a marked cut
+    never keeps a dangling fragment; fall back to the last word boundary."""
+    stripped = text.rstrip()
+    idx = max((stripped.rfind(c) for c in _TERMINAL_CHARS), default=-1)
+    if idx >= 0:
+        return stripped[: idx + 1]
+    trimmed = stripped.rstrip(_HARD_INCOMPLETE + " \t")
+    cut = trimmed.rfind(" ")
+    return (trimmed[:cut] if cut > 0 else trimmed).rstrip()
 
 
 def _truncated_fields(role: Role, output: dict[str, Any], finish_reason: str | None) -> list[str]:
@@ -117,7 +143,15 @@ def _mark_truncated(output: dict[str, Any], fields: list[str]) -> dict[str, Any]
     for name in fields:
         value = marked.get(name)
         if isinstance(value, str):
-            marked[name] = f"{value.rstrip()}{_TRUNCATION_MARKER}"
+            # A dangling token (…"{") reads as broken with just a marker appended,
+            # so clip it back to a clean sentence first. A plain mid-word cut keeps
+            # the full text and trails off with the marker.
+            if _ends_hard_incomplete(value):
+                clipped = _clip_to_clean_end(value)
+                base = clipped if clipped else value.rstrip()
+            else:
+                base = value.rstrip()
+            marked[name] = f"{base}{_TRUNCATION_MARKER}"
     marked["truncated"] = True
     return marked
 

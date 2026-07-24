@@ -29,7 +29,7 @@ spec:
         runAsUser: 10001
       containers:
         - name: inspector
-          image: analyzer-inspector:ins2
+          image: analyzer-inspector:ins37
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5005
@@ -69,6 +69,11 @@ spec:
                   key: postgres-password
             - name: INSPECTOR_RP_PG_DSN
               value: postgresql://postgres:$(RP_PGPASSWORD)@reportportal-postgresql:5432/reportportal
+            # OPTIONAL: the analyzer service /health endpoint, for the Learning
+            # Loop "Analyzer /health" live snapshot card. Service port 8080 maps
+            # to the analyzer's HTTP container port (analyzercore=5001).
+            - name: ANALYZER_HEALTH_URL
+              value: http://reportportal-analyzer:8080/health
           readinessProbe:
             httpGet:
               path: /healthz

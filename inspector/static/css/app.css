@@ -164,6 +164,18 @@ a { color: var(--rp-topaz); text-decoration: none; }
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
 @media (max-width: 1040px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
 
+/* Main content + a narrow side panel (model artifacts + the small /health
+   snapshot). The side panel is a bit narrower than the main column and top-
+   aligned so it takes only its own height instead of stretching to match the
+   long artifacts list; it sticks below the tab bar so the live health stays in
+   view while the artifacts list scrolls, using the otherwise-empty space. */
+.grid-side { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); align-items: start; }
+.side-panel { position: sticky; top: 112px; }
+@media (max-width: 1040px) {
+  .grid-side { grid-template-columns: 1fr; }
+  .side-panel { position: static; top: auto; }
+}
+
 /* ---------------- pills / chips / badges ---------------- */
 .chip {
   font-family: var(--rp-mono); font-size: 12px; line-height: 18px; background: var(--rp-bg-200);
@@ -330,7 +342,7 @@ table.data .rank { color: var(--rp-e-400); font-family: var(--mono); }
 .list-item.active { border-color: var(--accent); background: var(--accent-soft); }
 .list-item .li-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .list-item .li-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.list-item .li-sub { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.list-item .li-sub { font-size: 11px; color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .flex { display: flex; } .between { justify-content: space-between; } .center { align-items: center; }
 .gap-8 { gap: 8px; } .gap-12 { gap: 12px; } .wrap { flex-wrap: wrap; }

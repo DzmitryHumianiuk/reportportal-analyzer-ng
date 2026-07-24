@@ -129,6 +129,11 @@ class AppConfig(BaseSettings):
     # build (asserted by tests/unit/test_config.py::test_wired_defaults_equal_constants).
     analyzer_auto_min_prob: UnitInterval = 0.75  # == decision.TAU_AUTO
     analyzer_suggest_max: int = 3  # == analysis.SUGGEST_MAX
+    # Declined-dock (below-band) suggest rows: OFF by default — a band-unaware UI
+    # would render a declined candidate as an endorsed suggestion card. Flip only
+    # where the Bench (service-ui ng2+) is live. Cap enforced at 3 in the engine.
+    analyzer_suggest_below_enabled: bool = False  # == analysis default (off)
+    analyzer_suggest_below_max: int = 2  # == analysis.SUGGEST_BELOW_MAX
     analyzer_burst_si_share: UnitInterval = 0.4  # == grouping.BURST_X
     analyzer_time_decay: UnitInterval = 2.0 ** (-1.0 / 90.0)  # == features.TIME_DECAY_PER_DAY
     # Operator-tunable retrain debounce window, in seconds (spec §6.5). This is the

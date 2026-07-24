@@ -124,6 +124,107 @@ Phases 0–3 are fully implemented. Phases 4–5 print the actions they cover an
 run best-effort route calls against the uploaded probe launches; deepen them
 against the real DB once phase 3 has landed (see "Deviations").
 
+### 3a. The "Make Decision Showcase" launch (S46)
+
+Phase 3 also uploads ONE dedicated launch — **`Make Decision Showcase`**
+(webshop-ui, Jul 17 21:00, 18 failed items) — whose items cover every
+Make Decision / Bench branch in a single walkthrough: exact-hash auto
+(Past decision agrees), KB-mode auto, suggest-confirm, suggest-disagree
+(conflicting defects), declined dock (`band=below_suggest` — needs
+`ANALYZER_SUGGEST_BELOW_ENABLED=true` on the analyzer and service-ui ≥ ng4),
+AI-guess-only (cold-start rubric over a novel failure), a silent modal
+(failed item with INFO-only logs → empty signature), a 3-member exact
+launch group, and an 8-member fresh-fingerprint `si` burst. Items are tagged
+`scenario:S46` plus `scenario:BENCH-<case>`; the case list lives in
+`gen/schedule.py::BENCH_SHOWCASE`, the spec row in SCENARIOS.md §2.8.
+Open the launch, walk its items top-to-bottom with the Make Decision modal,
+and every modal variant appears exactly once (the group/burst blocks show the
+group cues).
+
+### 3b. "Make Decision Showcase 2" (S46, the fixed branches)
+
+On a live stand the original showcase left four branches undemonstrable:
+`suggest-confirm`, `suggest-disagree`, `declined-dock` and `ai-guess-only`
+all collapsed into the auto-hash modal. Root cause: those cases reused
+archetypes (JAVA-SEL-24/27) whose other items were human-labeled, so the
+showcase item shared an `error_hash` with labeled history and stage-A
+exact-hash inheritance won before the GBM ever ran; JAVA-SEL-32 additionally
+retrieved 0.92 neighbors through shared TestNG boilerplate frames.
+
+The fix is purely additive, NEW uploads only. Four fresh archetype families
+(`JAVA-SEL-35..38`, placed nowhere else: POLICY `target=0`) obey a hash-drift
+rule: the showcase variant's first ERROR line differs from every history
+variant in words that survive masking (never only numbers, ids or paths),
+while frames are shared exactly where fuzzy similarity is wanted:
+
+- **JAVA-SEL-35** (`suggest-confirm`): v1..v3 labeled pb history, one frame
+  set, four wordings. No exact hash, unanimous retrieval, `band=suggest`,
+  p* in [0.45, 0.75).
+- **JAVA-SEL-36** (`suggest-disagree`): eight history items, v1..v4 pb and
+  v5..v8 ab, two wording families over one frame set. Entropy near 1,
+  conflicting pb/ab suggest rows.
+- **JAVA-SEL-37** (`declined-dock`): v1..v2 labeled pb but heavily drifted
+  (only the exception class and one frame shared); v3..v4 textually near the
+  showcase item but `ground_truth=ti`, so the replay skips them and they stay
+  unlabeled. Calibrated p* lands in [0.30, 0.45): `ek=decline` rows,
+  `band=below_suggest` (needs `ANALYZER_SUGGEST_BELOW_ENABLED=true`).
+- **JAVA-SEL-38** (`ai-guess-only`): one alien variant, never-seen exception
+  class, unseen `io.hawkinslab.*` frames, no TestNG boilerplate. Retrieval
+  stays below the floor, classical abstain, `coldstart_rubric` row only.
+
+The labeled history lives in three dedicated phase-2 launches
+(`gen/schedule.py::BENCH_HISTORY`): `Bench History Confirm` (Jul 8, SEL-35
+v1..v3 twice = 6 H), `Bench History Split` (Jul 8, SEL-36 v1..v8) and
+`Bench History Weak` (Jul 9, SEL-37 v1..v4). The probes live in
+`Make Decision Showcase 2` (webshop-ui, Jul 17 22:00, 4 P items, one per
+fixed branch; `gen/schedule.py::BENCH_SHOWCASE_2`). The original
+`Make Decision Showcase` launch and its items are never re-uploaded or
+edited.
+
+**Upload sequence** to take a live stand from "current state" to "all four
+branches demonstrable" (run from `demo-data/`):
+
+```bash
+# 1. sanity: inspect exactly what will be uploaded
+python3 generate.py --dry-run --launch "Bench History"
+python3 generate.py --dry-run --launch "Make Decision Showcase 2"
+
+# 2..4. upload the three history launches (phase 2, analyzer off, labels replayed)
+python3 generate.py --phase 2 --day 2026-07-08 --launch "Bench History Confirm"
+python3 generate.py --phase 2 --day 2026-07-08 --launch "Bench History Split"
+python3 generate.py --phase 2 --day 2026-07-09 --launch "Bench History Weak"
+
+# 5. make sure every labelable history item is triaged
+#    (gt=ti items in Bench History Weak stay unlabeled by design)
+python3 generate.py --replay-only --launch "Bench History"
+
+# 6. reset -> analyze so the history items get suggestion.features for the GBM
+python3 generate.py --analyze-history --launch "Bench History"
+
+# 7. re-attach the human labels to those features
+python3 generate.py --replay-only --launch "Bench History"
+
+# 8. upload the new showcase launch and analyze it (phase 3, analyzer on)
+python3 generate.py --phase 3 --day 2026-07-17 --launch "Make Decision Showcase 2"
+
+# 9. refresh the expected-outcome manifest
+python3 generate.py --emit-expected
+```
+
+`--launch` scopes every pass (upload, `--replay-only`, `--analyze-history`)
+to launches whose name contains the given substring, so the passes above
+never touch the rest of the stand.
+
+Acceptance, via the Inspector journey API and the modal on the four new
+items: the confirm item has `decision.method != hash`, `band=suggest` and
+unanimous pb rows with conf in [0.45, 0.75); the disagree item has
+`band=suggest` with two defect groups in its rows; the declined item's rows
+carry `ek=decline` with conf in [0.30, 0.45) and `decision.band=below_suggest`;
+the ai-guess item's reply contains only the `coldstart_rubric` row. Negative
+checks: no new item shares an `error_hash` with labeled history (method is
+never `hash`), and the original showcase launch is byte-identical (nothing
+re-uploaded or edited).
+
 Roles per item: **H** = history (a `defect_update` replays its ground-truth
 label after the launch finishes); **P** = probe (stays To-Investigate, gets
 analyzed); **decoy** = passing item carrying the same logs (S23 spam / S24

@@ -95,11 +95,8 @@ def test_rubric_surfaces_when_classical_empty() -> None:
     assert retr.calls == [(PROJECT, ITEM)]
 
 
-def test_rubric_not_surfaced_when_classical_has_results() -> None:
-    """A real (evidence-backed) suggestion is never displaced — and no DB read."""
-    retr = FakeRetrieval(_rubric_row())
-    engine = _engine(retr, FakeSidecar())
-    existing = SuggestAnalysisResult(
+def _classical_row(*, score: float, src: str) -> SuggestAnalysisResult:
+    return SuggestAnalysisResult(
         project=PROJECT,
         testItem=ITEM,
         testItemLogId=6001,
@@ -109,18 +106,54 @@ def test_rubric_not_surfaced_when_classical_has_results() -> None:
         issueType="pb001",
         relevantItem=42,
         relevantLogId=7,
-        matchScore=88.0,
+        matchScore=score,
         resultPosition=0,
+        modelInfo=f"analyzer-ng;ng=1;band=suggest;src={src}",
         usedLogLines=7,
         minShouldMatch=42,
         processedTime=0.1,
         methodName="suggestion",
     )
 
+
+def test_rubric_not_surfaced_when_classical_has_vouched_result() -> None:
+    """A VOUCHED suggestion (human-confirmed neighbour) is never displaced — no read."""
+    retr = FakeRetrieval(_rubric_row())
+    engine = _engine(retr, FakeSidecar())
+    existing = _classical_row(score=88.0, src="human-confirmed")
+
     out = engine._maybe_rubric_fallback([existing], _info(), _rep(), elapsed=0.1)
 
     assert out == [existing]
-    assert retr.calls == []  # non-empty reply short-circuits before any read
+    assert retr.calls == []  # a vouched reply short-circuits before any read
+
+
+def test_rubric_surfaced_over_unlabeled_lookalikes() -> None:
+    """The 4998 case: strong-cosine but src=unlabeled twins do NOT suppress the
+    cold-start rubric (they are look-alikes nobody labelled)."""
+    retr = FakeRetrieval(_rubric_row())
+    engine = _engine(retr, FakeSidecar())
+    twins = [
+        _classical_row(score=98.0, src="unlabeled"),
+        _classical_row(score=93.0, src="unlabeled"),
+    ]
+
+    out = engine._maybe_rubric_fallback(twins, _info(), _rep(), elapsed=0.1)
+
+    assert len(out) == 3  # the two twins + the appended rubric row
+    assert out[-1].methodName == "coldstart_rubric"
+    assert retr.calls == [(PROJECT, ITEM)]  # the read DID happen
+
+
+def test_rubric_not_surfaced_when_seed_or_auto_vouches() -> None:
+    """seed and auto-analyzed are grounded sources too — they suppress the rubric."""
+    retr = FakeRetrieval(_rubric_row())
+    for src in ("seed", "auto-analyzed", "kb-mode"):
+        engine = _engine(retr, FakeSidecar())
+        out = engine._maybe_rubric_fallback(
+            [_classical_row(score=80.0, src=src)], _info(), _rep(), elapsed=0.1
+        )
+        assert len(out) == 1, f"{src} should suppress the rubric"
 
 
 def test_disabled_master_switch_no_rubric() -> None:

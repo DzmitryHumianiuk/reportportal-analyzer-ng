@@ -3,7 +3,7 @@
 // optional live analyzer /health snapshot.
 import { api } from '../api.js';
 import {
-  h, clear, card, emptyState, loading, setDefects, defectBadge, defectColor, defectName, defectInfo, idChip,
+  h, clear, card, emptyState, loading, setDefects, defectBadge, defectColor, defectName, defectInfo, idChip, icon,
   shortTime, fmt, pct, echartsBase, engDetails, MUTED, INK, INK2, HAIRLINE, BAND, WARNING,
 } from '../util.js';
 
@@ -13,10 +13,11 @@ export async function renderLoop(root, app) {
   const modelCard = card('Model artifacts', { sub: 'versions · gate metrics · active swap' });
   const metricsCard = card('Daily metrics', { sub: 'metrics_daily rollup' });
   const healthCard = card('Analyzer /health', { sub: 'live snapshot (optional)' });
+  healthCard.classList.add('side-panel');
   const matCard = card('Project maturity', { sub: 'cold-start → warm → hot · training-frame contribution' });
   root.append(
     evCard,
-    h('div', { class: 'grid grid-2', style: { marginTop: '16px' } }, modelCard, healthCard),
+    h('div', { class: 'grid grid-side', style: { marginTop: '16px' } }, modelCard, healthCard),
     h('div', { style: { marginTop: '16px' } }, metricsCard),
     h('div', { style: { marginTop: '16px' } }, matCard),
   );
@@ -196,7 +197,7 @@ function renderMaturity(el, m, projectId) {
       h('div', { class: 's-k' }, `${s.name.toUpperCase()} · ${s.short}`),
       h('div', { class: 's-v' }, `${range} labeled items`),
       active ? h('div', { class: 'mat-here' }, '● this project') : null,
-      h('div', { class: 's-flow' }, '→')));
+      h('div', { class: 's-flow', 'aria-hidden': 'true' }, icon('arrowRight', { size: 15 }))));
   });
   el.appendChild(stepper);
 

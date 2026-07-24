@@ -6,7 +6,24 @@ presentation shipped in the earlier `ng1` patch while keeping that patch's analy
 parsing intact. This is an **RP-side** change (the user owns the stand).
 
 - Patch: [`service-ui-5.15.3-bench.patch`](./service-ui-5.15.3-bench.patch)
-- Built image: `reportportal/service-ui:5.15.3-ng2`
+- Built image: `reportportal/service-ui:5.15.3-ng37` (ng37: silent-no-signal empty state - a FAILED item with no ERROR logs, so an empty suggest reply, now renders a light Bench empty state (dark identity header + one calm grey "No error logs to analyze" hero + the manual verdict bar) instead of falling back to the stock dark tabs. Design: docs/consilium-make-decision/gpos-silent-VERDICT.md + mockup-silent-nosignal.html. benchEmpty branch in makeDecisionModal.jsx; Bench emptyNoSignal prop. Commit path unchanged; analyzer-off/unreachable/bulk still keep stock tabs.) (needs analyzer mk24+). ng30 the manual defect-type picker chips are re-skinned light (stock DefectTypeSelectorItem ships dark-mode colours); ng33 the picker shows FULL type names in per-group vertical columns; ng34-35 the picker is rebuilt as mockup-faithful RP-light `.pick-pill` pills (colour dot + full name), one VERTICAL COLUMN per defect group (a group's subtypes stack in its column), selected = topaz fill, dock-highlighted = yellow ring, plus a "Pick the defect type that fits this failure." help line; the stock DefectTypeSelector is dropped from the Bench. ng27 Past decision card relaid out per image 24 (person role line, defect pill, "In launch #N" link, shorter strength line); ng28 clean rebuild bundling ng27 + the "Use this answer" fix: adopting a Past decision / Similar failures suggestion now prefills the comment from the SUGGESTED ITEM'S OWN comment (row.res.issue.comment), not the AI summary text, and no longer collapses the summary into the comment. Paired with analyzer mk23 which ROLLED BACK the deterministic S2 ek=match;why= templates on suggest/auto rows (they did not read as useful); the AI decision summary now shows only the LLM decision explanation (S1) or the cold-start rubric, and collapses when neither is available (e.g. suggest-but-decision-abstained items like 6099). ng26 (ng23 the decision-summary text renders defect locators as inline mini pills and "item N" as a link; ng24 that item link points to the item log view, not the Inspector; ng25 the decision-card provenance line names the REAL person + real launch number (fetched from the neighbour's activity log + launch entity), drops the comment note, launch shown as a link to the neighbour log view - unresolved person/number is omitted, never fabricated; ng26 clean rebuild bundling ng23-ng25 after concurrent-fork build races). ng22 (needs analyzer image mk22+). ng19 defect pills instead of "same answer" in agree state; ng20 "Compare logs" toggles closed on a second click; ng21 decision cards show a "A person decided this in an earlier run" provenance line with an Inspector link (real data only, no fabricated user/launch); ng22 the decision-summary block is labelled honestly - "AI decision summary / written by AI" only for the LLM explanation (S1) or the cold-start rubric; a deterministic S2 why (analyzer mk22 gives suggest/auto rows a templated ek=match;why from retrieval facts, no LLM) reads "Decision summary / from analyzer data" instead. ng18 (ng18 PRODUCT CHANGE: the loose fuzzy logSearch scope ("N similar in the launch") is removed. Bulk apply is now driven by the EXACT launch group (same error_hash, the grouping Inspector/Unique Errors use): a single checkbox "Also apply to N more tests with the same exact error" (still-TI siblings only; already-decided members left alone), and solo items read "applies to this test only". The burst "Apply System Issue" fans out over the same exact-group TI members. executionSection stops calling logSearch in benchMode (kept mounted only for the current-item log fetch). Commit mechanism unchanged (selectedItems + stock applyChanges); only the SOURCE of selectedItems changed from fuzzy to exact group. ng17 (ng15 dedup the dock note to "Shown only so you can decide."; ng16 clamp long dock test names to 2 lines + full name on hover; ng17 the Similar failures similarity number is now labelled "Logs 0.92 alike" (benchLogsAlike) so a cosine log-similarity is never read as a model confidence, while the abstain card keeps benchAlike). ng14 (ng14 = clean rebuild bundling two fixes: (a) no flash of the stock dark tabs / similar-items before the Bench: makeDecisionModal.jsx gains a benchPending phase that shows a light Bench shell + spinner until the MLSuggestions fetch resolves, instead of rendering the stock path first; (b) DECISION BOUNDARY label overlays the vertical dotted divider (position:relative bar-sep, absolute centered rule, label chip on top) so it no longer eats a horizontal column. ng12: the declined dock is now the 4th column in the SAME row as the three advisor cards (mockup-bench.html layout), separated by a vertical dotted divider with a rotated "Decision boundary" label; dock rows are stacked multi-line cards again. This replaces the ng11 full-width strip below the cards. ng11: dock rows single-line, divider is one dotted rule with a centered "Decision boundary" chip, burst panel Defect pill becomes an SI-subtype dropdown when the project has more than one System Issue type; ng10: mockup-parity focus ring, the compare-source check card carries a topaz ring while its compare is open; ng8 banner rework: "Analyzer agree:" + defect pill + right-aligned kbd-style Enter hints; ng9 burst band polish: percent line, 40% gate rule with a text-sized inline System Issue mini pill, honesty and pointer lines removed, action is a ghost button "Apply <System Issue mini pill>". Earlier: ng5 + the check-card why? link pinned
+  to the card's top right corner with RP's open-in-new-tab icon on every Inspector link;
+  ng7 adds the C2 burst apply flow: the burst band shows the share as a percent
+  ("47% ... (8 of 17)"), the 40% analyzer gate rule with the System Issue defect pill
+  inline, and an "Apply System Issue" pill action bottom right. Clicking it covers the
+  bands below and opens a focused panel: System Issue pre-picked ("set from the burst
+  context"), comment editor focused, scope preselected to the burst group members found
+  in the Apply-to dataset (missing members reported honestly), Back/Esc returns, Apply
+  commits through the unchanged stock path)
+- ng5 (2026-07-22) is the consilium-2 rework: design authority moved to
+  [`../consilium-make-decision/gpos-VERDICT2.md`](../consilium-make-decision/gpos-VERDICT2.md)
+  (lens2-* docs in the same dir). Highlights: dark header is the identity bar (saved
+  defect = the before picture), single commit bar (dark footer removed in bench mode),
+  the grey stage is now the AI decision summary (journey `decision.explanation` behind a
+  fail-closed freshness gate, why= fallback, clickable quoted lines), group band gained
+  burst state C2 (si_prior/dominant fraction + honesty line) and solo line C0,
+  Use this answer on classical cards (adoptClassical wired), comment collapsed to
+  "Add a reason", Apply to all {n} beside the scope control, dedup pass per lens2-dedup.
 - Design source of truth: [`../consilium-make-decision/mockup-bench-rp.html`](../consilium-make-decision/mockup-bench-rp.html)
   plus the `lens-bench-*` / `gpos-VERDICT` docs.
 - Live evidence: [`evidence/bench/`](./evidence/bench)
@@ -33,7 +50,7 @@ reachable; **bulk** edits and analyzer-off keep the stock dark tabs.
 |---|---|---|
 | Item stripe | test name, `· FAILED ·`, current defect pill, one **Show error log** toggle, **Open full details in Inspector** | `currentTestItems[0]`, `projectInfoIdSelector` |
 | R1 "This failure" | first ERROR line once; expand = **Stack trace and context (ERROR level)** without repeating the header line | `currentTestItems[0].logs` (bulkLastLogs) |
-| Group (HYBRID) | top context cue "This exact failure shows up in N tests in this run", read-only **Show the tests** reveal, Inspector permalink, and a quiet pointer that scrolls+pulses the scope control (arms nothing) | `modalState.testItems` (similar TI in the launch) |
+| Group (HYBRID) | top context cue "This exact failure shows up in N tests in this run", read-only **Show the tests** reveal (member chips link to each item's log view), Inspector permalink, and a quiet pointer that scrolls+pulses the scope control (arms nothing) | Inspector journey API `/inspector/api/item/{project}/{item}/journey` → `grouping` (`analyzer.launch_group`, exact `error_hash` group). Same number and members as the Inspector's grouping card. NOT the fuzzy `logSearch` list: that one still feeds only the **Apply to** scope control, which stays stock. |
 | Agreement banner | one of 4 states: **The checks agree: X** / **The checks do not agree** / **Only the AI has a guess** / **The analyzer is not sure about this one** | derived from the per-row bands |
 | Three checks | **Past decision** (auto band / exact match), **Similar failures** (GBM/classical), **AI guess** (rubric) with plain band words and defect pills | `suggestedItems[*].suggestRs` |
 | Declined dock | below-0.45 rows: quiet grey dashed inset, struck defect names, "The analyzer said no to these", never pre-selected | `band=below_suggest` rows (see follow-up) |
@@ -89,8 +106,8 @@ NODE_OPTIONS="--max-old-space-size=4096" npm run build  # Node 22 verified; webp
 
 # thin overlay over the stock image (preserves buildInfo.json -> footer stays 5.15.3)
 eval $(minikube -p minikube docker-env)
-docker build -f Dockerfile.ng -t reportportal/service-ui:5.15.3-ng2 .   # Dockerfile.ng in app/
-kubectl set image deployment/reportportal-ui ui=reportportal/service-ui:5.15.3-ng2
+docker build -f Dockerfile.ng -t reportportal/service-ui:5.15.3-ng4 .   # Dockerfile.ng in app/
+kubectl set image deployment/reportportal-ui ui=reportportal/service-ui:5.15.3-ng4
 kubectl rollout status deployment/reportportal-ui
 ```
 
@@ -106,8 +123,12 @@ COPY build/ /usr/share/nginx/html/
 `migrated-project` rubric item **4998** (`.../267/4996/4997/4998/log`):
 - Banner **Only the AI has a guess**; **AI guess** card = **Product Bug** hypothesis, **65%**,
   **not confirmed**, **Use this guess**. Past decision + Similar failures show empty states.
-- Group cue **This exact failure shows up in 18 tests in this run** (17 similar TI + this one),
-  **Show the tests**, scope pointer.
+- Group cue **This exact failure shows up in N tests in this run** where N is the
+  `launch_group.member_count` from the Inspector journey API, so the modal and the
+  Inspector always agree (verified on `migrated-project` item **5920**: both say 8, while
+  the fuzzy logSearch list behind the scope control holds 20, capped at `TOP_K`).
+  **Show the tests** reveals the exact-group members as clickable chips; scope pointer
+  carries no count (the Apply-to scope is the wider fuzzy list, a different thing).
 - One **Show error log** toggle → **Stack trace and context (ERROR level)** (4998 has a single
   log line, so the expansion honestly shows no further stack rather than repeating the header).
 - **Use this guess** → comment prefilled with the rubric why-text, note "Filled from the AI
@@ -138,26 +159,35 @@ cleanly when absent. On this stand the analyzer flag is **off**, so:
   `suggest`/`null` by matchScore threshold). A stock/mk18 analyzer renders like `ng1` with no
   new below-band chrome.
 
-## Follow-up — light up the declined dock with real data
+## Follow-up — light up the declined dock with real data (LANDED, analyzer ≥ mk21)
 
-The declined dock is fully implemented UI-side but currently receives no rows because the
-analyzer does not yet emit below-band candidates. To turn it on (a **separate** analyzer-side
-change, not in this patch):
+Landed 2026-07-22 (`analysis.py`, tests in `tests/unit/test_analysis_below_band.py`):
 
-1. Land the analyzer contract v1 (per `lens-contract.md §2–3`): emit `modelInfo` with
-   `ng=1;band=<auto|suggest|below_suggest|rubric>;conf=<p*>[;ek=<match|decline>;why=<text>]`
-   tokens (they ride inside `modelInfo` because stock service-api strips unknown first-class
-   `SuggestAnalysisResult` keys before they reach the UI).
-2. Replace the early `[]` return in `analysis.py` (~L1027) with the abstain path: when
-   `proxy < TAU_SUGGEST` (0.45), render up to `ANALYZER_SUGGEST_BELOW_MAX` (default 2, cap 3)
-   stage-C candidates with `band=below_suggest`, subject to the `ANALYZER_SUGGEST_BELOW_FLOOR`
-   (0.30 cosine) noise floor; attach the abstain narration to the first below-band row as
-   `ek=decline;why=...`.
-3. **Gate it behind `ANALYZER_SUGGEST_BELOW_ENABLED` (default `false`).** Keep it off until
-   `ng2` is live everywhere: a stock / `ng1` UI would render a below-band row as a normal
-   "Analyzer Suggestion NN%" card (it has no band parser), making a declined candidate look
-   endorsed. Kill switch = flip the env var back (no image change).
-
-Rollout order: (1) analyzer contract v1 with the flag OFF (canary), (2) UI `ng2` (this patch),
-(3) flip `ANALYZER_SUGGEST_BELOW_ENABLED=true`. Once on, the dock fills automatically — no
-further UI change is needed.
+1. **Contract v1 tokens always on**: every suggest row's `modelInfo` now ends with
+   `;ng=1;band=<auto|suggest|below_suggest>;src=<provenance>`, the decision's own row adds
+   `;conf=<p*>`, and the first dock row of an abstained reply adds
+   `;ek=decline;why=<abstain narration>` (why last — free text may contain `;`). Side
+   effect worth knowing: the Bench now files an auto-band row under **Past decision**
+   instead of the legacy-fallback "Similar failures" slot.
+2. **Dock rows behind `ANALYZER_SUGGEST_BELOW_ENABLED`** (default `false`): when on, two
+   sources fill the dock, both floored at `SUGGEST_BELOW_FLOOR` (**0.30**) and capped at
+   `ANALYZER_SUGGEST_BELOW_MAX` (default 2, hard cap 3):
+   - stage-C candidates whose cosine lands in [0.30, 0.45) — the spec-literal window,
+     rare in practice (e5 cosines seldom dip under ~0.85 in-domain);
+   - the **gbm_below_suggest abstain** (the common case): the declined argmax-group
+     hypothesis ships as one dock row anchored to that group's best not-yet-shown
+     stage-C candidate, scored by the CALIBRATED p* (`decision.confidence` — NOT the
+     raw `decision.probs`, which calibrate down: raw pb 0.64 → p* 0.32), with
+     `ek=decline;why=<abstain narration>` on it.
+   RP's service-api serves at most ~3 rows, so on an abstained reply the dock takes its
+   slots from the shared budget and neighbour rows shrink (e.g. 2 neighbours + 1 dock).
+   Below 0.30 stays dropped as noise. A reply with no row at/above τ_suggest still gets
+   the cold-start rubric appended (AI guess + dock coexist). A per-reply
+   "suggest bands: …" INFO log summarizes label/abstain/probs/real/below for debugging.
+   Live-verified on `migrated-project` item **4998**: reply = 2 neighbours (band=suggest)
+   + dock row rel 4539 at 32.0 with the decline narration; the Bench renders
+   "The analyzer said no to these (1)" with the struck defect and "Too weak to suggest
+   (0.32)".
+3. Keep the flag off where a band-unaware UI (stock/`ng1`) is live — it would render a
+   declined candidate as an endorsed "Analyzer Suggestion NN%" card. Kill switch = flip
+   the env var back (no image change). On this stand: `ng4` UI + flag ON.

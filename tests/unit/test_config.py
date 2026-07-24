@@ -128,6 +128,8 @@ def test_wired_defaults_equal_code_constants() -> None:
     )  # type: ignore[call-arg]
     assert cfg.analyzer_auto_min_prob == TAU_AUTO
     assert cfg.analyzer_suggest_max == 3  # analysis.SUGGEST_MAX
+    assert cfg.analyzer_suggest_below_enabled is False  # dock off until Bench ng2+
+    assert cfg.analyzer_suggest_below_max == 2  # analysis.SUGGEST_BELOW_MAX
     assert cfg.analyzer_burst_si_share == BURST_X
     assert cfg.analyzer_time_decay == TIME_DECAY_PER_DAY
     assert cfg.analyzer_drain_max_lines == 40  # ml.drain.DEFAULT_MAX_LINES

@@ -194,6 +194,8 @@ class AnalyzerService:
             engine_tunables={
                 "auto_min_prob": config.analyzer_auto_min_prob,
                 "suggest_max": config.analyzer_suggest_max,
+                "suggest_below_enabled": config.analyzer_suggest_below_enabled,
+                "suggest_below_max": config.analyzer_suggest_below_max,
                 "burst_si_share": config.analyzer_burst_si_share,
                 "time_decay": config.analyzer_time_decay,
             },

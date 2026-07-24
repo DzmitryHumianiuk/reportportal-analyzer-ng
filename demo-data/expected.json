@@ -2,9 +2,9 @@
   "generated_by": "demo-data/generate.py",
   "seed": 20260717,
   "note": "Per-probe expected analyzer outcome. Join to suggestion rows via item attributes scenario:Sxx / adv_case + archetype id. ground_truth 'ti' means the correct outcome is abstain.",
-  "probe_count": 195,
+  "probe_count": 217,
   "probe_count_by_project": {
-    "webshop-ui": 125,
+    "webshop-ui": 147,
     "payments-services": 43,
     "frontend-apps": 27
   },
@@ -3004,6 +3004,369 @@
       "test_name": "storefront/product.spec.ts › Product › opens the size guide",
       "scenario": [
         "S02"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "BENCH-auto-hash",
+        "S05",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-23",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Settings. Save shipping profile",
+      "scenario": [
+        "BENCH-auto-kb",
+        "S29",
+        "S46"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-24",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Address. Validate shipping address",
+      "scenario": [
+        "BENCH-suggest-confirm",
+        "S13",
+        "S46"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-27",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Wishlist. Move item to cart",
+      "scenario": [
+        "BENCH-suggest-disagree",
+        "S11",
+        "S32",
+        "S46"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-27",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Wishlist. Move item to cart",
+      "scenario": [
+        "BENCH-declined-dock",
+        "S11",
+        "S32",
+        "S46"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-32",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Loyalty ledger. Reconcile points balance",
+      "scenario": [
+        "BENCH-ai-guess-only",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-33",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Receipt. Render printable receipt",
+      "scenario": [
+        "BENCH-silent-no-signal",
+        "S02",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "BENCH-group-of-3",
+        "S05",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "BENCH-group-of-3",
+        "S05",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "BENCH-group-of-3",
+        "S05",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Publish cart snapshot",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Fetch price feed",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Sync stock levels",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Broadcast order event",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Refresh delivery quotes",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Validate coupon service",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Warm search index",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Ping loyalty bridge",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-35",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase 2",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Gift card. Redeem balance at checkout",
+      "scenario": [
+        "BENCH-suggest-confirm",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-36",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase 2",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Promotions. Apply seasonal promo to cart",
+      "scenario": [
+        "BENCH-suggest-disagree",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-37",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase 2",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Receipt. Verify rendered receipt markup",
+      "scenario": [
+        "BENCH-declined-dock",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-38",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase 2",
+      "date": "2026-07-17",
+      "test_name": "Telemetry. Chrono beacon. Verify epoch alignment",
+      "scenario": [
+        "BENCH-ai-guess-only",
+        "S46"
       ],
       "adv_case": null,
       "ground_truth": "ti",

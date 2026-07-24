@@ -49,12 +49,14 @@ def build_plan(smoke=False):
     return arcs, plan
 
 
-def filter_plan(plan, phase=None, day=None):
+def filter_plan(plan, phase=None, day=None, launch=None):
     out = []
     for la in plan:
         if phase is not None and la.phase != phase:
             continue
         if day is not None and la.date != day:
+            continue
+        if launch is not None and launch.lower() not in la.name.lower():
             continue
         if not la.items:
             continue
@@ -62,8 +64,8 @@ def filter_plan(plan, phase=None, day=None):
     return out
 
 
-def dry_run(plan, phase=None, day=None):
-    sel = filter_plan(plan, phase, day)
+def dry_run(plan, phase=None, day=None, launch=None):
+    sel = filter_plan(plan, phase, day, launch)
     # roll-ups
     by_proj = defaultdict(lambda: dict(launches=0, items=0, H=0, P=0, D=0, logs=0))
     by_phase = defaultdict(lambda: dict(launches=0, items=0))
@@ -85,6 +87,18 @@ def dry_run(plan, phase=None, day=None):
         print(f"  (filtered to phase {phase})")
     if day is not None:
         print(f"  (filtered to day {day})")
+    if launch is not None:
+        print(f"  (filtered to launch name containing {launch!r})")
+        for la in sel:
+            roles = defaultdict(int)
+            for pi in la.items:
+                roles[pi.role] += 1
+            cases = sorted({s for pi in la.items for s in pi.item.scenario_refs
+                            if s.startswith("BENCH-")})
+            extra = f"  cases={','.join(cases)}" if cases else ""
+            print(f"    [{la.date} {la.hour:02d}h ph{la.phase}] {la.project}/"
+                  f"{la.name}: {len(la.items)} items "
+                  f"(H={roles['H']} P={roles['P']} D={roles['D']}){extra}")
     print("=" * 72)
 
     print("\nPer-project roll-up (target from SCENARIOS.md §3.2 in brackets):")
@@ -159,7 +173,9 @@ def run_upload(plan, args):
         if ph in (4, 5):
             continue  # handled after the launch phases
         sel = [la for la in filter_plan(plan, phase=ph, day=args.day)
-               if la.project in projects]
+               if la.project in projects
+               and (args.launch is None
+                    or args.launch.lower() in la.name.lower())]
         if not sel:
             continue
         print(f"\n===== PHASE {ph}: {len(sel)} launches =====", flush=True)
@@ -305,8 +321,15 @@ def smoke_verify(client, plan, args):
 # ---------------------------------------------------------------------------
 # remediation: replay missing triage / give history items features
 # ---------------------------------------------------------------------------
-def _history_launches(plan):
-    return [la for la in plan if la.phase in (0, 2)]
+def _history_launches(plan, launch=None):
+    """Phase-0/2 history launches, optionally narrowed by --launch substring.
+
+    Honoring --launch keeps targeted replay/analyze passes (for example the
+    Bench History launches) scoped: without it every remediation pass would
+    walk, reset, and re-analyze the WHOLE stand history.
+    """
+    return [la for la in plan if la.phase in (0, 2)
+            and (launch is None or launch.lower() in la.name.lower())]
 
 
 def _labelable_items(client, la, fea_budget):
@@ -342,9 +365,11 @@ def replay_only(client, plan, args, exclude_ids):
     print("\n===== REPLAY-ONLY: history defect_update triage =====", flush=True)
     print(f"  excluding {len(exclude_ids)} items that already have a label_event",
           flush=True)
+    if args.launch:
+        print(f"  scoped to launches whose name contains {args.launch!r}", flush=True)
     per = defaultdict(lambda: dict(replayed=0, skipped=0, no_launch=0))
     fea_budget = FEA_LABEL_BUDGET
-    for la in _history_launches(plan):
+    for la in _history_launches(plan, args.launch):
         lstart = rpmod._ms(la.date, la.hour, 0)
         found = client.find_launch(la.project, la.name, lstart)
         if not found or not found.get("id"):
@@ -390,9 +415,11 @@ def analyze_history(client, plan, args):
           flush=True)
     for p in (config.WSU, config.PSV, config.FEA):
         client.set_analyzer(p, enabled=True)
+    if args.launch:
+        print(f"  scoped to launches whose name contains {args.launch!r}", flush=True)
     per = defaultdict(lambda: dict(reset=0, analyzed_launches=0))
     fea_budget = FEA_LABEL_BUDGET
-    for la in _history_launches(plan):
+    for la in _history_launches(plan, args.launch):
         lstart = rpmod._ms(la.date, la.hour, 0)
         found = client.find_launch(la.project, la.name, lstart)
         if not found or not found.get("id"):
@@ -552,6 +579,9 @@ def main():
                     help="run only one of the 5 upload phases (0..5)")
     ap.add_argument("--day", type=str, default=None,
                     help="filter to one simulated day YYYY-MM-DD")
+    ap.add_argument("--launch", type=str, default=None,
+                    help="filter to launches whose name contains this substring "
+                         "(case-insensitive; e.g. 'Make Decision Showcase')")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the plan, upload nothing")
     ap.add_argument("--smoke", action="store_true",
@@ -615,7 +645,7 @@ def main():
             return
 
     if args.dry_run:
-        dry_run(plan, phase=args.phase, day=args.day)
+        dry_run(plan, phase=args.phase, day=args.day, launch=args.launch)
         return
 
     if args.smoke:

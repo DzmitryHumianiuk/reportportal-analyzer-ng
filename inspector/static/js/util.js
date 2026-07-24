@@ -59,12 +59,17 @@ export function defectColor(locator, group) {
   const byGroup = defectForGroup(g);
   return (byGroup && byGroup.color) || labelColor(g);
 }
+const DEFECT_GROUPS = ['pb', 'ab', 'si', 'nd', 'ti'];
+
 export function defectName(locator, group) {
   const info = defectInfo(locator);
   if (info && info.name) return info.name;
+  // No exact defect-type name: the label is GROUP-level (a bare group code from
+  // matching/decision, a legend entry, or an unresolvable locator). Say so with
+  // a "group" suffix — "Product bug group" — so it cannot be misread as the
+  // concrete pb001 "Product Bug" type. Never borrow a representative type's name.
   const g = group || labelGroup(locator);
-  const byGroup = defectForGroup(g);
-  return (byGroup && byGroup.name) || labelName(g);
+  return DEFECT_GROUPS.includes(g) ? `${labelName(g)} group` : labelName(g);
 }
 
 // RP defect pill (DESIGN-PLATFORM §4): white fill, 1px #c1c7d0 border, radius
@@ -73,10 +78,21 @@ export function defectName(locator, group) {
 // not shown inline (it lives in Technical Details); it stays in the tooltip.
 export function defectBadge(locator, group) {
   const g = group || labelGroup(locator);
+  const info = defectInfo(locator);
+  // A bare group code (matching/decision labels like 'pb') is not a defect type
+  // at all: no defect pill. Render a plain chip like its neighbor chips so the
+  // group-level label reads as metadata, not as an applied defect.
+  if (!info && (!locator || DEFECT_GROUPS.includes(locator)) && DEFECT_GROUPS.includes(g)) {
+    return h('span', { class: 'chip', title: `Defect group (${g.toUpperCase()}), not a specific defect type` },
+      `${labelName(g)} group`);
+  }
   const col = defectColor(locator, g);
   const name = defectName(locator, g);
-  const info = defectInfo(locator);
-  const title = [info && info.name, locator].filter(Boolean).join(' · ') || null;
+  const title = info
+    ? [info.name, locator].filter(Boolean).join(' · ')
+    : DEFECT_GROUPS.includes(g)
+      ? `Defect group (${g.toUpperCase()}), not a specific defect type`
+      : locator || null;
   return h('span', { class: 'badge defect', title,
     style: { background: '#fff', color: 'var(--rp-almost-black)', borderColor: 'var(--rp-e-200)', fontWeight: 600 } },
     h('span', { class: 'dot', style: { background: col, width: '12px', height: '12px' } }), name);
@@ -91,8 +107,12 @@ export function defectBadgeAbbr(locator, group) {
   const col = defectColor(locator, g);
   const info = defectInfo(locator);
   const abbr = (info && (info.short_name || info.name))
-    || (['pb', 'ab', 'si', 'nd', 'ti'].includes(g) ? g.toUpperCase() : labelName(g));
-  const title = [info && info.name, locator].filter(Boolean).join(' · ');
+    || (DEFECT_GROUPS.includes(g) ? g.toUpperCase() : labelName(g));
+  const title = info
+    ? [info.name, locator].filter(Boolean).join(' · ')
+    : DEFECT_GROUPS.includes(g)
+      ? `${labelName(g)} group`
+      : '';
   return h('span', { class: 'badge defect', title: title || null,
     style: { background: '#fff', color: 'var(--rp-almost-black)', borderColor: 'var(--rp-e-200)', fontWeight: 600 } },
     h('span', { class: 'dot', style: { background: col, width: '10px', height: '10px' } }), abbr);

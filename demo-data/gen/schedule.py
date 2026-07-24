@@ -86,6 +86,19 @@ POLICY: dict[str, dict] = {
     "JAVA-SEL-29": dict(target=5, probes=2),                 # S26a rare token
     "JAVA-SEL-30": dict(target=60, probes=10, backdate=8, also_fea=True),  # S07 misc/long-tail
     "JAVA-SEL-31": dict(target=10, probes=4),                # S45.A healthcheck (WSU half)
+    # S46 bench-showcase archetypes are placed ONLY by _place_showcase()
+    # (target=0 keeps generic placement away so their fingerprints stay fresh).
+    "JAVA-SEL-32": dict(target=0, probes=0),                 # S46 novel -> AI guess only
+    "JAVA-SEL-33": dict(target=0, probes=0),                 # S46 info-only -> silent
+    "JAVA-SEL-34": dict(target=0, probes=0),                 # S46 fresh-fp burst
+    # S46 Showcase 2 archetypes: placed ONLY by _place_bench_history() (their
+    # dedicated labeled history) and _place_showcase2() (the probe items).
+    # target=0 keeps generic placement away so no OTHER launch can ever share
+    # their error_hash and re-create the stage-A collapse.
+    "JAVA-SEL-35": dict(target=0, probes=0),                 # S46b suggest-confirm
+    "JAVA-SEL-36": dict(target=0, probes=0),                 # S46b suggest-disagree
+    "JAVA-SEL-37": dict(target=0, probes=0),                 # S46b declined dock
+    "JAVA-SEL-38": dict(target=0, probes=0),                 # S46b AI guess only
     # --- payments-services (dotnet) ----------------------------------------
     "NET-XUN-01": dict(target=9, probes=2, backdate=2),      # S10 fx-rates episodes
     "NET-XUN-02": dict(target=10, probes=3),                 # S18.A 500 npe
@@ -120,6 +133,90 @@ POLICY: dict[str, dict] = {
     "TS-CY-01": dict(target=6, probes=0, outage=True),       # S34 admin assertion
     "TS-CY-02": dict(target=3, probes=1),                    # daily noise pb
 }
+
+
+# ---------------------------------------------------------------------------
+# S46 "Make Decision Showcase" -- ONE launch (WSU, demo day) whose items walk
+# every Make Decision / Bench branch the analyzer can produce, so a single
+# launch review shows every modal variant. Each row: (bench case tag,
+# archetype id, variant index, item count). History-dependent cases reuse
+# archetypes whose H items are already placed by POLICY; novel cases use the
+# S46-only archetypes above (never placed elsewhere -> fingerprints fresh).
+# ---------------------------------------------------------------------------
+BENCH_SHOWCASE: list[tuple[str, str, int, int]] = [
+    # Past decision agrees: exact-hash inherit from human history (band=auto,
+    # method=hash, conf 0.95) -> "The checks agree" + Past decision card.
+    ("auto-hash", "JAVA-SEL-03", 0, 1),
+    # Past decision via confirmed KB mode (method=kb) -> auto band, kb flavor.
+    ("auto-kb", "JAVA-SEL-23", 0, 1),
+    # Similar failures card: fp survives template drift, no exact hash ->
+    # suggest band, "Suggested, please confirm".
+    ("suggest-confirm", "JAVA-SEL-24", 0, 1),
+    # Split pb/ab history (entropy ~1): suggest rows carry CONFLICTING defects
+    # -> "The checks do not agree".
+    ("suggest-disagree", "JAVA-SEL-27", 0, 1),
+    # Same conflict family, second selector: GBM calibrated p* lands under
+    # tau_suggest -> declined dock "The analyzer said no to these"
+    # (band=below_suggest, ek=decline). Needs ANALYZER_SUGGEST_BELOW_ENABLED.
+    ("declined-dock", "JAVA-SEL-27", 2, 1),
+    # Never-seen failure: classical abstain, cold-start rubric is the only
+    # advisor -> "Only the AI has a guess".
+    ("ai-guess-only", "JAVA-SEL-32", 0, 1),
+    # Failed item with INFO/DEBUG logs only: empty signature, analyzer silent
+    # -> modal shows no advisors at all (manual choice only).
+    ("silent-no-signal", "JAVA-SEL-33", 0, 1),
+    # Shared-cause exact group of 3: S05 param variants mask to ONE error_hash,
+    # so three different variants give three distinct test names in one exact
+    # group -> group cue "shows up in 3 tests in this run" (+ auto-hash each).
+    ("group-of-3", "JAVA-SEL-03", 1, 1),
+    ("group-of-3", "JAVA-SEL-03", 2, 1),
+    ("group-of-3", "JAVA-SEL-03", 3, 1),
+    # Fresh-fingerprint burst: 8 identical never-seen failures, > 40% of the
+    # launch -> si_prior fires, whole group fans out si with one group_id;
+    # modal over an auto-analyzed si item + 8-member group cue.
+    ("burst-si", "JAVA-SEL-34", -1, 8),
+]
+SHOWCASE_LAUNCH = "Make Decision Showcase"
+
+# ---------------------------------------------------------------------------
+# S46 "Make Decision Showcase 2" -- fixes the four cases of the original
+# showcase that collapsed into the auto-hash branch. Root cause of the
+# collapse: JAVA-SEL-24/27 showcase items reuse archetypes whose OTHER items
+# were human-labeled, so stage-A exact-hash inheritance wins before the GBM
+# ever runs (and JAVA-SEL-32 retrieved 0.92 neighbors from shared frames).
+# The fix: fresh archetype families (JAVA-SEL-35..38) whose showcase variant
+# is hash-distinct from every one of its history variants (wording drift that
+# survives masking), plus dedicated small history launches placed on past
+# phase-2 days so the labeled evidence has exactly the shape each branch
+# needs. Nothing already on a stand is edited: this is all NEW uploads.
+# ---------------------------------------------------------------------------
+BENCH_SHOWCASE_2: list[tuple[str, str, int, int]] = [
+    # Hash drifted, unanimous pb history -> band=suggest, "please confirm".
+    ("suggest-confirm", "JAVA-SEL-35", 0, 1),
+    # Split pb/ab history, entropy ~1 -> conflicting suggest rows.
+    ("suggest-disagree", "JAVA-SEL-36", 0, 1),
+    # Weak labeled + strong unlabeled evidence -> p* in [0.30, 0.45),
+    # ek=decline rows, band=below_suggest (declined dock).
+    ("declined-dock", "JAVA-SEL-37", 0, 1),
+    # Alien error, retrieval below floor -> coldstart_rubric row only.
+    ("ai-guess-only", "JAVA-SEL-38", 0, 1),
+]
+SHOWCASE2_LAUNCH = "Make Decision Showcase 2"
+
+# Dedicated labeled-history launches for Showcase 2 (phase 2, past days).
+# Rows: (launch name, date, hour, archetype id, variant indexes to emit as H).
+# JAVA-SEL-35 v1..v3 twice = 6 history items so each wording occurs twice;
+# JAVA-SEL-36 v1..v8 = the split pb/ab family; JAVA-SEL-37 v1..v4 = weak pb
+# drifters plus two near-showcase items whose ground_truth=ti keeps them
+# unlabeled (the replay skips ti on purpose).
+BENCH_HISTORY: list[tuple[str, str, int, str, tuple[int, ...]]] = [
+    ("Bench History Confirm", "2026-07-08", 9, "JAVA-SEL-35",
+     (1, 2, 3, 1, 2, 3)),
+    ("Bench History Split", "2026-07-08", 10, "JAVA-SEL-36",
+     (1, 2, 3, 4, 5, 6, 7, 8)),
+    ("Bench History Weak", "2026-07-09", 9, "JAVA-SEL-37",
+     (1, 2, 3, 4)),
+]
 
 
 def _policy(arc: Archetype) -> dict:
@@ -194,6 +291,9 @@ class Scheduler:
         for aid in sorted(self.arcs):
             self._place_archetype(self.arcs[aid])
         if not self.smoke:
+            self._place_showcase()
+            self._place_bench_history()
+            self._place_showcase2()
             self._add_filler()
         # order launches by (date, hour, phase) for a coherent upload sequence
         self.launches.sort(key=lambda l: (l.date, l.hour, l.phase, l.name))
@@ -316,6 +416,70 @@ class Scheduler:
                 it = render_item(arc, vidx, 10_000 + i, config.FEA, spam_cap=spam_cap)
                 it.scenario_refs = sorted(set(it.scenario_refs) | {"S07"})
                 fea_hist[i % len(fea_hist)].items.append(PlannedItem(it, H))
+
+    # S46: one launch on the demo day whose items cover every Make Decision /
+    # Bench branch (see BENCH_SHOWCASE). All items are probes: the launch is
+    # analyzed once and each item then shows its own modal variant.
+    def _place_showcase(self):
+        la = self._get_launch(
+            config.WSU, SHOWCASE_LAUNCH, config.DEMO_DAY, 21, 3,
+            attrs=[{"key": "scenario", "value": "S46"}])
+        seq = 90_000
+        cycle: dict[str, int] = {}
+        for tag, aid, vidx, count in BENCH_SHOWCASE:
+            arc = self.arcs.get(aid)
+            if arc is None:
+                continue
+            nvar = len(arc.variants)
+            for _ in range(count):
+                if vidx >= 0:
+                    v = vidx % nvar
+                else:
+                    v = cycle.get(aid, 0) % nvar
+                    cycle[aid] = cycle.get(aid, 0) + 1
+                it = render_item(arc, v, seq, config.WSU)
+                it.scenario_refs = sorted(
+                    set(it.scenario_refs) | {"S46", f"BENCH-{tag}"})
+                la.items.append(PlannedItem(it, P))
+                seq += 1
+
+    # S46 Showcase 2: dedicated labeled-history launches on past phase-2 days.
+    # Mirrors _place_showcase (explicit variant placement, no POLICY routing)
+    # but emits H items: after upload the replay applies each item's
+    # ground_truth, except ti variants, which stay unlabeled by design.
+    def _place_bench_history(self):
+        seq = 95_000
+        for lname, date, hour, aid, vidxs in BENCH_HISTORY:
+            arc = self.arcs.get(aid)
+            if arc is None:
+                continue
+            la = self._get_launch(
+                config.WSU, lname, date, hour, 2,
+                attrs=[{"key": "scenario", "value": "S46"}])
+            for v in vidxs:
+                it = render_item(arc, v, seq, config.WSU)
+                it.scenario_refs = sorted(set(it.scenario_refs) | {"S46"})
+                la.items.append(PlannedItem(it, H))
+                seq += 1
+
+    # S46 Showcase 2: the second showcase launch (demo day, one hour after the
+    # first). Four probe items, one per previously-collapsed Bench branch.
+    def _place_showcase2(self):
+        la = self._get_launch(
+            config.WSU, SHOWCASE2_LAUNCH, config.DEMO_DAY, 22, 3,
+            attrs=[{"key": "scenario", "value": "S46"}])
+        seq = 96_000
+        for tag, aid, vidx, count in BENCH_SHOWCASE_2:
+            arc = self.arcs.get(aid)
+            if arc is None:
+                continue
+            nvar = len(arc.variants)
+            for _ in range(count):
+                it = render_item(arc, vidx % nvar, seq, config.WSU)
+                it.scenario_refs = sorted(
+                    set(it.scenario_refs) | {"S46", f"BENCH-{tag}"})
+                la.items.append(PlannedItem(it, P))
+                seq += 1
 
     def _history_targets(self, arc, pol) -> list[PlannedLaunch]:
         project = arc.project

@@ -81,6 +81,25 @@ def test_looks_truncated_complete_text_at_length_is_not_flagged() -> None:
     assert not _looks_truncated("The product output was wrong.", "length")
 
 
+def test_looks_truncated_flags_dangling_token_any_reason() -> None:
+    # A field ending on a token that can never finish a sentence (here the model
+    # stopped mid-quote of a selenium error at "{") is a masked cut no matter what
+    # finish reason the server reported (live: item 2958).
+    cut = "The log shows 'no such element: Unable to locate element: {"
+    assert _looks_truncated(cut, "length")
+    assert _looks_truncated(cut, "stop")
+    assert _looks_truncated(cut, None)
+
+
+def test_mark_truncated_clips_dangling_token_to_clean_sentence() -> None:
+    text = "It failed on the submit button. Unable to locate element: {"
+    marked = _mark_truncated({"reason": text}, ["reason"])
+    # The dangling "…: {" tail is dropped back to the last full sentence.
+    assert marked["reason"] == "It failed on the submit button. …"
+    assert marked["truncated"] is True
+    assert _ends_complete(marked["reason"])
+
+
 def test_truncated_fields_scopes_to_declared_free_text() -> None:
     role = ColdStartRole()
     output = {

@@ -25,6 +25,7 @@ fingerprint) stays stored-vs-stored. A never-indexed item recomputes then persis
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -67,6 +68,7 @@ from analyzer_ng.core.features import (
     TIME_DECAY_PER_DAY,
     FeatureContext,
     SeedSignal,
+    base_group,
     feature_names,
     src_weight,
     to_vector,
@@ -91,6 +93,29 @@ TOP_K = 20
 # Retrieve wider than TOP_K so the analyzerMode hard-scope filter (§6.0) is not
 # starved by out-of-scope rows dominating the top-20 before filtering.
 STAGE_C_RETRIEVE_K = 60
+# Declined-dock floor (Bench band contract, README-bench "Follow-up"): suggest
+# rows scoring in [SUGGEST_BELOW_FLOOR, TAU_SUGGEST) ship with band=below_suggest
+# so the UI can show what the analyzer looked at and said no to; anything below
+# the floor is dropped as noise. Every suggest row carries ng=1 + an explicit
+# band= token. Below-band rows themselves are gated behind
+# ANALYZER_SUGGEST_BELOW_ENABLED (a stock/ng1 UI would render them as endorsed
+# suggestion cards) and capped at ANALYZER_SUGGEST_BELOW_MAX (hard cap 3).
+SUGGEST_BELOW_FLOOR = 0.30
+SUGGEST_BELOW_MAX = 2
+SUGGEST_BELOW_MAX_CAP = 3
+BAND_AUTO = "auto"
+BAND_SUGGEST = "suggest"
+BAND_BELOW_SUGGEST = "below_suggest"
+
+# Plain-English abstain narration for the first below-band row's ek=decline;why=
+# token (same DB-derived texts the LLM fact block quotes — llm.wiring._ABSTAIN_GATE).
+_DECLINE_NARRATION = {
+    "gbm_below_suggest": "model probability stayed below the suggest threshold",
+    "gbm_boilerplate_only_neighbor": (
+        "the nearest neighbour shared no structural evidence (boilerplate guard)"
+    ),
+    "no_confident_rule": "no rule or model matched with enough confidence",
+}
 
 
 def _provenance(label_source: str | None, is_auto_analyzed: bool) -> str:
@@ -107,6 +132,14 @@ def _provenance(label_source: str | None, is_auto_analyzed: bool) -> str:
     if label_source == "seed":
         return "seed"
     return "unlabeled"
+
+
+def _row_provenance(row: SuggestAnalysisResult) -> str:
+    """The ``src=`` provenance token of a rendered suggest row's modelInfo, or
+    ``'unlabeled'`` when absent. Lets the rubric gate tell a grounded suggestion
+    (human/auto/seed/kb-mode) from a bare unlabeled cosine twin."""
+    m = re.search(r"(?:^|;)src=([^;]+)", row.modelInfo or "")
+    return m.group(1) if m else "unlabeled"
 
 
 @dataclass(frozen=True)
@@ -180,6 +213,10 @@ class AnalysisEngine:
     suggest_max: int = SUGGEST_MAX  # ANALYZER_SUGGEST_MAX → suggestions returned
     burst_si_share: float = BURST_X  # ANALYZER_BURST_SI_SHARE → grouping burst prior
     time_decay: float = TIME_DECAY_PER_DAY  # ANALYZER_TIME_DECAY → feature recency decay
+    # Declined-dock rows (README-bench "Follow-up"): OFF by default — flip only
+    # once every consuming UI parses band= tokens (Bench ng2+). Kill switch: env.
+    suggest_below_enabled: bool = False  # ANALYZER_SUGGEST_BELOW_ENABLED
+    suggest_below_max: int = SUGGEST_BELOW_MAX  # ANALYZER_SUGGEST_BELOW_MAX (≤ 3)
 
     # ------------------------------------------------------------------ #
     # analyze (spec §6.6 analyze column)
@@ -354,13 +391,24 @@ class AnalysisEngine:
         elapsed: float,
     ) -> list[SuggestAnalysisResult]:
         """Append the cold-start rubric provisional ONLY when the classical suggest
-        reply is empty (product ext 2026-07-20). A non-empty ``out`` — any real,
-        evidence-backed candidate — is returned untouched and no DB read happens, so
-        the rubric hypothesis can never displace or reorder a genuine suggestion.
+        reply carries no VOUCHED suggestion (product ext 2026-07-20; unlabeled-gate
+        errata 2026-07-22). A "vouched" suggestion is a row at/above τ_suggest whose
+        matched neighbour has a real label source (human-confirmed / auto-analyzed /
+        seed / kb-mode) — i.e. a grounded answer. A high-cosine but ``src=unlabeled``
+        look-alike is NOT vouched: it is a twin nobody ever labelled, so it must not
+        suppress the analyzer's own cold-start hypothesis (that is the 4998 case —
+        decision abstained, yet 0.98 unlabeled twins were hiding the rubric). Empty,
+        below_suggest-only, or unlabeled-only replies all still surface the rubric so
+        the Bench shows the AI guess (and the dock, if any) side by side. A vouched
+        row is returned untouched with no DB read, so the rubric can never displace
+        or reorder a grounded suggestion.
         """
-        if out:
+        if any(
+            r.matchScore >= TAU_SUGGEST * 100 and _row_provenance(r) != "unlabeled"
+            for r in out
+        ):
             return out
-        return self._rubric_provisional_suggestions(info, rep, elapsed)
+        return [*out, *self._rubric_provisional_suggestions(info, rep, elapsed)]
 
     def _rubric_provisional_suggestions(
         self, info: TestItemInfo, rep: ItemAnalysis, elapsed: float
@@ -1024,10 +1072,19 @@ class AnalysisEngine:
         proxy = decision.confidence
         if not proxy and stage_c:
             proxy = min(1.0, stage_c[0].cosine or 0.0)
-        if proxy < TAU_SUGGEST:
+        # With the dock off the reply gate stays at τ_suggest (byte-identical to the
+        # pre-contract build apart from the new ng=1/band= tokens). With it on, the
+        # gate drops to the dock floor so [floor, τ_suggest) replies can ship their
+        # looked-at-and-declined rows instead of an empty reply.
+        below_on = self.suggest_below_enabled
+        floor = SUGGEST_BELOW_FLOOR if below_on else TAU_SUGGEST
+        if proxy < floor:
             return []
 
-        candidates = self._suggestion_candidates(decision, stage_c)
+        candidates = [
+            c for c in self._suggestion_candidates(decision, stage_c)
+            if min(1.0, c[2]) >= floor
+        ]
         if not candidates:
             return []
         # §4.3: a fresh judge verdict promotes its chosen candidate — suggest-band only,
@@ -1035,15 +1092,97 @@ class AnalysisEngine:
         candidates = self._reorder_for_judge(
             candidates, judge_verdict, is_auto=decision.action == ACTION_AUTO
         )
+        # Real suggestions keep the stock suggest_max cap; dock rows ride behind
+        # them under their own (small) cap so they can never crowd out an answer.
+        # NB: RP's service-api serves at most ~suggest_max rows, so dock rows must
+        # fit INSIDE that budget — on an abstained reply (no endorsed answer
+        # exists) the dock reserves its slots and the neighbour rows yield.
+        below_cap = max(0, min(self.suggest_below_max, SUGGEST_BELOW_MAX_CAP))
+        real_all = [c for c in candidates if min(1.0, c[2]) >= TAU_SUGGEST]
+        real = real_all[: self.suggest_max]
+        below = (
+            [c for c in candidates if min(1.0, c[2]) < TAU_SUGGEST] if below_on else []
+        )
+        # A gbm_below_suggest abstain IS the "looked at these and said no" case,
+        # but it lives on the CALIBRATED scale (decision.confidence = calibrated
+        # p*), not the cosine scale (e5 cosines rarely dip under ~0.85 in-domain)
+        # and not decision.probs (the GBM's RAW distribution — e.g. raw pb 0.64
+        # calibrates down to 0.32). Ship the declined argmax-group hypothesis as
+        # ONE dock row anchored to that group's best stage-C candidate not already
+        # shown (real RP ids only, nothing fabricated); its matchScore is the
+        # calibrated p* — the number that justifies "too weak to suggest".
+        if (
+            below_on
+            and decision.abstain_reason == "gbm_below_suggest"
+            and decision.probs
+            and SUGGEST_BELOW_FLOOR <= decision.confidence < TAU_SUGGEST
+        ):
+            used = {rel for _l, rel, _s, _e, _p in [*real, *below]}
+            declined_grp = max(decision.probs, key=lambda g: decision.probs[g])
+            cand = next(
+                (
+                    c
+                    for c in stage_c
+                    if c.item_id is not None
+                    and c.item_id not in used
+                    and c.issue_type
+                    and base_group(c.issue_type) == declined_grp
+                ),
+                None,
+            )
+            if cand is not None:
+                below.append(
+                    (
+                        cand.issue_type,
+                        cand.item_id,
+                        decision.confidence,
+                        cand.rrf_score,
+                        _provenance(cand.label_source, False),
+                    )
+                )
+        below = below[:below_cap]
+        # An abstained reply carries no endorsed answer, so its dock rows take
+        # their slots from the shared reply budget (RP truncates past it) and the
+        # plain neighbour rows shrink to make room — mockup shape: 1 neighbour +
+        # up to 2 declined. Non-abstain replies never sacrifice a real answer.
+        if below and decision.label == "ti":
+            real = real_all[: max(0, self.suggest_max - len(below))]
+        logger.info(
+            "suggest bands: label=%s action=%s abstain=%s probs=%s "
+            "below_enabled=%s candidates=%d real=%d below=%d",
+            decision.label,
+            decision.action,
+            decision.abstain_reason,
+            {k: round(v, 4) for k, v in decision.probs.items()},
+            below_on,
+            len(candidates),
+            len(real),
+            len(below),
+        )
 
         names = ";".join(feature_names())
         values = ";".join(f"{v:.6f}" for v in to_vector(decision.features))
         log_id = info.logs[0].logId if info.logs else 0
         method = "auto_analysis" if decision.action == ACTION_AUTO else "suggestion"
+        decline_why = _DECLINE_NARRATION.get(decision.abstain_reason or "")
         out: list[SuggestAnalysisResult] = []
         for rank, (issue_type, rel_item, score, es_score, provenance) in enumerate(
-            candidates[: self.suggest_max]
+            [*real, *below]
         ):
+            band = self._row_band(decision, rel_item, min(1.0, score))
+            # conf= rides only on the decision's own calibrated answer (the row the
+            # non-abstain decision actually chose — never a mere stage-C neighbour);
+            # ek=decline;why= narrates the abstain on the FIRST dock row (why= stays
+            # the LAST token — its free text may contain ';').
+            extra = ""
+            if (
+                decision.label != "ti"
+                and rel_item == decision.relevant_item_id
+                and decision.confidence > 0
+            ):
+                extra += f";conf={decision.confidence:.4f}"
+            if band == BAND_BELOW_SUGGEST and rank == len(real) and decline_why:
+                extra += f";ek=decline;why={decline_why}"
             out.append(
                 SuggestAnalysisResult(
                     project=info.project,
@@ -1062,7 +1201,7 @@ class AnalysisEngine:
                     esPosition=rank,
                     modelFeatureNames=names,
                     modelFeatureValues=values,
-                    modelInfo=f"{self._model_info(decision)};src={provenance}",
+                    modelInfo=f"{self._model_info(decision)};ng=1;band={band};src={provenance}{extra}",
                     usedLogLines=info.analyzerConfig.numberOfLogLines,
                     minShouldMatch=info.analyzerConfig.minShouldMatch,
                     processedTime=round(elapsed, 4),
@@ -1073,6 +1212,20 @@ class AnalysisEngine:
         # The suggestion row is persisted by suggest() before rendering (§6.6), so
         # both the abstain and the non-abstain paths record exactly one row.
         return out
+
+    @staticmethod
+    def _row_band(decision: DecisionResult, rel_item: int, score: float) -> str:
+        """Per-row confidence band for the Bench contract (explicit, never guessed).
+
+        below_suggest: the row itself scored under τ_suggest — a looked-at-and-
+        declined candidate for the dock. auto: this row IS the auto decision's own
+        answer. suggest: everything else at or above τ_suggest.
+        """
+        if score < TAU_SUGGEST:
+            return BAND_BELOW_SUGGEST
+        if decision.action == ACTION_AUTO and rel_item == decision.relevant_item_id:
+            return BAND_AUTO
+        return BAND_SUGGEST
 
     @staticmethod
     def _reorder_for_judge(

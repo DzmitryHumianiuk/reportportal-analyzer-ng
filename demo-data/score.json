@@ -1,14 +1,14 @@
 {
   "probe_launches": {
-    "webshop-ui": 176,
-    "payments-services": 177,
-    "frontend-apps": 178
+    "webshop-ui": 270,
+    "payments-services": 271,
+    "frontend-apps": 272
   },
   "scored_items": 200,
   "items": [
     {
       "key": "webshop-ui|JAVA-SEL-01|Checkout. Tax & totals. Recalculate VAT on mixed cart|pb",
-      "item_id": 2731,
+      "item_id": 5081,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-01",
       "test_name": "Checkout. Tax & totals. Recalculate VAT on mixed cart",
@@ -21,7 +21,7 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "rule_cold",
+      "got_method": "hash",
       "conf": 0.95,
       "action_ok": true,
       "label_ok": true,
@@ -31,7 +31,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-01|Checkout. Tax & totals. Recalculate VAT on mixed cart|pb",
-      "item_id": 2732,
+      "item_id": 5082,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-01",
       "test_name": "Checkout. Tax & totals. Recalculate VAT on mixed cart",
@@ -44,7 +44,7 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "rule_cold",
+      "got_method": "hash",
       "conf": 0.95,
       "action_ok": true,
       "label_ok": true,
@@ -54,7 +54,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-01|Checkout. Tax & totals. Recalculate VAT on mixed cart|pb",
-      "item_id": 2733,
+      "item_id": 5083,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-01",
       "test_name": "Checkout. Tax & totals. Recalculate VAT on mixed cart",
@@ -67,7 +67,7 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "rule_cold",
+      "got_method": "hash",
       "conf": 0.95,
       "action_ok": true,
       "label_ok": true,
@@ -77,7 +77,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-02|Catalog. Product tiles. Bulk-edit visibility flags|ab",
-      "item_id": 2734,
+      "item_id": 5084,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-02",
       "test_name": "Catalog. Product tiles. Bulk-edit visibility flags",
@@ -100,7 +100,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-02|Catalog. Product tiles. Bulk-edit visibility flags|ab",
-      "item_id": 2735,
+      "item_id": 5085,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-02",
       "test_name": "Catalog. Product tiles. Bulk-edit visibility flags",
@@ -123,7 +123,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-02|Catalog. Category settings. Update sort order and persist|ab",
-      "item_id": 2736,
+      "item_id": 5086,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-02",
       "test_name": "Catalog. Category settings. Update sort order and persist",
@@ -146,7 +146,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-02|Catalog. Category settings. Update sort order and persist|ab",
-      "item_id": 2737,
+      "item_id": 5087,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-02",
       "test_name": "Catalog. Category settings. Update sort order and persist",
@@ -169,7 +169,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-03|Checkout. Order search. Find order by number|pb",
-      "item_id": 2738,
+      "item_id": 5088,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-03",
       "test_name": "Checkout. Order search. Find order by number",
@@ -192,7 +192,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-03|Checkout. Order search. Find order by number|pb",
-      "item_id": 2739,
+      "item_id": 5089,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-03",
       "test_name": "Checkout. Order search. Find order by number",
@@ -215,7 +215,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-03|Checkout. Order search. Find order by number|pb",
-      "item_id": 2740,
+      "item_id": 5090,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-03",
       "test_name": "Checkout. Order search. Find order by number",
@@ -238,7 +238,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-03|Checkout. Order search. Find order by number|pb",
-      "item_id": 2741,
+      "item_id": 5091,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-03",
       "test_name": "Checkout. Order search. Find order by number",
@@ -261,7 +261,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-03|Checkout. Order search. Find order by number|pb",
-      "item_id": 2742,
+      "item_id": 5092,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-03",
       "test_name": "Checkout. Order search. Find order by number",
@@ -284,7 +284,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-03|Checkout. Order search. Find order by number|pb",
-      "item_id": 2743,
+      "item_id": 5093,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-03",
       "test_name": "Checkout. Order search. Find order by number",
@@ -307,7 +307,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-03|Checkout. Order search. Find order by number|pb",
-      "item_id": 2744,
+      "item_id": 5094,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-03",
       "test_name": "Checkout. Order search. Find order by number",
@@ -330,7 +330,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-03|Checkout. Order search. Find order by number|pb",
-      "item_id": 2745,
+      "item_id": 5095,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-03",
       "test_name": "Checkout. Order search. Find order by number",
@@ -353,7 +353,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-03|Checkout. Order search. Find order by number|pb",
-      "item_id": 2746,
+      "item_id": 5096,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-03",
       "test_name": "Checkout. Order search. Find order by number",
@@ -376,7 +376,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-03|Checkout. Order search. Find order by number|pb",
-      "item_id": 2747,
+      "item_id": 5097,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-03",
       "test_name": "Checkout. Order search. Find order by number",
@@ -399,7 +399,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-03|Checkout. Order search. Find order by number|pb",
-      "item_id": 2748,
+      "item_id": 5098,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-03",
       "test_name": "Checkout. Order search. Find order by number",
@@ -422,7 +422,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-03|Checkout. Order search. Find order by number|pb",
-      "item_id": 2749,
+      "item_id": 5099,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-03",
       "test_name": "Checkout. Order search. Find order by number",
@@ -445,7 +445,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-05|Checkout. Order history. Load recent orders table|pb",
-      "item_id": 2750,
+      "item_id": 5100,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-05",
       "test_name": "Checkout. Order history. Load recent orders table",
@@ -456,19 +456,19 @@
       "ground_truth": "pb",
       "exp_action": "auto",
       "exp_label": "pb",
-      "got_action": "auto",
-      "got_label": "pb",
+      "got_action": "suggest",
+      "got_label": "si",
       "got_method": "gbm",
-      "conf": 0.7777778,
-      "action_ok": true,
-      "label_ok": true,
+      "conf": 0.45,
+      "action_ok": false,
+      "label_ok": false,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-05|Checkout. Order history. Load recent orders table|pb",
-      "item_id": 2751,
+      "item_id": 5101,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-05",
       "test_name": "Checkout. Order history. Load recent orders table",
@@ -479,19 +479,19 @@
       "ground_truth": "pb",
       "exp_action": "auto",
       "exp_label": "pb",
-      "got_action": "auto",
-      "got_label": "pb",
+      "got_action": "suggest",
+      "got_label": "si",
       "got_method": "gbm",
-      "conf": 0.7777778,
-      "action_ok": true,
-      "label_ok": true,
+      "conf": 0.45,
+      "action_ok": false,
+      "label_ok": false,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-05|Checkout. Order history. Load recent orders table|pb",
-      "item_id": 2752,
+      "item_id": 5102,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-05",
       "test_name": "Checkout. Order history. Load recent orders table",
@@ -502,19 +502,19 @@
       "ground_truth": "pb",
       "exp_action": "auto",
       "exp_label": "pb",
-      "got_action": "auto",
-      "got_label": "pb",
+      "got_action": "suggest",
+      "got_label": "si",
       "got_method": "gbm",
-      "conf": 0.7777778,
-      "action_ok": true,
-      "label_ok": true,
+      "conf": 0.45,
+      "action_ok": false,
+      "label_ok": false,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-06|Checkout. Order history. Load recent orders table|si",
-      "item_id": 2753,
+      "item_id": 5103,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-06",
       "test_name": "Checkout. Order history. Load recent orders table",
@@ -525,19 +525,19 @@
       "ground_truth": "si",
       "exp_action": "auto",
       "exp_label": "si",
-      "got_action": "auto",
-      "got_label": "pb",
+      "got_action": "suggest",
+      "got_label": "si",
       "got_method": "gbm",
-      "conf": 0.8,
-      "action_ok": true,
-      "label_ok": false,
-      "conf_wrong": true,
+      "conf": 0.45,
+      "action_ok": false,
+      "label_ok": true,
+      "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-06|Checkout. Order history. Load recent orders table|si",
-      "item_id": 2754,
+      "item_id": 5104,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-06",
       "test_name": "Checkout. Order history. Load recent orders table",
@@ -548,19 +548,19 @@
       "ground_truth": "si",
       "exp_action": "auto",
       "exp_label": "si",
-      "got_action": "auto",
-      "got_label": "pb",
+      "got_action": "suggest",
+      "got_label": "si",
       "got_method": "gbm",
-      "conf": 0.8,
-      "action_ok": true,
-      "label_ok": false,
-      "conf_wrong": true,
+      "conf": 0.45,
+      "action_ok": false,
+      "label_ok": true,
+      "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-06|Checkout. Order history. Load recent orders table|si",
-      "item_id": 2755,
+      "item_id": 5105,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-06",
       "test_name": "Checkout. Order history. Load recent orders table",
@@ -571,10 +571,125 @@
       "ground_truth": "si",
       "exp_action": "auto",
       "exp_label": "si",
+      "got_action": "suggest",
+      "got_label": "si",
+      "got_method": "gbm",
+      "conf": 0.45,
+      "action_ok": false,
+      "label_ok": true,
+      "conf_wrong": false,
+      "abstain_ok": null,
+      "debatable": false
+    },
+    {
+      "key": "webshop-ui|JAVA-SEL-07|Checkout. Order history. Load recent orders table|ti",
+      "item_id": 5106,
+      "project": "webshop-ui",
+      "archetype": "JAVA-SEL-07",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "scenarios": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "ti",
+      "exp_action": "abstain",
+      "exp_label": "ti",
+      "got_action": "suggest",
+      "got_label": "si",
+      "got_method": "gbm",
+      "conf": 0.45,
+      "action_ok": false,
+      "label_ok": false,
+      "conf_wrong": false,
+      "abstain_ok": false,
+      "debatable": false
+    },
+    {
+      "key": "webshop-ui|JAVA-SEL-07|Checkout. Order history. Load recent orders table|ti",
+      "item_id": 5107,
+      "project": "webshop-ui",
+      "archetype": "JAVA-SEL-07",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "scenarios": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "ti",
+      "exp_action": "abstain",
+      "exp_label": "ti",
+      "got_action": "suggest",
+      "got_label": "si",
+      "got_method": "gbm",
+      "conf": 0.45,
+      "action_ok": false,
+      "label_ok": false,
+      "conf_wrong": false,
+      "abstain_ok": false,
+      "debatable": false
+    },
+    {
+      "key": "webshop-ui|JAVA-SEL-07|Checkout. Order history. Load recent orders table|ti",
+      "item_id": 5108,
+      "project": "webshop-ui",
+      "archetype": "JAVA-SEL-07",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "scenarios": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "ti",
+      "exp_action": "abstain",
+      "exp_label": "ti",
+      "got_action": "suggest",
+      "got_label": "si",
+      "got_method": "gbm",
+      "conf": 0.45,
+      "action_ok": false,
+      "label_ok": false,
+      "conf_wrong": false,
+      "abstain_ok": false,
+      "debatable": false
+    },
+    {
+      "key": "webshop-ui|JAVA-SEL-08|Checkout. Stock reservation. Reserve stock from inventory snapshot|pb",
+      "item_id": 5109,
+      "project": "webshop-ui",
+      "archetype": "JAVA-SEL-08",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
+      "scenarios": [
+        "S15"
+      ],
+      "adv_case": "ADV-2",
+      "ground_truth": "pb",
+      "exp_action": "auto",
+      "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
+      "got_method": "hash",
+      "conf": 0.95,
+      "action_ok": true,
+      "label_ok": true,
+      "conf_wrong": false,
+      "abstain_ok": null,
+      "debatable": false
+    },
+    {
+      "key": "webshop-ui|JAVA-SEL-08|Checkout. Stock reservation. Reserve stock from inventory snapshot|pb",
+      "item_id": 5110,
+      "project": "webshop-ui",
+      "archetype": "JAVA-SEL-08",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
+      "scenarios": [
+        "S15"
+      ],
+      "adv_case": "ADV-2",
+      "ground_truth": "pb",
+      "exp_action": "auto",
+      "exp_label": "pb",
+      "got_action": "auto",
+      "got_label": "ab",
       "got_method": "gbm",
-      "conf": 0.79311514,
+      "conf": 0.8095238,
       "action_ok": true,
       "label_ok": false,
       "conf_wrong": true,
@@ -582,192 +697,77 @@
       "debatable": false
     },
     {
-      "key": "webshop-ui|JAVA-SEL-07|Checkout. Order history. Load recent orders table|ti",
-      "item_id": 2756,
+      "key": "webshop-ui|JAVA-SEL-08|Checkout. Stock reservation. Reserve stock from inventory snapshot|pb",
+      "item_id": 5111,
       "project": "webshop-ui",
-      "archetype": "JAVA-SEL-07",
-      "test_name": "Checkout. Order history. Load recent orders table",
+      "archetype": "JAVA-SEL-08",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
       "scenarios": [
-        "S16"
+        "S15"
       ],
-      "adv_case": "ADV-1",
-      "ground_truth": "ti",
-      "exp_action": "abstain",
-      "exp_label": "ti",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "adv_case": "ADV-2",
+      "ground_truth": "pb",
+      "exp_action": "auto",
+      "exp_label": "pb",
+      "got_action": "auto",
+      "got_label": "pb",
+      "got_method": "hash",
+      "conf": 0.95,
+      "action_ok": true,
+      "label_ok": true,
+      "conf_wrong": false,
+      "abstain_ok": null,
+      "debatable": false
+    },
+    {
+      "key": "webshop-ui|JAVA-SEL-08|Checkout. Stock reservation. Reserve stock from inventory snapshot|pb",
+      "item_id": 5112,
+      "project": "webshop-ui",
+      "archetype": "JAVA-SEL-08",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
+      "scenarios": [
+        "S15"
+      ],
+      "adv_case": "ADV-2",
+      "ground_truth": "pb",
+      "exp_action": "auto",
+      "exp_label": "pb",
+      "got_action": "auto",
+      "got_label": "pb",
+      "got_method": "hash",
+      "conf": 0.95,
+      "action_ok": true,
+      "label_ok": true,
+      "conf_wrong": false,
+      "abstain_ok": null,
+      "debatable": false
+    },
+    {
+      "key": "webshop-ui|JAVA-SEL-08|Checkout. Stock reservation. Reserve stock from inventory snapshot|pb",
+      "item_id": 5113,
+      "project": "webshop-ui",
+      "archetype": "JAVA-SEL-08",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
+      "scenarios": [
+        "S15"
+      ],
+      "adv_case": "ADV-2",
+      "ground_truth": "pb",
+      "exp_action": "auto",
+      "exp_label": "pb",
+      "got_action": "auto",
+      "got_label": "ab",
       "got_method": "gbm",
-      "conf": 0.375,
+      "conf": 0.8095238,
       "action_ok": true,
-      "label_ok": null,
-      "conf_wrong": false,
-      "abstain_ok": true,
-      "debatable": false
-    },
-    {
-      "key": "webshop-ui|JAVA-SEL-07|Checkout. Order history. Load recent orders table|ti",
-      "item_id": 2757,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-07",
-      "test_name": "Checkout. Order history. Load recent orders table",
-      "scenarios": [
-        "S16"
-      ],
-      "adv_case": "ADV-1",
-      "ground_truth": "ti",
-      "exp_action": "abstain",
-      "exp_label": "ti",
-      "got_action": "abstain",
-      "got_label": "ti",
-      "got_method": "gbm",
-      "conf": 0.375,
-      "action_ok": true,
-      "label_ok": null,
-      "conf_wrong": false,
-      "abstain_ok": true,
-      "debatable": false
-    },
-    {
-      "key": "webshop-ui|JAVA-SEL-07|Checkout. Order history. Load recent orders table|ti",
-      "item_id": 2758,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-07",
-      "test_name": "Checkout. Order history. Load recent orders table",
-      "scenarios": [
-        "S16"
-      ],
-      "adv_case": "ADV-1",
-      "ground_truth": "ti",
-      "exp_action": "abstain",
-      "exp_label": "ti",
-      "got_action": "abstain",
-      "got_label": "ti",
-      "got_method": "gbm",
-      "conf": 0.375,
-      "action_ok": true,
-      "label_ok": null,
-      "conf_wrong": false,
-      "abstain_ok": true,
-      "debatable": false
-    },
-    {
-      "key": "webshop-ui|JAVA-SEL-08|Checkout. Stock reservation. Reserve stock from inventory snapshot|pb",
-      "item_id": 2759,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-08",
-      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
-      "scenarios": [
-        "S15"
-      ],
-      "adv_case": "ADV-2",
-      "ground_truth": "pb",
-      "exp_action": "auto",
-      "exp_label": "pb",
-      "got_action": "auto",
-      "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
-      "action_ok": true,
-      "label_ok": true,
-      "conf_wrong": false,
+      "label_ok": false,
+      "conf_wrong": true,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-08|Checkout. Stock reservation. Reserve stock from inventory snapshot|pb",
-      "item_id": 2760,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-08",
-      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
-      "scenarios": [
-        "S15"
-      ],
-      "adv_case": "ADV-2",
-      "ground_truth": "pb",
-      "exp_action": "auto",
-      "exp_label": "pb",
-      "got_action": "auto",
-      "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
-      "action_ok": true,
-      "label_ok": true,
-      "conf_wrong": false,
-      "abstain_ok": null,
-      "debatable": false
-    },
-    {
-      "key": "webshop-ui|JAVA-SEL-08|Checkout. Stock reservation. Reserve stock from inventory snapshot|pb",
-      "item_id": 2761,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-08",
-      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
-      "scenarios": [
-        "S15"
-      ],
-      "adv_case": "ADV-2",
-      "ground_truth": "pb",
-      "exp_action": "auto",
-      "exp_label": "pb",
-      "got_action": "auto",
-      "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
-      "action_ok": true,
-      "label_ok": true,
-      "conf_wrong": false,
-      "abstain_ok": null,
-      "debatable": false
-    },
-    {
-      "key": "webshop-ui|JAVA-SEL-08|Checkout. Stock reservation. Reserve stock from inventory snapshot|pb",
-      "item_id": 2762,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-08",
-      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
-      "scenarios": [
-        "S15"
-      ],
-      "adv_case": "ADV-2",
-      "ground_truth": "pb",
-      "exp_action": "auto",
-      "exp_label": "pb",
-      "got_action": "auto",
-      "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
-      "action_ok": true,
-      "label_ok": true,
-      "conf_wrong": false,
-      "abstain_ok": null,
-      "debatable": false
-    },
-    {
-      "key": "webshop-ui|JAVA-SEL-08|Checkout. Stock reservation. Reserve stock from inventory snapshot|pb",
-      "item_id": 2763,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-08",
-      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
-      "scenarios": [
-        "S15"
-      ],
-      "adv_case": "ADV-2",
-      "ground_truth": "pb",
-      "exp_action": "auto",
-      "exp_label": "pb",
-      "got_action": "auto",
-      "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
-      "action_ok": true,
-      "label_ok": true,
-      "conf_wrong": false,
-      "abstain_ok": null,
-      "debatable": false
-    },
-    {
-      "key": "webshop-ui|JAVA-SEL-08|Checkout. Stock reservation. Reserve stock from inventory snapshot|pb",
-      "item_id": 2764,
+      "item_id": 5114,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-08",
       "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
@@ -790,7 +790,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-09|Checkout. Payment. Submit order with saved card|pb",
-      "item_id": 2765,
+      "item_id": 5115,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-09",
       "test_name": "Checkout. Payment. Submit order with saved card",
@@ -804,7 +804,7 @@
       "got_action": "suggest",
       "got_label": "pb",
       "got_method": "gbm",
-      "conf": 0.5714286,
+      "conf": 0.45,
       "action_ok": true,
       "label_ok": true,
       "conf_wrong": false,
@@ -813,7 +813,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-09|Checkout. Payment. Submit order with saved card|pb",
-      "item_id": 2766,
+      "item_id": 5116,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-09",
       "test_name": "Checkout. Payment. Submit order with saved card",
@@ -827,7 +827,7 @@
       "got_action": "suggest",
       "got_label": "pb",
       "got_method": "gbm",
-      "conf": 0.5714286,
+      "conf": 0.45,
       "action_ok": true,
       "label_ok": true,
       "conf_wrong": false,
@@ -836,7 +836,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-09|Checkout. Payment. Submit order with saved card|ab",
-      "item_id": 2767,
+      "item_id": 5117,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-09",
       "test_name": "Checkout. Payment. Submit order with saved card",
@@ -847,19 +847,19 @@
       "ground_truth": "ab",
       "exp_action": "suggest",
       "exp_label": "ab",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "suggest",
+      "got_label": "ab",
       "got_method": "gbm",
-      "conf": 0.375,
-      "action_ok": false,
-      "label_ok": null,
+      "conf": 0.45,
+      "action_ok": true,
+      "label_ok": true,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-09|Checkout. Payment. Submit order with saved card|ab",
-      "item_id": 2768,
+      "item_id": 5118,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-09",
       "test_name": "Checkout. Payment. Submit order with saved card",
@@ -870,19 +870,19 @@
       "ground_truth": "ab",
       "exp_action": "suggest",
       "exp_label": "ab",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "suggest",
+      "got_label": "ab",
       "got_method": "gbm",
-      "conf": 0.375,
-      "action_ok": false,
-      "label_ok": null,
+      "conf": 0.45,
+      "action_ok": true,
+      "label_ok": true,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-10|Checkout. Order placement. Place order with bulk discount|pb",
-      "item_id": 2769,
+      "item_id": 5119,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-10",
       "test_name": "Checkout. Order placement. Place order with bulk discount",
@@ -905,7 +905,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-10|Checkout. Order placement. Place order with bulk discount|pb",
-      "item_id": 2770,
+      "item_id": 5120,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-10",
       "test_name": "Checkout. Order placement. Place order with bulk discount",
@@ -928,7 +928,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-10|Checkout. Order placement. Place order with bulk discount|pb",
-      "item_id": 2771,
+      "item_id": 5121,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-10",
       "test_name": "Checkout. Order placement. Place order with bulk discount",
@@ -951,7 +951,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-10|Checkout. Order placement. Place order with bulk discount|pb",
-      "item_id": 2772,
+      "item_id": 5122,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-10",
       "test_name": "Checkout. Order placement. Place order with bulk discount",
@@ -974,7 +974,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-11|Checkout. Order placement. Place order with bulk discount|pb",
-      "item_id": 2773,
+      "item_id": 5123,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-11",
       "test_name": "Checkout. Order placement. Place order with bulk discount",
@@ -997,7 +997,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-11|Checkout. Order placement. Place order with bulk discount|pb",
-      "item_id": 2774,
+      "item_id": 5124,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-11",
       "test_name": "Checkout. Order placement. Place order with bulk discount",
@@ -1020,7 +1020,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-11|Checkout. Order placement. Place order with bulk discount|pb",
-      "item_id": 2775,
+      "item_id": 5125,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-11",
       "test_name": "Checkout. Order placement. Place order with bulk discount",
@@ -1043,7 +1043,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-12|Checkout. Cart. Apply percentage discount to cart|pb",
-      "item_id": 2776,
+      "item_id": 5126,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "test_name": "Checkout. Cart. Apply percentage discount to cart",
@@ -1056,8 +1056,8 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
+      "got_method": "gbm",
+      "conf": 0.94736844,
       "action_ok": false,
       "label_ok": true,
       "conf_wrong": false,
@@ -1066,7 +1066,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-12|Account. Session. Reject expired session cookie|ab",
-      "item_id": 2777,
+      "item_id": 5127,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "test_name": "Account. Session. Reject expired session cookie",
@@ -1089,7 +1089,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-12|Checkout. Cart. Apply percentage discount to cart|pb",
-      "item_id": 2778,
+      "item_id": 5128,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "test_name": "Checkout. Cart. Apply percentage discount to cart",
@@ -1102,8 +1102,8 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
+      "got_method": "gbm",
+      "conf": 0.94736844,
       "action_ok": false,
       "label_ok": true,
       "conf_wrong": false,
@@ -1112,7 +1112,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-12|Account. Session. Reject expired session cookie|ab",
-      "item_id": 2779,
+      "item_id": 5129,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "test_name": "Account. Session. Reject expired session cookie",
@@ -1135,7 +1135,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-12|Checkout. Cart. Apply percentage discount to cart|pb",
-      "item_id": 2780,
+      "item_id": 5130,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "test_name": "Checkout. Cart. Apply percentage discount to cart",
@@ -1148,8 +1148,8 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
+      "got_method": "gbm",
+      "conf": 0.94736844,
       "action_ok": false,
       "label_ok": true,
       "conf_wrong": false,
@@ -1158,7 +1158,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-12|Account. Session. Reject expired session cookie|ab",
-      "item_id": 2781,
+      "item_id": 5131,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "test_name": "Account. Session. Reject expired session cookie",
@@ -1181,7 +1181,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-12|Checkout. Cart. Apply percentage discount to cart|pb",
-      "item_id": 2782,
+      "item_id": 5132,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "test_name": "Checkout. Cart. Apply percentage discount to cart",
@@ -1194,8 +1194,8 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
+      "got_method": "gbm",
+      "conf": 0.94736844,
       "action_ok": false,
       "label_ok": true,
       "conf_wrong": false,
@@ -1204,7 +1204,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-12|Account. Session. Reject expired session cookie|ab",
-      "item_id": 2783,
+      "item_id": 5133,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "test_name": "Account. Session. Reject expired session cookie",
@@ -1227,7 +1227,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-12|Checkout. Cart. Apply percentage discount to cart|pb",
-      "item_id": 2784,
+      "item_id": 5134,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "test_name": "Checkout. Cart. Apply percentage discount to cart",
@@ -1240,8 +1240,8 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
+      "got_method": "gbm",
+      "conf": 0.94736844,
       "action_ok": false,
       "label_ok": true,
       "conf_wrong": false,
@@ -1250,7 +1250,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-12|Account. Session. Reject expired session cookie|ab",
-      "item_id": 2785,
+      "item_id": 5135,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "test_name": "Account. Session. Reject expired session cookie",
@@ -1273,7 +1273,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-12|Checkout. Cart. Apply percentage discount to cart|pb",
-      "item_id": 2786,
+      "item_id": 5136,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "test_name": "Checkout. Cart. Apply percentage discount to cart",
@@ -1286,8 +1286,8 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
+      "got_method": "gbm",
+      "conf": 0.94736844,
       "action_ok": false,
       "label_ok": true,
       "conf_wrong": false,
@@ -1296,7 +1296,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-12|Account. Session. Reject expired session cookie|ab",
-      "item_id": 2787,
+      "item_id": 5137,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "test_name": "Account. Session. Reject expired session cookie",
@@ -1319,7 +1319,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-13|Checkout. Gift wrapping. Apply gift-wrap surcharge|pb",
-      "item_id": 2788,
+      "item_id": 5138,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-13",
       "test_name": "Checkout. Gift wrapping. Apply gift-wrap surcharge",
@@ -1342,7 +1342,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-13|Checkout. Gift wrapping. Apply gift-wrap surcharge|pb",
-      "item_id": 2789,
+      "item_id": 5139,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-13",
       "test_name": "Checkout. Gift wrapping. Apply gift-wrap surcharge",
@@ -1365,7 +1365,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-13|Checkout. Gift wrapping. Apply gift-wrap surcharge|pb",
-      "item_id": 2790,
+      "item_id": 5140,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-13",
       "test_name": "Checkout. Gift wrapping. Apply gift-wrap surcharge",
@@ -1388,7 +1388,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-13|Checkout. Gift wrapping. Apply gift-wrap surcharge|pb",
-      "item_id": 2791,
+      "item_id": 5141,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-13",
       "test_name": "Checkout. Gift wrapping. Apply gift-wrap surcharge",
@@ -1411,7 +1411,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-13|Checkout. Gift wrapping. Apply gift-wrap surcharge|pb",
-      "item_id": 2792,
+      "item_id": 5142,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-13",
       "test_name": "Checkout. Gift wrapping. Apply gift-wrap surcharge",
@@ -1434,7 +1434,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-14|Checkout. Coupons. Stack multiple coupons on order|pb",
-      "item_id": 2793,
+      "item_id": 5143,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-14",
       "test_name": "Checkout. Coupons. Stack multiple coupons on order",
@@ -1447,7 +1447,7 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "hash",
+      "got_method": "rule_cold",
       "conf": 0.95,
       "action_ok": true,
       "label_ok": true,
@@ -1457,7 +1457,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-14|Checkout. Coupons. Stack multiple coupons on order|pb",
-      "item_id": 2794,
+      "item_id": 5144,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-14",
       "test_name": "Checkout. Coupons. Stack multiple coupons on order",
@@ -1470,7 +1470,7 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "hash",
+      "got_method": "rule_cold",
       "conf": 0.95,
       "action_ok": true,
       "label_ok": true,
@@ -1480,7 +1480,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-14|Checkout. Coupons. Stack multiple coupons on order|pb",
-      "item_id": 2795,
+      "item_id": 5145,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-14",
       "test_name": "Checkout. Coupons. Stack multiple coupons on order",
@@ -1493,7 +1493,7 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "hash",
+      "got_method": "rule_cold",
       "conf": 0.95,
       "action_ok": true,
       "label_ok": true,
@@ -1503,7 +1503,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-15|Checkout. Export. Download order history CSV|pb",
-      "item_id": 2796,
+      "item_id": 5146,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-15",
       "test_name": "Checkout. Export. Download order history CSV",
@@ -1517,7 +1517,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.375,
+      "conf": 0.32142857,
       "action_ok": false,
       "label_ok": null,
       "conf_wrong": false,
@@ -1526,7 +1526,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-15|Checkout. Export. Download order history CSV|pb",
-      "item_id": 2797,
+      "item_id": 5147,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-15",
       "test_name": "Checkout. Export. Download order history CSV",
@@ -1540,7 +1540,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.375,
+      "conf": 0.32142857,
       "action_ok": false,
       "label_ok": null,
       "conf_wrong": false,
@@ -1549,7 +1549,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-15|Checkout. Export. Download order history CSV|pb",
-      "item_id": 2798,
+      "item_id": 5148,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-15",
       "test_name": "Checkout. Export. Download order history CSV",
@@ -1563,7 +1563,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.375,
+      "conf": 0.32142857,
       "action_ok": false,
       "label_ok": null,
       "conf_wrong": false,
@@ -1572,7 +1572,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-16|Checkout. Cart. Recalculate total after coupon removal|ti",
-      "item_id": 2799,
+      "item_id": 5149,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-16",
       "test_name": "Checkout. Cart. Recalculate total after coupon removal",
@@ -1595,7 +1595,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-16|Checkout. Cart. Recalculate total after coupon removal|ti",
-      "item_id": 2800,
+      "item_id": 5150,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-16",
       "test_name": "Checkout. Cart. Recalculate total after coupon removal",
@@ -1618,7 +1618,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-16|Checkout. Cart. Recalculate total after coupon removal|pb",
-      "item_id": 2801,
+      "item_id": 5151,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-16",
       "test_name": "Checkout. Cart. Recalculate total after coupon removal",
@@ -1641,7 +1641,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-16|Checkout. Cart. Recalculate total after coupon removal|pb",
-      "item_id": 2802,
+      "item_id": 5152,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-16",
       "test_name": "Checkout. Cart. Recalculate total after coupon removal",
@@ -1664,7 +1664,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-17|Checkout. Inventory. Confirm stock before payment|si",
-      "item_id": 2803,
+      "item_id": 5153,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-17",
       "test_name": "Checkout. Inventory. Confirm stock before payment",
@@ -1687,7 +1687,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-17|Checkout. Inventory. Confirm stock before payment|si",
-      "item_id": 2804,
+      "item_id": 5154,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-17",
       "test_name": "Checkout. Inventory. Confirm stock before payment",
@@ -1710,7 +1710,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-17|Checkout. Inventory. Confirm stock before payment|si",
-      "item_id": 2805,
+      "item_id": 5155,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-17",
       "test_name": "Checkout. Inventory. Confirm stock before payment",
@@ -1733,7 +1733,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-18|Checkout. Pricing. Price cart with mixed currency|pb",
-      "item_id": 2806,
+      "item_id": 5156,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-18",
       "test_name": "Checkout. Pricing. Price cart with mixed currency",
@@ -1756,7 +1756,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-18|Checkout. Loyalty. Apply premium-tier benefits|ab",
-      "item_id": 2807,
+      "item_id": 5157,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-18",
       "test_name": "Checkout. Loyalty. Apply premium-tier benefits",
@@ -1779,7 +1779,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-18|Checkout. Pricing. Price cart with mixed currency|ti",
-      "item_id": 2808,
+      "item_id": 5158,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-18",
       "test_name": "Checkout. Pricing. Price cart with mixed currency",
@@ -1802,7 +1802,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-18|Checkout. Pricing. Price cart with mixed currency|pb",
-      "item_id": 2809,
+      "item_id": 5159,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-18",
       "test_name": "Checkout. Pricing. Price cart with mixed currency",
@@ -1825,7 +1825,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-18|Checkout. Loyalty. Apply premium-tier benefits|ab",
-      "item_id": 2810,
+      "item_id": 5160,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-18",
       "test_name": "Checkout. Loyalty. Apply premium-tier benefits",
@@ -1848,7 +1848,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-18|Checkout. Pricing. Price cart with mixed currency|ti",
-      "item_id": 2811,
+      "item_id": 5161,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-18",
       "test_name": "Checkout. Pricing. Price cart with mixed currency",
@@ -1871,7 +1871,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-19|Checkout. Payment. Card declined shows validation message|pb",
-      "item_id": 2812,
+      "item_id": 5162,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "test_name": "Checkout. Payment. Card declined shows validation message",
@@ -1895,7 +1895,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-19|Checkout. Bezahlung. Abgelehnte Karte zeigt Hinweis|pb",
-      "item_id": 2813,
+      "item_id": 5163,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "test_name": "Checkout. Bezahlung. Abgelehnte Karte zeigt Hinweis",
@@ -1919,7 +1919,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-19|Checkout. \u041e\u043f\u043b\u0430\u0442\u0430. \u041e\u0442\u043a\u043b\u043e\u043d\u0451\u043d\u043d\u0430\u044f \u043a\u0430\u0440\u0442\u0430 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435|pb",
-      "item_id": 2814,
+      "item_id": 5164,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "test_name": "Checkout. \u041e\u043f\u043b\u0430\u0442\u0430. \u041e\u0442\u043a\u043b\u043e\u043d\u0451\u043d\u043d\u0430\u044f \u043a\u0430\u0440\u0442\u0430 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435",
@@ -1943,7 +1943,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-19|Checkout. \u652f\u6255\u3044. \u62d2\u5426\u3055\u308c\u305f\u30ab\u30fc\u30c9\u3067\u30e1\u30c3\u30bb\u30fc\u30b8\u8868\u793a|pb",
-      "item_id": 2815,
+      "item_id": 5165,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "test_name": "Checkout. \u652f\u6255\u3044. \u62d2\u5426\u3055\u308c\u305f\u30ab\u30fc\u30c9\u3067\u30e1\u30c3\u30bb\u30fc\u30b8\u8868\u793a",
@@ -1967,7 +1967,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-19|Checkout. Payment. Card declined shows validation message|pb",
-      "item_id": 2816,
+      "item_id": 5166,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "test_name": "Checkout. Payment. Card declined shows validation message",
@@ -1991,7 +1991,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-19|Checkout. Bezahlung. Abgelehnte Karte zeigt Hinweis|pb",
-      "item_id": 2817,
+      "item_id": 5167,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "test_name": "Checkout. Bezahlung. Abgelehnte Karte zeigt Hinweis",
@@ -2015,7 +2015,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-19|Checkout. \u041e\u043f\u043b\u0430\u0442\u0430. \u041e\u0442\u043a\u043b\u043e\u043d\u0451\u043d\u043d\u0430\u044f \u043a\u0430\u0440\u0442\u0430 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435|pb",
-      "item_id": 2818,
+      "item_id": 5168,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "test_name": "Checkout. \u041e\u043f\u043b\u0430\u0442\u0430. \u041e\u0442\u043a\u043b\u043e\u043d\u0451\u043d\u043d\u0430\u044f \u043a\u0430\u0440\u0442\u0430 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435",
@@ -2039,7 +2039,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-19|Checkout. \u652f\u6255\u3044. \u62d2\u5426\u3055\u308c\u305f\u30ab\u30fc\u30c9\u3067\u30e1\u30c3\u30bb\u30fc\u30b8\u8868\u793a|pb",
-      "item_id": 2819,
+      "item_id": 5169,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "test_name": "Checkout. \u652f\u6255\u3044. \u62d2\u5426\u3055\u308c\u305f\u30ab\u30fc\u30c9\u3067\u30e1\u30c3\u30bb\u30fc\u30b8\u8868\u793a",
@@ -2063,7 +2063,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-20|Checkout. Payment. Click place-order button|pb",
-      "item_id": 2820,
+      "item_id": 5170,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-20",
       "test_name": "Checkout. Payment. Click place-order button",
@@ -2074,19 +2074,19 @@
       "ground_truth": "pb",
       "exp_action": "suggest",
       "exp_label": "pb",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "suggest",
+      "got_label": "pb",
       "got_method": "gbm",
-      "conf": 0.16666667,
-      "action_ok": false,
-      "label_ok": null,
+      "conf": 0.45,
+      "action_ok": true,
+      "label_ok": true,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-20|Checkout. Payment. Click place-order button|pb",
-      "item_id": 2821,
+      "item_id": 5171,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-20",
       "test_name": "Checkout. Payment. Click place-order button",
@@ -2097,19 +2097,19 @@
       "ground_truth": "pb",
       "exp_action": "suggest",
       "exp_label": "pb",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "suggest",
+      "got_label": "pb",
       "got_method": "gbm",
-      "conf": 0.16666667,
-      "action_ok": false,
-      "label_ok": null,
+      "conf": 0.45,
+      "action_ok": true,
+      "label_ok": true,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-20|Checkout. Payment. Click place-order button|ab",
-      "item_id": 2822,
+      "item_id": 5172,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-20",
       "test_name": "Checkout. Payment. Click place-order button",
@@ -2120,19 +2120,19 @@
       "ground_truth": "ab",
       "exp_action": "suggest",
       "exp_label": "ab",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "suggest",
+      "got_label": "ab",
       "got_method": "gbm",
-      "conf": 0.375,
-      "action_ok": false,
-      "label_ok": null,
+      "conf": 0.45,
+      "action_ok": true,
+      "label_ok": true,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-20|Checkout. Payment. Click place-order button|ab",
-      "item_id": 2823,
+      "item_id": 5173,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-20",
       "test_name": "Checkout. Payment. Click place-order button",
@@ -2143,19 +2143,19 @@
       "ground_truth": "ab",
       "exp_action": "suggest",
       "exp_label": "ab",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "suggest",
+      "got_label": "ab",
       "got_method": "gbm",
-      "conf": 0.375,
-      "action_ok": false,
-      "label_ok": null,
+      "conf": 0.45,
+      "action_ok": true,
+      "label_ok": true,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-21|Checkout. Totals. Localized grand total for RTL storefront|pb",
-      "item_id": 2824,
+      "item_id": 5174,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-21",
       "test_name": "Checkout. Totals. Localized grand total for RTL storefront",
@@ -2168,7 +2168,7 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "rule_cold",
+      "got_method": "hash",
       "conf": 0.95,
       "action_ok": false,
       "label_ok": true,
@@ -2178,7 +2178,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-21|Checkout. Totals. Localized grand total for RTL storefront|pb",
-      "item_id": 2825,
+      "item_id": 5175,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-21",
       "test_name": "Checkout. Totals. Localized grand total for RTL storefront",
@@ -2191,7 +2191,7 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "rule_cold",
+      "got_method": "hash",
       "conf": 0.95,
       "action_ok": false,
       "label_ok": true,
@@ -2201,7 +2201,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-22|Account. Profile. Page title matches expected|ab",
-      "item_id": 2826,
+      "item_id": 5176,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-22",
       "test_name": "Account. Profile. Page title matches expected",
@@ -2224,7 +2224,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-22|Account. Profile. Page title matches expected|ab",
-      "item_id": 2827,
+      "item_id": 5177,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-22",
       "test_name": "Account. Profile. Page title matches expected",
@@ -2247,7 +2247,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-22|Checkout. Confirmation. Order summary text matches|pb",
-      "item_id": 2828,
+      "item_id": 5178,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-22",
       "test_name": "Checkout. Confirmation. Order summary text matches",
@@ -2270,7 +2270,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-22|Checkout. Confirmation. Order summary text matches|pb",
-      "item_id": 2829,
+      "item_id": 5179,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-22",
       "test_name": "Checkout. Confirmation. Order summary text matches",
@@ -2293,7 +2293,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-23|Checkout. Settings. Save shipping profile|si",
-      "item_id": 2830,
+      "item_id": 5180,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-23",
       "test_name": "Checkout. Settings. Save shipping profile",
@@ -2316,7 +2316,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-23|Checkout. Settings. Save shipping profile|si",
-      "item_id": 2831,
+      "item_id": 5181,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-23",
       "test_name": "Checkout. Settings. Save shipping profile",
@@ -2339,7 +2339,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-23|Checkout. Settings. Save shipping profile|si",
-      "item_id": 2832,
+      "item_id": 5182,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-23",
       "test_name": "Checkout. Settings. Save shipping profile",
@@ -2362,7 +2362,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-23|Checkout. Settings. Save shipping profile|si",
-      "item_id": 2833,
+      "item_id": 5183,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-23",
       "test_name": "Checkout. Settings. Save shipping profile",
@@ -2385,7 +2385,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-24|Checkout. Address. Validate shipping address|pb",
-      "item_id": 2834,
+      "item_id": 5184,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-24",
       "test_name": "Checkout. Address. Validate shipping address",
@@ -2408,7 +2408,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-24|Checkout. Address. Validate shipping address|pb",
-      "item_id": 2835,
+      "item_id": 5185,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-24",
       "test_name": "Checkout. Address. Validate shipping address",
@@ -2431,7 +2431,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-24|Checkout. Address. Validate shipping address|pb",
-      "item_id": 2836,
+      "item_id": 5186,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-24",
       "test_name": "Checkout. Address. Validate shipping address",
@@ -2454,7 +2454,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-25|Checkout. Payment. Handle declined payment gracefully|ab",
-      "item_id": 2837,
+      "item_id": 5187,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-25",
       "test_name": "Checkout. Payment. Handle declined payment gracefully",
@@ -2477,7 +2477,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-25|Checkout. Payment. Handle declined payment gracefully|ab",
-      "item_id": 2838,
+      "item_id": 5188,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-25",
       "test_name": "Checkout. Payment. Handle declined payment gracefully",
@@ -2500,7 +2500,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-26|Checkout. Stock. Available quantity matches warehouse|pb",
-      "item_id": 2839,
+      "item_id": 5189,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-26",
       "test_name": "Checkout. Stock. Available quantity matches warehouse",
@@ -2523,7 +2523,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-26|Checkout. Stock. Available quantity matches warehouse|pb",
-      "item_id": 2840,
+      "item_id": 5190,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-26",
       "test_name": "Checkout. Stock. Available quantity matches warehouse",
@@ -2546,7 +2546,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-27|Checkout. Wishlist. Move item to cart|pb",
-      "item_id": 2841,
+      "item_id": 5191,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-27",
       "test_name": "Checkout. Wishlist. Move item to cart",
@@ -2570,7 +2570,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-27|Checkout. Wishlist. Move item to cart|pb",
-      "item_id": 2842,
+      "item_id": 5192,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-27",
       "test_name": "Checkout. Wishlist. Move item to cart",
@@ -2594,7 +2594,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-28|Checkout. Export. Legacy PDF invoice download|pb",
-      "item_id": 2843,
+      "item_id": 5193,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-28",
       "test_name": "Checkout. Export. Legacy PDF invoice download",
@@ -2605,19 +2605,19 @@
       "ground_truth": "pb",
       "exp_action": "suggest",
       "exp_label": "pb",
-      "got_action": "auto",
-      "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
+      "got_action": "abstain",
+      "got_label": "ti",
+      "got_method": "gbm",
+      "conf": 0.5006721,
       "action_ok": false,
-      "label_ok": true,
+      "label_ok": null,
       "conf_wrong": false,
       "abstain_ok": null,
-      "debatable": true
+      "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-29|Checkout. Recommendations. Load 'you may also like' widget|si",
-      "item_id": 2844,
+      "item_id": 5194,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-29",
       "test_name": "Checkout. Recommendations. Load 'you may also like' widget",
@@ -2640,7 +2640,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-29|Checkout. Recommendations. Load 'you may also like' widget|si",
-      "item_id": 2845,
+      "item_id": 5195,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-29",
       "test_name": "Checkout. Recommendations. Load 'you may also like' widget",
@@ -2663,7 +2663,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-30|Checkout. Recommendations. Rank personalized offers|pb",
-      "item_id": 2846,
+      "item_id": 5196,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-30",
       "test_name": "Checkout. Recommendations. Rank personalized offers",
@@ -2692,7 +2692,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-30|Checkout. Buttons. Place-order button interactable|ab",
-      "item_id": 2847,
+      "item_id": 5197,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-30",
       "test_name": "Checkout. Buttons. Place-order button interactable",
@@ -2721,7 +2721,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-30|Checkout. Misc. Gift-card balance widget renders|ti",
-      "item_id": 2848,
+      "item_id": 5198,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-30",
       "test_name": "Checkout. Misc. Gift-card balance widget renders",
@@ -2741,7 +2741,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.16666667,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -2750,7 +2750,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-30|Checkout. Tiny. Badge visible|ab",
-      "item_id": 2849,
+      "item_id": 5199,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-30",
       "test_name": "Checkout. Tiny. Badge visible",
@@ -2779,7 +2779,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-30|Checkout. Smoke. Landing renders|ti",
-      "item_id": 2850,
+      "item_id": 5200,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-30",
       "test_name": "Checkout. Smoke. Landing renders",
@@ -2799,7 +2799,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.16666667,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -2808,7 +2808,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-30|Checkout. Coupons. Coupon expiry banner shows|pb",
-      "item_id": 2851,
+      "item_id": 5201,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-30",
       "test_name": "Checkout. Coupons. Coupon expiry banner shows",
@@ -2827,7 +2827,7 @@
       "exp_label": "ti",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "rule_cold",
+      "got_method": "hash",
       "conf": 0.95,
       "action_ok": false,
       "label_ok": true,
@@ -2837,7 +2837,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-30|Checkout. Loyalty. Redeem points at checkout|pb",
-      "item_id": 2852,
+      "item_id": 5202,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-30",
       "test_name": "Checkout. Loyalty. Redeem points at checkout",
@@ -2866,7 +2866,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-30|Checkout. Ledger. Reconcile ledger after checkout|ti",
-      "item_id": 2853,
+      "item_id": 5203,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-30",
       "test_name": "Checkout. Ledger. Reconcile ledger after checkout",
@@ -2883,19 +2883,19 @@
       "ground_truth": "ti",
       "exp_action": "abstain",
       "exp_label": "ti",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "auto",
+      "got_label": "pb",
       "got_method": "gbm",
-      "conf": 0.375,
-      "action_ok": true,
-      "label_ok": null,
-      "conf_wrong": false,
-      "abstain_ok": true,
+      "conf": 0.75,
+      "action_ok": false,
+      "label_ok": false,
+      "conf_wrong": true,
+      "abstain_ok": false,
       "debatable": false
     },
     {
       "key": "webshop-ui|JAVA-SEL-30|Checkout. Recommendations. Rank personalized offers|pb",
-      "item_id": 2854,
+      "item_id": 5204,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-30",
       "test_name": "Checkout. Recommendations. Rank personalized offers",
@@ -2924,7 +2924,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-30|Checkout. Buttons. Place-order button interactable|ab",
-      "item_id": 2855,
+      "item_id": 5205,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-30",
       "test_name": "Checkout. Buttons. Place-order button interactable",
@@ -2953,7 +2953,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-31|Infra Healthcheck. Upstream gateway. Responds within budget|pb",
-      "item_id": 2856,
+      "item_id": 5206,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-31",
       "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
@@ -2976,7 +2976,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-31|Infra Healthcheck. Upstream gateway. Responds within budget|pb",
-      "item_id": 2857,
+      "item_id": 5207,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-31",
       "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
@@ -2999,7 +2999,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-31|Infra Healthcheck. Upstream gateway. Responds within budget|pb",
-      "item_id": 2858,
+      "item_id": 5208,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-31",
       "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
@@ -3022,7 +3022,7 @@
     },
     {
       "key": "webshop-ui|JAVA-SEL-31|Infra Healthcheck. Upstream gateway. Responds within budget|pb",
-      "item_id": 2859,
+      "item_id": 5209,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-31",
       "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
@@ -3045,7 +3045,7 @@
     },
     {
       "key": "payments-services|NET-XUN-01|Hawkins.Payments.FxRates.Tests.FxRateTests.Get_Rate_ForHistoricalDate_UsesClosingRate|pb",
-      "item_id": 2860,
+      "item_id": 5210,
       "project": "payments-services",
       "archetype": "NET-XUN-01",
       "test_name": "Hawkins.Payments.FxRates.Tests.FxRateTests.Get_Rate_ForHistoricalDate_UsesClosingRate",
@@ -3068,7 +3068,7 @@
     },
     {
       "key": "payments-services|NET-XUN-01|Hawkins.Payments.FxRates.Tests.FxRateTests.Get_Rate_ForHistoricalDate_UsesClosingRate|pb",
-      "item_id": 2861,
+      "item_id": 5211,
       "project": "payments-services",
       "archetype": "NET-XUN-01",
       "test_name": "Hawkins.Payments.FxRates.Tests.FxRateTests.Get_Rate_ForHistoricalDate_UsesClosingRate",
@@ -3091,10 +3091,33 @@
     },
     {
       "key": "payments-services|NET-XUN-02|Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_MinorUnits_Returns201|pb",
-      "item_id": 2862,
+      "item_id": 5212,
       "project": "payments-services",
       "archetype": "NET-XUN-02",
       "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_MinorUnits_Returns201",
+      "scenarios": [
+        "S18"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "pb",
+      "exp_action": "suggest",
+      "exp_label": "pb",
+      "got_action": "suggest",
+      "got_label": "pb",
+      "got_method": "gbm",
+      "conf": 0.6315789,
+      "action_ok": true,
+      "label_ok": true,
+      "conf_wrong": false,
+      "abstain_ok": null,
+      "debatable": false
+    },
+    {
+      "key": "payments-services|NET-XUN-02|Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_SameCurrency_Returns201|pb",
+      "item_id": 5213,
+      "project": "payments-services",
+      "archetype": "NET-XUN-02",
+      "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_SameCurrency_Returns201",
       "scenarios": [
         "S18"
       ],
@@ -3113,31 +3136,8 @@
       "debatable": true
     },
     {
-      "key": "payments-services|NET-XUN-02|Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_SameCurrency_Returns201|pb",
-      "item_id": 2863,
-      "project": "payments-services",
-      "archetype": "NET-XUN-02",
-      "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_SameCurrency_Returns201",
-      "scenarios": [
-        "S18"
-      ],
-      "adv_case": "ADV-3",
-      "ground_truth": "pb",
-      "exp_action": "suggest",
-      "exp_label": "pb",
-      "got_action": "suggest",
-      "got_label": "pb",
-      "got_method": "gbm",
-      "conf": 0.6,
-      "action_ok": true,
-      "label_ok": true,
-      "conf_wrong": false,
-      "abstain_ok": null,
-      "debatable": false
-    },
-    {
       "key": "payments-services|NET-XUN-02|Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_CrossCurrency_Returns201|pb",
-      "item_id": 2864,
+      "item_id": 5214,
       "project": "payments-services",
       "archetype": "NET-XUN-02",
       "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_CrossCurrency_Returns201",
@@ -3150,8 +3150,8 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "hash",
-      "conf": 0.95,
+      "got_method": "gbm",
+      "conf": 0.75,
       "action_ok": false,
       "label_ok": true,
       "conf_wrong": false,
@@ -3160,7 +3160,7 @@
     },
     {
       "key": "payments-services|NET-XUN-03|Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_MinorUnits_Returns201|si",
-      "item_id": 2865,
+      "item_id": 5215,
       "project": "payments-services",
       "archetype": "NET-XUN-03",
       "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_MinorUnits_Returns201",
@@ -3183,7 +3183,7 @@
     },
     {
       "key": "payments-services|NET-XUN-03|Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_SameCurrency_Returns201|si",
-      "item_id": 2866,
+      "item_id": 5216,
       "project": "payments-services",
       "archetype": "NET-XUN-03",
       "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_SameCurrency_Returns201",
@@ -3196,7 +3196,7 @@
       "exp_label": "si",
       "got_action": "auto",
       "got_label": "si",
-      "got_method": "hash",
+      "got_method": "rule_cold",
       "conf": 0.95,
       "action_ok": false,
       "label_ok": true,
@@ -3206,7 +3206,7 @@
     },
     {
       "key": "payments-services|NET-XUN-03|Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_CrossCurrency_Returns201|si",
-      "item_id": 2867,
+      "item_id": 5217,
       "project": "payments-services",
       "archetype": "NET-XUN-03",
       "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_CrossCurrency_Returns201",
@@ -3217,19 +3217,19 @@
       "ground_truth": "si",
       "exp_action": "suggest",
       "exp_label": "si",
-      "got_action": "auto",
-      "got_label": "si",
-      "got_method": "hash",
-      "conf": 0.95,
-      "action_ok": false,
-      "label_ok": true,
+      "got_action": "suggest",
+      "got_label": "pb",
+      "got_method": "gbm",
+      "conf": 0.6315789,
+      "action_ok": true,
+      "label_ok": false,
       "conf_wrong": false,
       "abstain_ok": null,
-      "debatable": true
+      "debatable": false
     },
     {
       "key": "payments-services|NET-XUN-04|Hawkins.Payments.Ledger.Tests.IdempotencyTests.Repeat_Post_WithSameKey_ReturnsCachedResponse|pb",
-      "item_id": 2868,
+      "item_id": 5218,
       "project": "payments-services",
       "archetype": "NET-XUN-04",
       "test_name": "Hawkins.Payments.Ledger.Tests.IdempotencyTests.Repeat_Post_WithSameKey_ReturnsCachedResponse",
@@ -3252,7 +3252,7 @@
     },
     {
       "key": "payments-services|NET-XUN-04|Hawkins.Payments.Ledger.Tests.IdempotencyTests.Repeat_Post_WithSameKey_ReturnsCachedResponse|pb",
-      "item_id": 2869,
+      "item_id": 5219,
       "project": "payments-services",
       "archetype": "NET-XUN-04",
       "test_name": "Hawkins.Payments.Ledger.Tests.IdempotencyTests.Repeat_Post_WithSameKey_ReturnsCachedResponse",
@@ -3275,7 +3275,7 @@
     },
     {
       "key": "payments-services|NET-XUN-04|Hawkins.Payments.Ledger.Tests.IdempotencyTests.Repeat_Post_WithSameKey_ReturnsCachedResponse|pb",
-      "item_id": 2870,
+      "item_id": 5220,
       "project": "payments-services",
       "archetype": "NET-XUN-04",
       "test_name": "Hawkins.Payments.Ledger.Tests.IdempotencyTests.Repeat_Post_WithSameKey_ReturnsCachedResponse",
@@ -3298,7 +3298,7 @@
     },
     {
       "key": "payments-services|NET-XUN-05|Hawkins.Payments.FxRates.Tests.FxRateClientTests.Get_Rate_WhenServiceUp_Returns200|si",
-      "item_id": 2871,
+      "item_id": 5221,
       "project": "payments-services",
       "archetype": "NET-XUN-05",
       "test_name": "Hawkins.Payments.FxRates.Tests.FxRateClientTests.Get_Rate_WhenServiceUp_Returns200",
@@ -3321,7 +3321,7 @@
     },
     {
       "key": "payments-services|NET-XUN-05|Hawkins.Payments.FxRates.Tests.FxRateClientTests.Get_Rate_WhenServiceUp_Returns200|si",
-      "item_id": 2872,
+      "item_id": 5222,
       "project": "payments-services",
       "archetype": "NET-XUN-05",
       "test_name": "Hawkins.Payments.FxRates.Tests.FxRateClientTests.Get_Rate_WhenServiceUp_Returns200",
@@ -3344,7 +3344,7 @@
     },
     {
       "key": "payments-services|NET-XUN-06|Hawkins.Payments.Ledger.Tests.PostingTests.Concurrent_Postings_AreSerialized|ti",
-      "item_id": 2873,
+      "item_id": 5223,
       "project": "payments-services",
       "archetype": "NET-XUN-06",
       "test_name": "Hawkins.Payments.Ledger.Tests.PostingTests.Concurrent_Postings_AreSerialized",
@@ -3358,7 +3358,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -3367,7 +3367,7 @@
     },
     {
       "key": "payments-services|NET-XUN-07|Hawkins.Payments.FxRates.Tests.FxRateClientTests.Get_Rate_UnderLoad_RespectsRateLimit|si",
-      "item_id": 2874,
+      "item_id": 5224,
       "project": "payments-services",
       "archetype": "NET-XUN-07",
       "test_name": "Hawkins.Payments.FxRates.Tests.FxRateClientTests.Get_Rate_UnderLoad_RespectsRateLimit",
@@ -3390,7 +3390,7 @@
     },
     {
       "key": "payments-services|NET-XUN-08|Hawkins.Payments.MoneyMovement.Tests.InstantPayoutsE2E.Payout_Completes_ForEligibleAccount|nd",
-      "item_id": 2875,
+      "item_id": 5225,
       "project": "payments-services",
       "archetype": "NET-XUN-08",
       "test_name": "Hawkins.Payments.MoneyMovement.Tests.InstantPayoutsE2E.Payout_Completes_ForEligibleAccount",
@@ -3413,7 +3413,7 @@
     },
     {
       "key": "payments-services|NET-XUN-08|Hawkins.Payments.MoneyMovement.Tests.InstantPayoutsE2E.Payout_Completes_ForBusinessAccount|nd",
-      "item_id": 2876,
+      "item_id": 5226,
       "project": "payments-services",
       "archetype": "NET-XUN-08",
       "test_name": "Hawkins.Payments.MoneyMovement.Tests.InstantPayoutsE2E.Payout_Completes_ForBusinessAccount",
@@ -3436,7 +3436,7 @@
     },
     {
       "key": "payments-services|NET-XUN-08|Hawkins.Payments.MoneyMovement.Tests.InstantPayoutsE2E.Payout_Completes_WithSplitDisbursement|nd",
-      "item_id": 2877,
+      "item_id": 5227,
       "project": "payments-services",
       "archetype": "NET-XUN-08",
       "test_name": "Hawkins.Payments.MoneyMovement.Tests.InstantPayoutsE2E.Payout_Completes_WithSplitDisbursement",
@@ -3459,7 +3459,7 @@
     },
     {
       "key": "payments-services|NET-XUN-10|Hawkins.Payments.Ledger.Tests.ReconciliationTests.EndOfDay_Balance_MatchesLedger|pb",
-      "item_id": 2878,
+      "item_id": 5228,
       "project": "payments-services",
       "archetype": "NET-XUN-10",
       "test_name": "Hawkins.Payments.Ledger.Tests.ReconciliationTests.EndOfDay_Balance_MatchesLedger",
@@ -3482,7 +3482,7 @@
     },
     {
       "key": "payments-services|NET-XUN-10|Hawkins.Payments.Ledger.Tests.ReconciliationTests.EndOfDay_Balance_MatchesLedger|pb",
-      "item_id": 2879,
+      "item_id": 5229,
       "project": "payments-services",
       "archetype": "NET-XUN-10",
       "test_name": "Hawkins.Payments.Ledger.Tests.ReconciliationTests.EndOfDay_Balance_MatchesLedger",
@@ -3505,7 +3505,7 @@
     },
     {
       "key": "payments-services|NET-XUN-10|Hawkins.Payments.Ledger.Tests.ReconciliationTests.EndOfDay_Balance_MatchesLedger|pb",
-      "item_id": 2880,
+      "item_id": 5230,
       "project": "payments-services",
       "archetype": "NET-XUN-10",
       "test_name": "Hawkins.Payments.Ledger.Tests.ReconciliationTests.EndOfDay_Balance_MatchesLedger",
@@ -3528,7 +3528,7 @@
     },
     {
       "key": "payments-services|NET-XUN-11|Hawkins.Payments.Api.Tests.PaymentStatusTests.Get_Status_ReturnsSettled|pb",
-      "item_id": 2881,
+      "item_id": 5231,
       "project": "payments-services",
       "archetype": "NET-XUN-11",
       "test_name": "Hawkins.Payments.Api.Tests.PaymentStatusTests.Get_Status_ReturnsSettled",
@@ -3541,8 +3541,8 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "gbm",
-      "conf": 1.0,
+      "got_method": "hash",
+      "conf": 0.95,
       "action_ok": false,
       "label_ok": true,
       "conf_wrong": false,
@@ -3551,7 +3551,7 @@
     },
     {
       "key": "payments-services|NET-XUN-11|Hawkins.Payments.Api.Tests.PaymentStatusTests.Get_Status_ReturnsSettled|pb",
-      "item_id": 2882,
+      "item_id": 5232,
       "project": "payments-services",
       "archetype": "NET-XUN-11",
       "test_name": "Hawkins.Payments.Api.Tests.PaymentStatusTests.Get_Status_ReturnsSettled",
@@ -3564,8 +3564,8 @@
       "exp_label": "pb",
       "got_action": "auto",
       "got_label": "pb",
-      "got_method": "rule_cold",
-      "conf": 0.95,
+      "got_method": "gbm",
+      "conf": 0.8095238,
       "action_ok": false,
       "label_ok": true,
       "conf_wrong": false,
@@ -3574,30 +3574,7 @@
     },
     {
       "key": "payments-services|NET-XUN-12|Hawkins.Payments.Events.Tests.SettlementConsumerTests.Consume_SettlementEvent_UpdatesLedger|si",
-      "item_id": 2883,
-      "project": "payments-services",
-      "archetype": "NET-XUN-12",
-      "test_name": "Hawkins.Payments.Events.Tests.SettlementConsumerTests.Consume_SettlementEvent_UpdatesLedger",
-      "scenarios": [
-        "S22"
-      ],
-      "adv_case": "ADV-5",
-      "ground_truth": "si",
-      "exp_action": "suggest",
-      "exp_label": "si",
-      "got_action": "abstain",
-      "got_label": "ti",
-      "got_method": "gbm",
-      "conf": 0.23076923,
-      "action_ok": false,
-      "label_ok": null,
-      "conf_wrong": false,
-      "abstain_ok": null,
-      "debatable": false
-    },
-    {
-      "key": "payments-services|NET-XUN-12|Hawkins.Payments.Events.Tests.SettlementConsumerTests.Consume_SettlementEvent_UpdatesLedger|si",
-      "item_id": 2884,
+      "item_id": 5233,
       "project": "payments-services",
       "archetype": "NET-XUN-12",
       "test_name": "Hawkins.Payments.Events.Tests.SettlementConsumerTests.Consume_SettlementEvent_UpdatesLedger",
@@ -3619,8 +3596,31 @@
       "debatable": true
     },
     {
+      "key": "payments-services|NET-XUN-12|Hawkins.Payments.Events.Tests.SettlementConsumerTests.Consume_SettlementEvent_UpdatesLedger|si",
+      "item_id": 5234,
+      "project": "payments-services",
+      "archetype": "NET-XUN-12",
+      "test_name": "Hawkins.Payments.Events.Tests.SettlementConsumerTests.Consume_SettlementEvent_UpdatesLedger",
+      "scenarios": [
+        "S22"
+      ],
+      "adv_case": "ADV-5",
+      "ground_truth": "si",
+      "exp_action": "suggest",
+      "exp_label": "si",
+      "got_action": "auto",
+      "got_label": "si",
+      "got_method": "hash",
+      "conf": 0.95,
+      "action_ok": false,
+      "label_ok": true,
+      "conf_wrong": false,
+      "abstain_ok": null,
+      "debatable": true
+    },
+    {
       "key": "payments-services|NET-XUN-13|Infra Healthcheck. Upstream gateway. Responds within budget|si",
-      "item_id": 2885,
+      "item_id": 5235,
       "project": "payments-services",
       "archetype": "NET-XUN-13",
       "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
@@ -3643,7 +3643,7 @@
     },
     {
       "key": "payments-services|NET-XUN-13|Infra Healthcheck. Upstream gateway. Responds within budget|si",
-      "item_id": 2886,
+      "item_id": 5236,
       "project": "payments-services",
       "archetype": "NET-XUN-13",
       "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
@@ -3666,7 +3666,7 @@
     },
     {
       "key": "payments-services|NET-XUN-13|Infra Healthcheck. Upstream gateway. Responds within budget|si",
-      "item_id": 2887,
+      "item_id": 5237,
       "project": "payments-services",
       "archetype": "NET-XUN-13",
       "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
@@ -3689,7 +3689,7 @@
     },
     {
       "key": "payments-services|NET-XUN-13|Infra Healthcheck. Upstream gateway. Responds within budget|si",
-      "item_id": 2888,
+      "item_id": 5238,
       "project": "payments-services",
       "archetype": "NET-XUN-13",
       "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
@@ -3712,7 +3712,7 @@
     },
     {
       "key": "payments-services|NET-XUN-14|Checkout. Settings. Save shipping profile|ti",
-      "item_id": 2889,
+      "item_id": 5239,
       "project": "payments-services",
       "archetype": "NET-XUN-14",
       "test_name": "Checkout. Settings. Save shipping profile",
@@ -3726,7 +3726,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -3735,7 +3735,7 @@
     },
     {
       "key": "payments-services|NET-XUN-14|Checkout. Settings. Save shipping profile|ti",
-      "item_id": 2890,
+      "item_id": 5240,
       "project": "payments-services",
       "archetype": "NET-XUN-14",
       "test_name": "Checkout. Settings. Save shipping profile",
@@ -3749,7 +3749,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -3758,7 +3758,7 @@
     },
     {
       "key": "payments-services|NET-XUN-14|Checkout. Settings. Save shipping profile|ti",
-      "item_id": 2891,
+      "item_id": 5241,
       "project": "payments-services",
       "archetype": "NET-XUN-14",
       "test_name": "Checkout. Settings. Save shipping profile",
@@ -3772,7 +3772,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -3781,7 +3781,7 @@
     },
     {
       "key": "payments-services|NET-XUN-14|Checkout. Settings. Save shipping profile|ti",
-      "item_id": 2892,
+      "item_id": 5242,
       "project": "payments-services",
       "archetype": "NET-XUN-14",
       "test_name": "Checkout. Settings. Save shipping profile",
@@ -3795,7 +3795,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -3804,7 +3804,7 @@
     },
     {
       "key": "payments-services|NET-XUN-14|Checkout. Settings. Save shipping profile|ti",
-      "item_id": 2893,
+      "item_id": 5243,
       "project": "payments-services",
       "archetype": "NET-XUN-14",
       "test_name": "Checkout. Settings. Save shipping profile",
@@ -3818,7 +3818,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -3827,7 +3827,7 @@
     },
     {
       "key": "payments-services|NET-XUN-14|Checkout. Settings. Save shipping profile|ti",
-      "item_id": 2894,
+      "item_id": 5244,
       "project": "payments-services",
       "archetype": "NET-XUN-14",
       "test_name": "Checkout. Settings. Save shipping profile",
@@ -3841,7 +3841,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -3850,7 +3850,7 @@
     },
     {
       "key": "payments-services|NET-XUN-15|Hawkins.Payments.Settlements.Tests.SettlementBatchTests.Process_Batch_ClosesOpenPositions|ti",
-      "item_id": 2895,
+      "item_id": 5245,
       "project": "payments-services",
       "archetype": "NET-XUN-15",
       "test_name": "Hawkins.Payments.Settlements.Tests.SettlementBatchTests.Process_Batch_ClosesOpenPositions",
@@ -3864,7 +3864,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.42,
+      "conf": 0.6315789,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -3873,7 +3873,7 @@
     },
     {
       "key": "payments-services|NET-XUN-15|Hawkins.Payments.Settlements.Tests.SettlementBatchTests.Process_Batch_ClosesOpenPositions|ti",
-      "item_id": 2896,
+      "item_id": 5246,
       "project": "payments-services",
       "archetype": "NET-XUN-15",
       "test_name": "Hawkins.Payments.Settlements.Tests.SettlementBatchTests.Process_Batch_ClosesOpenPositions",
@@ -3887,7 +3887,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.42,
+      "conf": 0.6315789,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -3896,7 +3896,7 @@
     },
     {
       "key": "payments-services|NET-XUN-16|Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202|pb",
-      "item_id": 2897,
+      "item_id": 5247,
       "project": "payments-services",
       "archetype": "NET-XUN-16",
       "test_name": "Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202",
@@ -3920,7 +3920,7 @@
     },
     {
       "key": "payments-services|NET-XUN-16|Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202|pb",
-      "item_id": 2898,
+      "item_id": 5248,
       "project": "payments-services",
       "archetype": "NET-XUN-16",
       "test_name": "Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202",
@@ -3944,7 +3944,7 @@
     },
     {
       "key": "payments-services|NET-XUN-16|Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202|pb",
-      "item_id": 2899,
+      "item_id": 5249,
       "project": "payments-services",
       "archetype": "NET-XUN-16",
       "test_name": "Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202",
@@ -3968,7 +3968,7 @@
     },
     {
       "key": "payments-services|NET-XUN-16|Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202|pb",
-      "item_id": 2900,
+      "item_id": 5250,
       "project": "payments-services",
       "archetype": "NET-XUN-16",
       "test_name": "Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202",
@@ -3992,7 +3992,7 @@
     },
     {
       "key": "payments-services|NET-XUN-16|Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202|pb",
-      "item_id": 2901,
+      "item_id": 5251,
       "project": "payments-services",
       "archetype": "NET-XUN-16",
       "test_name": "Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202",
@@ -4016,7 +4016,7 @@
     },
     {
       "key": "payments-services|NET-XUN-16|Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202|pb",
-      "item_id": 2902,
+      "item_id": 5252,
       "project": "payments-services",
       "archetype": "NET-XUN-16",
       "test_name": "Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202",
@@ -4040,7 +4040,7 @@
     },
     {
       "key": "frontend-apps|TS-CY-02|Legacy Admin > Refunds > bulk refund 25 selected orders shows success toast|pb",
-      "item_id": 2903,
+      "item_id": 5253,
       "project": "frontend-apps",
       "archetype": "TS-CY-02",
       "test_name": "Legacy Admin > Refunds > bulk refund 25 selected orders shows success toast",
@@ -4054,7 +4054,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.6315789,
       "action_ok": false,
       "label_ok": null,
       "conf_wrong": false,
@@ -4063,7 +4063,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-01|storefront/product-grid.spec.ts \u203a Product grid \u203a renders the filter rail|nd",
-      "item_id": 2904,
+      "item_id": 5254,
       "project": "frontend-apps",
       "archetype": "TS-PW-01",
       "test_name": "storefront/product-grid.spec.ts \u203a Product grid \u203a renders the filter rail",
@@ -4075,18 +4075,18 @@
       "exp_action": "suggest",
       "exp_label": "nd",
       "got_action": "suggest",
-      "got_label": "si",
+      "got_label": "nd",
       "got_method": "gbm",
-      "conf": 0.6,
+      "conf": 0.45,
       "action_ok": true,
-      "label_ok": false,
+      "label_ok": true,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "frontend-apps|TS-PW-01|storefront/mini-cart.spec.ts \u203a Mini cart \u203a opens the drawer on hover|nd",
-      "item_id": 2905,
+      "item_id": 5255,
       "project": "frontend-apps",
       "archetype": "TS-PW-01",
       "test_name": "storefront/mini-cart.spec.ts \u203a Mini cart \u203a opens the drawer on hover",
@@ -4098,18 +4098,18 @@
       "exp_action": "suggest",
       "exp_label": "nd",
       "got_action": "suggest",
-      "got_label": "si",
+      "got_label": "nd",
       "got_method": "gbm",
-      "conf": 0.6,
+      "conf": 0.45,
       "action_ok": true,
-      "label_ok": false,
+      "label_ok": true,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "frontend-apps|TS-PW-01|storefront/product-grid.spec.ts \u203a Product grid \u203a lazy-loads the next page of results|nd",
-      "item_id": 2906,
+      "item_id": 5256,
       "project": "frontend-apps",
       "archetype": "TS-PW-01",
       "test_name": "storefront/product-grid.spec.ts \u203a Product grid \u203a lazy-loads the next page of results",
@@ -4120,19 +4120,19 @@
       "ground_truth": "nd",
       "exp_action": "suggest",
       "exp_label": "nd",
-      "got_action": "suggest",
+      "got_action": "auto",
       "got_label": "si",
       "got_method": "gbm",
-      "conf": 0.6,
-      "action_ok": true,
+      "conf": 0.8095238,
+      "action_ok": false,
       "label_ok": false,
-      "conf_wrong": false,
+      "conf_wrong": true,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "frontend-apps|TS-PW-01|storefront/mini-cart.spec.ts \u203a Mini cart \u203a shows the item-count badge after add-to-cart|nd",
-      "item_id": 2907,
+      "item_id": 5257,
       "project": "frontend-apps",
       "archetype": "TS-PW-01",
       "test_name": "storefront/mini-cart.spec.ts \u203a Mini cart \u203a shows the item-count badge after add-to-cart",
@@ -4143,19 +4143,19 @@
       "ground_truth": "nd",
       "exp_action": "suggest",
       "exp_label": "nd",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "auto",
+      "got_label": "si",
       "got_method": "gbm",
-      "conf": 0.42,
+      "conf": 0.94736844,
       "action_ok": false,
-      "label_ok": null,
-      "conf_wrong": false,
+      "label_ok": false,
+      "conf_wrong": true,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "frontend-apps|TS-PW-01|storefront/search-suggest.spec.ts \u203a Search \u203a renders type-ahead suggestions|nd",
-      "item_id": 2908,
+      "item_id": 5258,
       "project": "frontend-apps",
       "archetype": "TS-PW-01",
       "test_name": "storefront/search-suggest.spec.ts \u203a Search \u203a renders type-ahead suggestions",
@@ -4178,7 +4178,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-01|storefront/promo-banner.spec.ts \u203a Promo banner \u203a renders the hero campaign slot|nd",
-      "item_id": 2909,
+      "item_id": 5259,
       "project": "frontend-apps",
       "archetype": "TS-PW-01",
       "test_name": "storefront/promo-banner.spec.ts \u203a Promo banner \u203a renders the hero campaign slot",
@@ -4190,18 +4190,18 @@
       "exp_action": "suggest",
       "exp_label": "nd",
       "got_action": "suggest",
-      "got_label": "si",
+      "got_label": "nd",
       "got_method": "gbm",
-      "conf": 0.6,
+      "conf": 0.45,
       "action_ok": true,
-      "label_ok": false,
+      "label_ok": true,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "frontend-apps|TS-PW-03|storefront/checkout.spec.ts \u203a Checkout \u203a displays the order total with grouping and decimals|ti",
-      "item_id": 2910,
+      "item_id": 5260,
       "project": "frontend-apps",
       "archetype": "TS-PW-03",
       "test_name": "storefront/checkout.spec.ts \u203a Checkout \u203a displays the order total with grouping and decimals",
@@ -4215,7 +4215,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4224,7 +4224,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-03|storefront/checkout.spec.ts \u203a Checkout \u203a displays the order total with grouping and decimals|ti",
-      "item_id": 2911,
+      "item_id": 5261,
       "project": "frontend-apps",
       "archetype": "TS-PW-03",
       "test_name": "storefront/checkout.spec.ts \u203a Checkout \u203a displays the order total with grouping and decimals",
@@ -4238,7 +4238,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4247,7 +4247,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-04|storefront/smoke.spec.ts \u203a Smoke \u203a storefront home page is reachable|si",
-      "item_id": 2912,
+      "item_id": 5262,
       "project": "frontend-apps",
       "archetype": "TS-PW-04",
       "test_name": "storefront/smoke.spec.ts \u203a Smoke \u203a storefront home page is reachable",
@@ -4258,19 +4258,19 @@
       "ground_truth": "si",
       "exp_action": "auto",
       "exp_label": "si",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "auto",
+      "got_label": "si",
       "got_method": "gbm",
-      "conf": 0.42,
-      "action_ok": false,
-      "label_ok": null,
+      "conf": 0.8095238,
+      "action_ok": true,
+      "label_ok": true,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "frontend-apps|TS-PW-05|storefront/smoke.spec.ts \u203a Smoke \u203a checkout API is reachable over https|si",
-      "item_id": 2913,
+      "item_id": 5263,
       "project": "frontend-apps",
       "archetype": "TS-PW-05",
       "test_name": "storefront/smoke.spec.ts \u203a Smoke \u203a checkout API is reachable over https",
@@ -4281,19 +4281,19 @@
       "ground_truth": "si",
       "exp_action": "auto",
       "exp_label": "si",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "auto",
+      "got_label": "si",
       "got_method": "gbm",
-      "conf": 0.42,
-      "action_ok": false,
-      "label_ok": null,
+      "conf": 0.94736844,
+      "action_ok": true,
+      "label_ok": true,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "frontend-apps|TS-PW-06|storefront/product.spec.ts \u203a Product \u203a shows the size selector|si",
-      "item_id": 2914,
+      "item_id": 5264,
       "project": "frontend-apps",
       "archetype": "TS-PW-06",
       "test_name": "storefront/product.spec.ts \u203a Product \u203a shows the size selector",
@@ -4304,19 +4304,19 @@
       "ground_truth": "si",
       "exp_action": "auto",
       "exp_label": "si",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "suggest",
+      "got_label": "si",
       "got_method": "gbm",
-      "conf": 0.42,
+      "conf": 0.71428573,
       "action_ok": false,
-      "label_ok": null,
+      "label_ok": true,
       "conf_wrong": false,
       "abstain_ok": null,
       "debatable": false
     },
     {
       "key": "frontend-apps|TS-PW-07|storefront/account.spec.ts \u203a Account \u203a loads the wishlist|ti",
-      "item_id": 2915,
+      "item_id": 5265,
       "project": "frontend-apps",
       "archetype": "TS-PW-07",
       "test_name": "storefront/account.spec.ts \u203a Account \u203a loads the wishlist",
@@ -4330,7 +4330,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4339,7 +4339,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-08|storefront/checkout.spec.ts \u203a Checkout \u203a fetches a delivery-slot quote|ti",
-      "item_id": 2916,
+      "item_id": 5266,
       "project": "frontend-apps",
       "archetype": "TS-PW-08",
       "test_name": "storefront/checkout.spec.ts \u203a Checkout \u203a fetches a delivery-slot quote",
@@ -4353,7 +4353,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.3529412,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4362,7 +4362,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-08|storefront/cart.spec.ts \u203a Cart \u203a revalidates the cart against pricing-svc|ti",
-      "item_id": 2917,
+      "item_id": 5267,
       "project": "frontend-apps",
       "archetype": "TS-PW-08",
       "test_name": "storefront/cart.spec.ts \u203a Cart \u203a revalidates the cart against pricing-svc",
@@ -4376,7 +4376,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4385,7 +4385,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-09|storefront/nav.spec.ts \u203a Navigation \u203a highlights the active category|ti",
-      "item_id": 2918,
+      "item_id": 5268,
       "project": "frontend-apps",
       "archetype": "TS-PW-09",
       "test_name": "storefront/nav.spec.ts \u203a Navigation \u203a highlights the active category",
@@ -4399,7 +4399,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4408,7 +4408,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-09|storefront/pdp.spec.ts \u203a Product detail \u203a selects a size|ti",
-      "item_id": 2919,
+      "item_id": 5269,
       "project": "frontend-apps",
       "archetype": "TS-PW-09",
       "test_name": "storefront/pdp.spec.ts \u203a Product detail \u203a selects a size",
@@ -4422,7 +4422,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.42,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4431,7 +4431,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-09|storefront/cart.spec.ts \u203a Cart \u203a removes a line item|ti",
-      "item_id": 2920,
+      "item_id": 5270,
       "project": "frontend-apps",
       "archetype": "TS-PW-09",
       "test_name": "storefront/cart.spec.ts \u203a Cart \u203a removes a line item",
@@ -4445,7 +4445,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4454,7 +4454,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-09|storefront/home.spec.ts \u203a Home \u203a loads the recommendations rail|ti",
-      "item_id": 2921,
+      "item_id": 5271,
       "project": "frontend-apps",
       "archetype": "TS-PW-09",
       "test_name": "storefront/home.spec.ts \u203a Home \u203a loads the recommendations rail",
@@ -4465,19 +4465,19 @@
       "ground_truth": "ti",
       "exp_action": "abstain",
       "exp_label": "ti",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "suggest",
+      "got_label": "nd",
       "got_method": "gbm",
-      "conf": 0.42,
-      "action_ok": true,
-      "label_ok": null,
+      "conf": 0.61797494,
+      "action_ok": false,
+      "label_ok": false,
       "conf_wrong": false,
-      "abstain_ok": true,
+      "abstain_ok": false,
       "debatable": false
     },
     {
       "key": "frontend-apps|TS-PW-10|storefront/login-smoke.spec.ts \u203a Login smoke \u203a keeps the session after reload|nd",
-      "item_id": 2922,
+      "item_id": 5272,
       "project": "frontend-apps",
       "archetype": "TS-PW-10",
       "test_name": "storefront/login-smoke.spec.ts \u203a Login smoke \u203a keeps the session after reload",
@@ -4492,7 +4492,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.42,
+      "conf": 0.32142857,
       "action_ok": false,
       "label_ok": null,
       "conf_wrong": false,
@@ -4501,7 +4501,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-10|storefront/login-smoke.spec.ts \u203a Login smoke \u203a shows the account greeting on first paint|ti",
-      "item_id": 2923,
+      "item_id": 5273,
       "project": "frontend-apps",
       "archetype": "TS-PW-10",
       "test_name": "storefront/login-smoke.spec.ts \u203a Login smoke \u203a shows the account greeting on first paint",
@@ -4525,7 +4525,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-11|storefront/checkout.spec.ts \u203a Checkout \u203a places an order|ti",
-      "item_id": 2924,
+      "item_id": 5274,
       "project": "frontend-apps",
       "archetype": "TS-PW-11",
       "test_name": "storefront/checkout.spec.ts \u203a Checkout \u203a places an order",
@@ -4536,19 +4536,19 @@
       "ground_truth": "ti",
       "exp_action": "abstain",
       "exp_label": "ti",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "suggest",
+      "got_label": "si",
       "got_method": "gbm",
-      "conf": 0.3529412,
-      "action_ok": true,
-      "label_ok": null,
+      "conf": 0.6315789,
+      "action_ok": false,
+      "label_ok": false,
       "conf_wrong": false,
-      "abstain_ok": true,
+      "abstain_ok": false,
       "debatable": false
     },
     {
       "key": "frontend-apps|TS-PW-11|storefront/cart.spec.ts \u203a Cart \u203a proceeds to checkout|ti",
-      "item_id": 2925,
+      "item_id": 5275,
       "project": "frontend-apps",
       "archetype": "TS-PW-11",
       "test_name": "storefront/cart.spec.ts \u203a Cart \u203a proceeds to checkout",
@@ -4559,19 +4559,19 @@
       "ground_truth": "ti",
       "exp_action": "abstain",
       "exp_label": "ti",
-      "got_action": "abstain",
-      "got_label": "ti",
+      "got_action": "suggest",
+      "got_label": "si",
       "got_method": "gbm",
-      "conf": 0.3529412,
-      "action_ok": true,
-      "label_ok": null,
+      "conf": 0.6315789,
+      "action_ok": false,
+      "label_ok": false,
       "conf_wrong": false,
-      "abstain_ok": true,
+      "abstain_ok": false,
       "debatable": false
     },
     {
       "key": "frontend-apps|TS-PW-11|storefront/product.spec.ts \u203a Product \u203a adds to cart|ti",
-      "item_id": 2926,
+      "item_id": 5276,
       "project": "frontend-apps",
       "archetype": "TS-PW-11",
       "test_name": "storefront/product.spec.ts \u203a Product \u203a adds to cart",
@@ -4585,7 +4585,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.42,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4594,7 +4594,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-12|storefront/bootstrap.spec.ts \u203a Bootstrap \u203a hydrates the app shell|ti",
-      "item_id": 2927,
+      "item_id": 5277,
       "project": "frontend-apps",
       "archetype": "TS-PW-12",
       "test_name": "storefront/bootstrap.spec.ts \u203a Bootstrap \u203a hydrates the app shell",
@@ -4608,7 +4608,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4617,7 +4617,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-12|storefront/bootstrap.spec.ts \u203a Bootstrap \u203a registers the service worker|ti",
-      "item_id": 2928,
+      "item_id": 5278,
       "project": "frontend-apps",
       "archetype": "TS-PW-12",
       "test_name": "storefront/bootstrap.spec.ts \u203a Bootstrap \u203a registers the service worker",
@@ -4631,7 +4631,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4640,7 +4640,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-13|storefront/home.spec.ts \u203a Home \u203a renders above the fold|ti",
-      "item_id": 2929,
+      "item_id": 5279,
       "project": "frontend-apps",
       "archetype": "TS-PW-13",
       "test_name": "storefront/home.spec.ts \u203a Home \u203a renders above the fold",
@@ -4654,7 +4654,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4663,7 +4663,7 @@
     },
     {
       "key": "frontend-apps|TS-PW-13|storefront/product.spec.ts \u203a Product \u203a opens the size guide|ti",
-      "item_id": 2930,
+      "item_id": 5280,
       "project": "frontend-apps",
       "archetype": "TS-PW-13",
       "test_name": "storefront/product.spec.ts \u203a Product \u203a opens the size guide",
@@ -4677,7 +4677,7 @@
       "got_action": "abstain",
       "got_label": "ti",
       "got_method": "gbm",
-      "conf": 0.23076923,
+      "conf": 0.32142857,
       "action_ok": true,
       "label_ok": null,
       "conf_wrong": false,
@@ -4686,36 +4686,36 @@
     }
   ],
   "overall": {
-    "n": 128,
-    "n_debatable": 72,
-    "action_acc": 0.781,
-    "label_acc_decided": 0.908,
-    "n_decided": 76,
-    "confidently_wrong": 3,
-    "abstain_recall": 0.816,
+    "n": 129,
+    "n_debatable": 71,
+    "action_acc": 0.736,
+    "label_acc_decided": 0.84,
+    "n_decided": 94,
+    "confidently_wrong": 5,
+    "abstain_recall": 0.632,
     "n_expected_abstain": 38,
-    "method_match": 0.323,
-    "n_method_scored": 96
+    "method_match": 0.33,
+    "n_method_scored": 97
   },
   "per_project": {
     "webshop-ui": {
-      "n": 82,
-      "n_debatable": 47,
-      "action_acc": 0.756,
-      "label_acc_decided": 0.952,
-      "n_decided": 63,
+      "n": 83,
+      "n_debatable": 46,
+      "action_acc": 0.699,
+      "label_acc_decided": 0.877,
+      "n_decided": 73,
       "confidently_wrong": 3,
-      "abstain_recall": 0.462,
+      "abstain_recall": 0.154,
       "n_expected_abstain": 13,
-      "method_match": 0.333,
-      "n_method_scored": 72
+      "method_match": 0.342,
+      "n_method_scored": 73
     },
     "payments-services": {
       "n": 19,
       "n_debatable": 24,
-      "action_acc": 0.947,
-      "label_acc_decided": 1.0,
-      "n_decided": 9,
+      "action_acc": 1.0,
+      "label_acc_decided": 0.9,
+      "n_decided": 10,
       "confidently_wrong": 0,
       "abstain_recall": 1.0,
       "n_expected_abstain": 9,
@@ -4725,11 +4725,11 @@
     "frontend-apps": {
       "n": 27,
       "n_debatable": 1,
-      "action_acc": 0.741,
-      "label_acc_decided": 0.0,
-      "n_decided": 4,
-      "confidently_wrong": 0,
-      "abstain_recall": 1.0,
+      "action_acc": 0.667,
+      "label_acc_decided": 0.545,
+      "n_decided": 11,
+      "confidently_wrong": 2,
+      "abstain_recall": 0.812,
       "n_expected_abstain": 16,
       "method_match": 0.071,
       "n_method_scored": 14
@@ -4745,7 +4745,7 @@
       "confidently_wrong": 0,
       "abstain_recall": null,
       "n_expected_abstain": 0,
-      "method_match": 0.0,
+      "method_match": 1.0,
       "n_method_scored": 3,
       "verdict": "PASS"
     },
@@ -4778,11 +4778,11 @@
     "S16": {
       "n": 12,
       "n_debatable": 0,
-      "action_acc": 1.0,
-      "label_acc_decided": 0.5,
-      "n_decided": 6,
-      "confidently_wrong": 3,
-      "abstain_recall": 1.0,
+      "action_acc": 0.083,
+      "label_acc_decided": 0.273,
+      "n_decided": 11,
+      "confidently_wrong": 0,
+      "abstain_recall": 0.167,
       "n_expected_abstain": 6,
       "method_match": 1.0,
       "n_method_scored": 9,
@@ -4792,27 +4792,27 @@
       "n": 6,
       "n_debatable": 0,
       "action_acc": 1.0,
-      "label_acc_decided": 1.0,
+      "label_acc_decided": 0.667,
       "n_decided": 6,
-      "confidently_wrong": 0,
+      "confidently_wrong": 2,
       "abstain_recall": null,
       "n_expected_abstain": 0,
       "method_match": 0.0,
       "n_method_scored": 6,
-      "verdict": "PASS"
+      "verdict": "FAIL"
     },
     "S18": {
-      "n": 7,
-      "n_debatable": 5,
-      "action_acc": 0.714,
-      "label_acc_decided": 1.0,
-      "n_decided": 3,
+      "n": 8,
+      "n_debatable": 4,
+      "action_acc": 1.0,
+      "label_acc_decided": 0.833,
+      "n_decided": 6,
       "confidently_wrong": 0,
       "abstain_recall": 1.0,
       "n_expected_abstain": 2,
       "method_match": 1.0,
-      "n_method_scored": 5,
-      "verdict": "PARTIAL"
+      "n_method_scored": 6,
+      "verdict": "PASS"
     },
     "S19": {
       "n": 7,
@@ -4862,7 +4862,7 @@
       "confidently_wrong": 0,
       "abstain_recall": null,
       "n_expected_abstain": 0,
-      "method_match": 1.0,
+      "method_match": 0.0,
       "n_method_scored": 3,
       "verdict": "PASS"
     },
@@ -4934,28 +4934,28 @@
     "S21": {
       "n": 4,
       "n_debatable": 2,
-      "action_acc": 0.0,
-      "label_acc_decided": null,
-      "n_decided": 0,
+      "action_acc": 1.0,
+      "label_acc_decided": 1.0,
+      "n_decided": 4,
       "confidently_wrong": 0,
       "abstain_recall": null,
       "n_expected_abstain": 0,
       "method_match": 1.0,
       "n_method_scored": 4,
-      "verdict": "FAIL"
+      "verdict": "PASS"
     },
     "S22": {
-      "n": 1,
-      "n_debatable": 7,
-      "action_acc": 0.0,
+      "n": 0,
+      "n_debatable": 8,
+      "action_acc": null,
       "label_acc_decided": null,
       "n_decided": 0,
       "confidently_wrong": 0,
       "abstain_recall": null,
       "n_expected_abstain": 0,
-      "method_match": 1.0,
-      "n_method_scored": 1,
-      "verdict": "FAIL"
+      "method_match": null,
+      "n_method_scored": 0,
+      "verdict": "N/A"
     },
     "S29": {
       "n": 4,
@@ -5023,26 +5023,26 @@
       "verdict": "N/A"
     },
     "S11": {
-      "n": 0,
-      "n_debatable": 3,
-      "action_acc": null,
+      "n": 1,
+      "n_debatable": 2,
+      "action_acc": 0.0,
       "label_acc_decided": null,
       "n_decided": 0,
       "confidently_wrong": 0,
       "abstain_recall": null,
       "n_expected_abstain": 0,
-      "method_match": null,
-      "n_method_scored": 0,
-      "verdict": "N/A"
+      "method_match": 1.0,
+      "n_method_scored": 1,
+      "verdict": "FAIL"
     },
     "S07": {
       "n": 10,
       "n_debatable": 0,
-      "action_acc": 0.3,
-      "label_acc_decided": 1.0,
-      "n_decided": 7,
-      "confidently_wrong": 0,
-      "abstain_recall": 0.3,
+      "action_acc": 0.2,
+      "label_acc_decided": 0.875,
+      "n_decided": 8,
+      "confidently_wrong": 1,
+      "abstain_recall": 0.2,
       "n_expected_abstain": 10,
       "method_match": null,
       "n_method_scored": 0,
@@ -5051,11 +5051,11 @@
     "S08": {
       "n": 10,
       "n_debatable": 0,
-      "action_acc": 0.3,
-      "label_acc_decided": 1.0,
-      "n_decided": 7,
-      "confidently_wrong": 0,
-      "abstain_recall": 0.3,
+      "action_acc": 0.2,
+      "label_acc_decided": 0.875,
+      "n_decided": 8,
+      "confidently_wrong": 1,
+      "abstain_recall": 0.2,
       "n_expected_abstain": 10,
       "method_match": null,
       "n_method_scored": 0,
@@ -5064,11 +5064,11 @@
     "S06": {
       "n": 10,
       "n_debatable": 0,
-      "action_acc": 0.3,
-      "label_acc_decided": 1.0,
-      "n_decided": 7,
-      "confidently_wrong": 0,
-      "abstain_recall": 0.3,
+      "action_acc": 0.2,
+      "label_acc_decided": 0.875,
+      "n_decided": 8,
+      "confidently_wrong": 1,
+      "abstain_recall": 0.2,
       "n_expected_abstain": 10,
       "method_match": null,
       "n_method_scored": 0,
@@ -5077,11 +5077,11 @@
     "S39": {
       "n": 15,
       "n_debatable": 0,
-      "action_acc": 0.467,
-      "label_acc_decided": 1.0,
-      "n_decided": 7,
-      "confidently_wrong": 0,
-      "abstain_recall": 0.5,
+      "action_acc": 0.4,
+      "label_acc_decided": 0.875,
+      "n_decided": 8,
+      "confidently_wrong": 1,
+      "abstain_recall": 0.429,
       "n_expected_abstain": 14,
       "method_match": 1.0,
       "n_method_scored": 1,
@@ -5090,11 +5090,11 @@
     "S36": {
       "n": 10,
       "n_debatable": 0,
-      "action_acc": 0.3,
-      "label_acc_decided": 1.0,
-      "n_decided": 7,
-      "confidently_wrong": 0,
-      "abstain_recall": 0.3,
+      "action_acc": 0.2,
+      "label_acc_decided": 0.875,
+      "n_decided": 8,
+      "confidently_wrong": 1,
+      "abstain_recall": 0.2,
       "n_expected_abstain": 10,
       "method_match": null,
       "n_method_scored": 0,
@@ -5103,11 +5103,11 @@
     "S35": {
       "n": 10,
       "n_debatable": 0,
-      "action_acc": 0.3,
-      "label_acc_decided": 1.0,
-      "n_decided": 7,
-      "confidently_wrong": 0,
-      "abstain_recall": 0.3,
+      "action_acc": 0.2,
+      "label_acc_decided": 0.875,
+      "n_decided": 8,
+      "confidently_wrong": 1,
+      "abstain_recall": 0.2,
       "n_expected_abstain": 10,
       "method_match": null,
       "n_method_scored": 0,
@@ -5116,11 +5116,11 @@
     "S02": {
       "n": 12,
       "n_debatable": 0,
-      "action_acc": 0.417,
-      "label_acc_decided": 1.0,
-      "n_decided": 7,
-      "confidently_wrong": 0,
-      "abstain_recall": 0.417,
+      "action_acc": 0.333,
+      "label_acc_decided": 0.875,
+      "n_decided": 8,
+      "confidently_wrong": 1,
+      "abstain_recall": 0.333,
       "n_expected_abstain": 12,
       "method_match": null,
       "n_method_scored": 0,
@@ -5168,11 +5168,11 @@
     "S33": {
       "n": 15,
       "n_debatable": 1,
-      "action_acc": 0.667,
-      "label_acc_decided": 1.0,
-      "n_decided": 2,
+      "action_acc": 0.733,
+      "label_acc_decided": 0.833,
+      "n_decided": 6,
       "confidently_wrong": 0,
-      "abstain_recall": 1.0,
+      "abstain_recall": 0.875,
       "n_expected_abstain": 8,
       "method_match": 0.0,
       "n_method_scored": 10,
@@ -5233,59 +5233,59 @@
     "S40": {
       "n": 7,
       "n_debatable": 1,
-      "action_acc": 0.571,
-      "label_acc_decided": 0.0,
-      "n_decided": 4,
-      "confidently_wrong": 0,
+      "action_acc": 0.429,
+      "label_acc_decided": 0.6,
+      "n_decided": 5,
+      "confidently_wrong": 2,
       "abstain_recall": null,
       "n_expected_abstain": 0,
       "method_match": 0.0,
       "n_method_scored": 7,
-      "verdict": "PARTIAL"
+      "verdict": "FAIL"
     }
   },
   "adversarial": {
     "ADV-1": {
       "verdict": "FAIL",
-      "line": "12 items, action_acc=1.0, conf_wrong=3",
-      "n": 12,
-      "n_debatable": 10,
-      "action_acc": 1.0,
-      "label_acc_decided": 0.5,
-      "n_decided": 6,
-      "confidently_wrong": 3,
-      "abstain_recall": 1.0,
+      "line": "13 items, action_acc=0.077, conf_wrong=0",
+      "n": 13,
+      "n_debatable": 9,
+      "action_acc": 0.077,
+      "label_acc_decided": 0.273,
+      "n_decided": 11,
+      "confidently_wrong": 0,
+      "abstain_recall": 0.167,
       "n_expected_abstain": 6,
       "method_match": 1.0,
-      "n_method_scored": 9
+      "n_method_scored": 10
     },
     "ADV-2": {
-      "verdict": "PASS",
-      "line": "6 items, action_acc=1.0, conf_wrong=0",
+      "verdict": "FAIL",
+      "line": "6 items, action_acc=1.0, conf_wrong=2",
       "n": 6,
       "n_debatable": 0,
       "action_acc": 1.0,
-      "label_acc_decided": 1.0,
+      "label_acc_decided": 0.667,
       "n_decided": 6,
-      "confidently_wrong": 0,
+      "confidently_wrong": 2,
       "abstain_recall": null,
       "n_expected_abstain": 0,
       "method_match": 0.0,
       "n_method_scored": 6
     },
     "ADV-3": {
-      "verdict": "PARTIAL",
-      "line": "7 items, action_acc=0.714, conf_wrong=0",
-      "n": 7,
-      "n_debatable": 7,
-      "action_acc": 0.714,
-      "label_acc_decided": 1.0,
-      "n_decided": 3,
+      "verdict": "PASS",
+      "line": "8 items, action_acc=1.0, conf_wrong=0",
+      "n": 8,
+      "n_debatable": 6,
+      "action_acc": 1.0,
+      "label_acc_decided": 0.833,
+      "n_decided": 6,
       "confidently_wrong": 0,
       "abstain_recall": 1.0,
       "n_expected_abstain": 2,
       "method_match": 1.0,
-      "n_method_scored": 5
+      "n_method_scored": 6
     },
     "ADV-4": {
       "verdict": "PASS",
@@ -5302,27 +5302,27 @@
       "n_method_scored": 12
     },
     "ADV-5": {
-      "verdict": "FAIL",
-      "line": "1 items, action_acc=0.0, conf_wrong=0",
-      "n": 1,
-      "n_debatable": 7,
-      "action_acc": 0.0,
+      "verdict": "N/A",
+      "line": "0 items, action_acc=None, conf_wrong=0",
+      "n": 0,
+      "n_debatable": 8,
+      "action_acc": null,
       "label_acc_decided": null,
       "n_decided": 0,
       "confidently_wrong": 0,
       "abstain_recall": null,
       "n_expected_abstain": 0,
-      "method_match": 1.0,
-      "n_method_scored": 1
+      "method_match": null,
+      "n_method_scored": 0
     },
     "ADV-6": {
-      "verdict": "FAIL",
-      "line": "4 items, action_acc=0.0, conf_wrong=0",
+      "verdict": "PASS",
+      "line": "4 items, action_acc=1.0, conf_wrong=0",
       "n": 4,
       "n_debatable": 10,
-      "action_acc": 0.0,
-      "label_acc_decided": null,
-      "n_decided": 0,
+      "action_acc": 1.0,
+      "label_acc_decided": 1.0,
+      "n_decided": 4,
       "confidently_wrong": 0,
       "abstain_recall": null,
       "n_expected_abstain": 0,
@@ -5340,19 +5340,19 @@
       "confidently_wrong": 0,
       "abstain_recall": null,
       "n_expected_abstain": 0,
-      "method_match": 0.375,
+      "method_match": 0.0,
       "n_method_scored": 8
     },
     "ADV-8": {
       "verdict": "FAIL",
-      "line": "12 items, action_acc=0.25, conf_wrong=0",
+      "line": "12 items, action_acc=0.167, conf_wrong=1",
       "n": 12,
       "n_debatable": 4,
-      "action_acc": 0.25,
-      "label_acc_decided": 1.0,
-      "n_decided": 7,
-      "confidently_wrong": 0,
-      "abstain_recall": 0.3,
+      "action_acc": 0.167,
+      "label_acc_decided": 0.875,
+      "n_decided": 8,
+      "confidently_wrong": 1,
+      "abstain_recall": 0.2,
       "n_expected_abstain": 10,
       "method_match": 0.0,
       "n_method_scored": 2
@@ -5416,149 +5416,155 @@
   },
   "top_failures": [
     {
-      "item_id": 2753,
+      "item_id": 5110,
       "project": "webshop-ui",
-      "archetype": "JAVA-SEL-06",
+      "archetype": "JAVA-SEL-08",
       "scenarios": [
-        "S16"
+        "S15"
       ],
-      "adv_case": "ADV-1",
-      "test_name": "Checkout. Order history. Load recent orders table",
-      "ground_truth": "si",
-      "expected": "auto/si/gbm",
-      "got": "auto/pb/gbm conf=0.80",
-      "reason": "HARD FAIL: auto-labeled pb but truth is si -- confident wrong label"
-    },
-    {
-      "item_id": 2754,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-06",
-      "scenarios": [
-        "S16"
-      ],
-      "adv_case": "ADV-1",
-      "test_name": "Checkout. Order history. Load recent orders table",
-      "ground_truth": "si",
-      "expected": "auto/si/gbm",
-      "got": "auto/pb/gbm conf=0.80",
-      "reason": "HARD FAIL: auto-labeled pb but truth is si -- confident wrong label"
-    },
-    {
-      "item_id": 2755,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-06",
-      "scenarios": [
-        "S16"
-      ],
-      "adv_case": "ADV-1",
-      "test_name": "Checkout. Order history. Load recent orders table",
-      "ground_truth": "si",
-      "expected": "auto/si/gbm",
-      "got": "auto/pb/gbm conf=0.79",
-      "reason": "HARD FAIL: auto-labeled pb but truth is si -- confident wrong label"
-    },
-    {
-      "item_id": 2767,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-09",
-      "scenarios": [
-        "S18"
-      ],
-      "adv_case": "ADV-3",
-      "test_name": "Checkout. Payment. Submit order with saved card",
-      "ground_truth": "ab",
-      "expected": "suggest/ab/gbm",
-      "got": "abstain/ti/gbm conf=0.38",
-      "reason": "expected suggest but abstained -- retrieval found no usable candidate"
-    },
-    {
-      "item_id": 2768,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-09",
-      "scenarios": [
-        "S18"
-      ],
-      "adv_case": "ADV-3",
-      "test_name": "Checkout. Payment. Submit order with saved card",
-      "ground_truth": "ab",
-      "expected": "suggest/ab/gbm",
-      "got": "abstain/ti/gbm conf=0.38",
-      "reason": "expected suggest but abstained -- retrieval found no usable candidate"
-    },
-    {
-      "item_id": 2796,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-15",
-      "scenarios": [
-        "S04"
-      ],
-      "adv_case": "ADV-7",
-      "test_name": "Checkout. Export. Download order history CSV",
+      "adv_case": "ADV-2",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
       "ground_truth": "pb",
-      "expected": "auto/pb/hash",
-      "got": "abstain/ti/gbm conf=0.38",
-      "reason": "action mismatch"
+      "expected": "auto/pb/kb",
+      "got": "auto/ab/gbm conf=0.81",
+      "reason": "HARD FAIL: auto-labeled ab but truth is pb -- confident wrong label"
     },
     {
-      "item_id": 2797,
+      "item_id": 5113,
       "project": "webshop-ui",
-      "archetype": "JAVA-SEL-15",
+      "archetype": "JAVA-SEL-08",
       "scenarios": [
-        "S04"
+        "S15"
       ],
-      "adv_case": "ADV-7",
-      "test_name": "Checkout. Export. Download order history CSV",
+      "adv_case": "ADV-2",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
       "ground_truth": "pb",
-      "expected": "auto/pb/hash",
-      "got": "abstain/ti/gbm conf=0.38",
-      "reason": "action mismatch"
+      "expected": "auto/pb/kb",
+      "got": "auto/ab/gbm conf=0.81",
+      "reason": "HARD FAIL: auto-labeled ab but truth is pb -- confident wrong label"
     },
     {
-      "item_id": 2798,
+      "item_id": 5203,
       "project": "webshop-ui",
-      "archetype": "JAVA-SEL-15",
+      "archetype": "JAVA-SEL-30",
       "scenarios": [
-        "S04"
+        "S07",
+        "S08",
+        "S06",
+        "S39",
+        "S36",
+        "S35",
+        "S02"
       ],
-      "adv_case": "ADV-7",
-      "test_name": "Checkout. Export. Download order history CSV",
-      "ground_truth": "pb",
-      "expected": "auto/pb/hash",
-      "got": "abstain/ti/gbm conf=0.38",
-      "reason": "action mismatch"
-    },
-    {
-      "item_id": 2799,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-16",
-      "scenarios": [
-        "S23"
-      ],
-      "adv_case": "ADV-7",
-      "test_name": "Checkout. Cart. Recalculate total after coupon removal",
+      "adv_case": "ADV-8",
+      "test_name": "Checkout. Ledger. Reconcile ledger after checkout",
       "ground_truth": "ti",
-      "expected": "suggest/pb/gbm",
-      "got": "abstain/ti",
-      "reason": "expected suggest but abstained -- retrieval found no usable candidate"
+      "expected": "abstain/ti",
+      "got": "auto/pb/gbm conf=0.75",
+      "reason": "HARD FAIL: auto-labeled pb but truth is ti -- confident wrong label"
     },
     {
-      "item_id": 2800,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-16",
+      "item_id": 5256,
+      "project": "frontend-apps",
+      "archetype": "TS-PW-01",
       "scenarios": [
-        "S23"
+        "S40"
       ],
-      "adv_case": "ADV-7",
-      "test_name": "Checkout. Cart. Recalculate total after coupon removal",
-      "ground_truth": "ti",
-      "expected": "suggest/pb/gbm",
-      "got": "abstain/ti",
-      "reason": "expected suggest but abstained -- retrieval found no usable candidate"
+      "adv_case": null,
+      "test_name": "storefront/product-grid.spec.ts \u203a Product grid \u203a lazy-loads the next page of results",
+      "ground_truth": "nd",
+      "expected": "suggest/nd/rule_cold",
+      "got": "auto/si/gbm conf=0.81",
+      "reason": "HARD FAIL: auto-labeled si but truth is nd -- confident wrong label"
+    },
+    {
+      "item_id": 5257,
+      "project": "frontend-apps",
+      "archetype": "TS-PW-01",
+      "scenarios": [
+        "S40"
+      ],
+      "adv_case": null,
+      "test_name": "storefront/mini-cart.spec.ts \u203a Mini cart \u203a shows the item-count badge after add-to-cart",
+      "ground_truth": "nd",
+      "expected": "suggest/nd/rule_cold",
+      "got": "auto/si/gbm conf=0.95",
+      "reason": "HARD FAIL: auto-labeled si but truth is nd -- confident wrong label"
+    },
+    {
+      "item_id": 5100,
+      "project": "webshop-ui",
+      "archetype": "JAVA-SEL-05",
+      "scenarios": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "ground_truth": "pb",
+      "expected": "auto/pb/gbm",
+      "got": "suggest/si/gbm conf=0.45",
+      "reason": "expected auto-inherit but only suggested -- history/hash signal weaker than spec assumes"
+    },
+    {
+      "item_id": 5101,
+      "project": "webshop-ui",
+      "archetype": "JAVA-SEL-05",
+      "scenarios": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "ground_truth": "pb",
+      "expected": "auto/pb/gbm",
+      "got": "suggest/si/gbm conf=0.45",
+      "reason": "expected auto-inherit but only suggested -- history/hash signal weaker than spec assumes"
+    },
+    {
+      "item_id": 5102,
+      "project": "webshop-ui",
+      "archetype": "JAVA-SEL-05",
+      "scenarios": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "ground_truth": "pb",
+      "expected": "auto/pb/gbm",
+      "got": "suggest/si/gbm conf=0.45",
+      "reason": "expected auto-inherit but only suggested -- history/hash signal weaker than spec assumes"
+    },
+    {
+      "item_id": 5103,
+      "project": "webshop-ui",
+      "archetype": "JAVA-SEL-06",
+      "scenarios": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "ground_truth": "si",
+      "expected": "auto/si/gbm",
+      "got": "suggest/si/gbm conf=0.45",
+      "reason": "expected auto-inherit but only suggested -- history/hash signal weaker than spec assumes"
+    },
+    {
+      "item_id": 5104,
+      "project": "webshop-ui",
+      "archetype": "JAVA-SEL-06",
+      "scenarios": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "ground_truth": "si",
+      "expected": "auto/si/gbm",
+      "got": "suggest/si/gbm conf=0.45",
+      "reason": "expected auto-inherit but only suggested -- history/hash signal weaker than spec assumes"
     }
   ],
   "debatable": [
     {
-      "item_id": 2776,
+      "item_id": 5126,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "scenarios": [
@@ -5568,11 +5574,11 @@
       "test_name": "Checkout. Cart. Apply percentage discount to cart",
       "ground_truth": "pb",
       "expected": "suggest/pb/gbm",
-      "got": "auto/pb/hash conf=0.95",
+      "got": "auto/pb/gbm conf=0.95",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2777,
+      "item_id": 5127,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "scenarios": [
@@ -5586,7 +5592,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2778,
+      "item_id": 5128,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "scenarios": [
@@ -5596,11 +5602,11 @@
       "test_name": "Checkout. Cart. Apply percentage discount to cart",
       "ground_truth": "pb",
       "expected": "suggest/pb/gbm",
-      "got": "auto/pb/hash conf=0.95",
+      "got": "auto/pb/gbm conf=0.95",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2779,
+      "item_id": 5129,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "scenarios": [
@@ -5614,7 +5620,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2780,
+      "item_id": 5130,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "scenarios": [
@@ -5624,11 +5630,11 @@
       "test_name": "Checkout. Cart. Apply percentage discount to cart",
       "ground_truth": "pb",
       "expected": "suggest/pb/gbm",
-      "got": "auto/pb/hash conf=0.95",
+      "got": "auto/pb/gbm conf=0.95",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2781,
+      "item_id": 5131,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "scenarios": [
@@ -5642,7 +5648,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2782,
+      "item_id": 5132,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "scenarios": [
@@ -5652,11 +5658,11 @@
       "test_name": "Checkout. Cart. Apply percentage discount to cart",
       "ground_truth": "pb",
       "expected": "suggest/pb/gbm",
-      "got": "auto/pb/hash conf=0.95",
+      "got": "auto/pb/gbm conf=0.95",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2783,
+      "item_id": 5133,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "scenarios": [
@@ -5670,7 +5676,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2784,
+      "item_id": 5134,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "scenarios": [
@@ -5680,11 +5686,11 @@
       "test_name": "Checkout. Cart. Apply percentage discount to cart",
       "ground_truth": "pb",
       "expected": "suggest/pb/gbm",
-      "got": "auto/pb/hash conf=0.95",
+      "got": "auto/pb/gbm conf=0.95",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2785,
+      "item_id": 5135,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "scenarios": [
@@ -5698,7 +5704,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2786,
+      "item_id": 5136,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "scenarios": [
@@ -5708,11 +5714,11 @@
       "test_name": "Checkout. Cart. Apply percentage discount to cart",
       "ground_truth": "pb",
       "expected": "suggest/pb/gbm",
-      "got": "auto/pb/hash conf=0.95",
+      "got": "auto/pb/gbm conf=0.95",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2787,
+      "item_id": 5137,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-12",
       "scenarios": [
@@ -5726,7 +5732,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2801,
+      "item_id": 5151,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-16",
       "scenarios": [
@@ -5740,7 +5746,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2802,
+      "item_id": 5152,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-16",
       "scenarios": [
@@ -5754,7 +5760,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2803,
+      "item_id": 5153,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-17",
       "scenarios": [
@@ -5768,7 +5774,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2804,
+      "item_id": 5154,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-17",
       "scenarios": [
@@ -5782,7 +5788,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2805,
+      "item_id": 5155,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-17",
       "scenarios": [
@@ -5796,7 +5802,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2806,
+      "item_id": 5156,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-18",
       "scenarios": [
@@ -5810,7 +5816,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2807,
+      "item_id": 5157,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-18",
       "scenarios": [
@@ -5824,7 +5830,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2809,
+      "item_id": 5159,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-18",
       "scenarios": [
@@ -5838,7 +5844,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2810,
+      "item_id": 5160,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-18",
       "scenarios": [
@@ -5852,7 +5858,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2812,
+      "item_id": 5162,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "scenarios": [
@@ -5867,7 +5873,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2813,
+      "item_id": 5163,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "scenarios": [
@@ -5882,7 +5888,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2814,
+      "item_id": 5164,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "scenarios": [
@@ -5897,7 +5903,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2815,
+      "item_id": 5165,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "scenarios": [
@@ -5912,7 +5918,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2816,
+      "item_id": 5166,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "scenarios": [
@@ -5927,7 +5933,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2817,
+      "item_id": 5167,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "scenarios": [
@@ -5942,7 +5948,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2818,
+      "item_id": 5168,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "scenarios": [
@@ -5957,7 +5963,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2819,
+      "item_id": 5169,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-19",
       "scenarios": [
@@ -5972,7 +5978,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2824,
+      "item_id": 5174,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-21",
       "scenarios": [
@@ -5982,11 +5988,11 @@
       "test_name": "Checkout. Totals. Localized grand total for RTL storefront",
       "ground_truth": "pb",
       "expected": "suggest/pb/gbm",
-      "got": "auto/pb/rule_cold conf=0.95",
+      "got": "auto/pb/hash conf=0.95",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2825,
+      "item_id": 5175,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-21",
       "scenarios": [
@@ -5996,11 +6002,11 @@
       "test_name": "Checkout. Totals. Localized grand total for RTL storefront",
       "ground_truth": "pb",
       "expected": "suggest/pb/gbm",
-      "got": "auto/pb/rule_cold conf=0.95",
+      "got": "auto/pb/hash conf=0.95",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2826,
+      "item_id": 5176,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-22",
       "scenarios": [
@@ -6014,7 +6020,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2827,
+      "item_id": 5177,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-22",
       "scenarios": [
@@ -6028,7 +6034,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2828,
+      "item_id": 5178,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-22",
       "scenarios": [
@@ -6042,7 +6048,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2829,
+      "item_id": 5179,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-22",
       "scenarios": [
@@ -6056,7 +6062,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2834,
+      "item_id": 5184,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-24",
       "scenarios": [
@@ -6070,7 +6076,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2835,
+      "item_id": 5185,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-24",
       "scenarios": [
@@ -6084,7 +6090,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2836,
+      "item_id": 5186,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-24",
       "scenarios": [
@@ -6098,7 +6104,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2837,
+      "item_id": 5187,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-25",
       "scenarios": [
@@ -6112,7 +6118,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2838,
+      "item_id": 5188,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-25",
       "scenarios": [
@@ -6126,7 +6132,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2839,
+      "item_id": 5189,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-26",
       "scenarios": [
@@ -6140,7 +6146,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2840,
+      "item_id": 5190,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-26",
       "scenarios": [
@@ -6154,7 +6160,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2841,
+      "item_id": 5191,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-27",
       "scenarios": [
@@ -6169,7 +6175,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2842,
+      "item_id": 5192,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-27",
       "scenarios": [
@@ -6184,21 +6190,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2843,
-      "project": "webshop-ui",
-      "archetype": "JAVA-SEL-28",
-      "scenarios": [
-        "S11"
-      ],
-      "adv_case": "ADV-1",
-      "test_name": "Checkout. Export. Legacy PDF invoice download",
-      "ground_truth": "pb",
-      "expected": "suggest/pb/gbm",
-      "got": "auto/pb/hash conf=0.95",
-      "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
-    },
-    {
-      "item_id": 2844,
+      "item_id": 5194,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-29",
       "scenarios": [
@@ -6212,7 +6204,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2845,
+      "item_id": 5195,
       "project": "webshop-ui",
       "archetype": "JAVA-SEL-29",
       "scenarios": [
@@ -6226,21 +6218,21 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2862,
+      "item_id": 5213,
       "project": "payments-services",
       "archetype": "NET-XUN-02",
       "scenarios": [
         "S18"
       ],
       "adv_case": "ADV-3",
-      "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_MinorUnits_Returns201",
+      "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_SameCurrency_Returns201",
       "ground_truth": "pb",
       "expected": "suggest/pb/gbm",
       "got": "auto/pb/hash conf=0.95",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2864,
+      "item_id": 5214,
       "project": "payments-services",
       "archetype": "NET-XUN-02",
       "scenarios": [
@@ -6250,11 +6242,11 @@
       "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_CrossCurrency_Returns201",
       "ground_truth": "pb",
       "expected": "suggest/pb/gbm",
-      "got": "auto/pb/hash conf=0.95",
+      "got": "auto/pb/gbm conf=0.75",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2865,
+      "item_id": 5215,
       "project": "payments-services",
       "archetype": "NET-XUN-03",
       "scenarios": [
@@ -6268,7 +6260,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2866,
+      "item_id": 5216,
       "project": "payments-services",
       "archetype": "NET-XUN-03",
       "scenarios": [
@@ -6278,25 +6270,11 @@
       "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_SameCurrency_Returns201",
       "ground_truth": "si",
       "expected": "suggest/si/gbm",
-      "got": "auto/si/hash conf=0.95",
+      "got": "auto/si/rule_cold conf=0.95",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2867,
-      "project": "payments-services",
-      "archetype": "NET-XUN-03",
-      "scenarios": [
-        "S18"
-      ],
-      "adv_case": "ADV-3",
-      "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_CrossCurrency_Returns201",
-      "ground_truth": "si",
-      "expected": "suggest/si/gbm",
-      "got": "auto/si/hash conf=0.95",
-      "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
-    },
-    {
-      "item_id": 2868,
+      "item_id": 5218,
       "project": "payments-services",
       "archetype": "NET-XUN-04",
       "scenarios": [
@@ -6310,7 +6288,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2869,
+      "item_id": 5219,
       "project": "payments-services",
       "archetype": "NET-XUN-04",
       "scenarios": [
@@ -6324,7 +6302,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2870,
+      "item_id": 5220,
       "project": "payments-services",
       "archetype": "NET-XUN-04",
       "scenarios": [
@@ -6338,7 +6316,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2874,
+      "item_id": 5224,
       "project": "payments-services",
       "archetype": "NET-XUN-07",
       "scenarios": [
@@ -6352,7 +6330,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2875,
+      "item_id": 5225,
       "project": "payments-services",
       "archetype": "NET-XUN-08",
       "scenarios": [
@@ -6366,7 +6344,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2876,
+      "item_id": 5226,
       "project": "payments-services",
       "archetype": "NET-XUN-08",
       "scenarios": [
@@ -6380,7 +6358,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2877,
+      "item_id": 5227,
       "project": "payments-services",
       "archetype": "NET-XUN-08",
       "scenarios": [
@@ -6394,7 +6372,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2878,
+      "item_id": 5228,
       "project": "payments-services",
       "archetype": "NET-XUN-10",
       "scenarios": [
@@ -6408,7 +6386,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2879,
+      "item_id": 5229,
       "project": "payments-services",
       "archetype": "NET-XUN-10",
       "scenarios": [
@@ -6422,7 +6400,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2880,
+      "item_id": 5230,
       "project": "payments-services",
       "archetype": "NET-XUN-10",
       "scenarios": [
@@ -6436,7 +6414,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2881,
+      "item_id": 5231,
       "project": "payments-services",
       "archetype": "NET-XUN-11",
       "scenarios": [
@@ -6446,11 +6424,11 @@
       "test_name": "Hawkins.Payments.Api.Tests.PaymentStatusTests.Get_Status_ReturnsSettled",
       "ground_truth": "pb",
       "expected": "suggest/pb/gbm",
-      "got": "auto/pb/gbm conf=1.00",
+      "got": "auto/pb/hash conf=0.95",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2882,
+      "item_id": 5232,
       "project": "payments-services",
       "archetype": "NET-XUN-11",
       "scenarios": [
@@ -6460,11 +6438,11 @@
       "test_name": "Hawkins.Payments.Api.Tests.PaymentStatusTests.Get_Status_ReturnsSettled",
       "ground_truth": "pb",
       "expected": "suggest/pb/gbm",
-      "got": "auto/pb/rule_cold conf=0.95",
+      "got": "auto/pb/gbm conf=0.81",
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2884,
+      "item_id": 5233,
       "project": "payments-services",
       "archetype": "NET-XUN-12",
       "scenarios": [
@@ -6478,7 +6456,21 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2897,
+      "item_id": 5234,
+      "project": "payments-services",
+      "archetype": "NET-XUN-12",
+      "scenarios": [
+        "S22"
+      ],
+      "adv_case": "ADV-5",
+      "test_name": "Hawkins.Payments.Events.Tests.SettlementConsumerTests.Consume_SettlementEvent_UpdatesLedger",
+      "ground_truth": "si",
+      "expected": "suggest/si/gbm",
+      "got": "auto/si/hash conf=0.95",
+      "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
+    },
+    {
+      "item_id": 5247,
       "project": "payments-services",
       "archetype": "NET-XUN-16",
       "scenarios": [
@@ -6493,7 +6485,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2898,
+      "item_id": 5248,
       "project": "payments-services",
       "archetype": "NET-XUN-16",
       "scenarios": [
@@ -6508,7 +6500,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2899,
+      "item_id": 5249,
       "project": "payments-services",
       "archetype": "NET-XUN-16",
       "scenarios": [
@@ -6523,7 +6515,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2900,
+      "item_id": 5250,
       "project": "payments-services",
       "archetype": "NET-XUN-16",
       "scenarios": [
@@ -6538,7 +6530,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2901,
+      "item_id": 5251,
       "project": "payments-services",
       "archetype": "NET-XUN-16",
       "scenarios": [
@@ -6553,7 +6545,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2902,
+      "item_id": 5252,
       "project": "payments-services",
       "archetype": "NET-XUN-16",
       "scenarios": [
@@ -6568,7 +6560,7 @@
       "reason": "spec expected suggest; analyzer auto-labeled the CORRECT label (post-replay history richer than the spec's suggest assumption)"
     },
     {
-      "item_id": 2908,
+      "item_id": 5258,
       "project": "frontend-apps",
       "archetype": "TS-PW-01",
       "scenarios": [
