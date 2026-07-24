@@ -428,7 +428,11 @@ def is_line_from_stacktrace(text: str) -> bool:
         return False
 
     res = re.sub(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d+)", "", text)
-    res = re.sub(r"(?<=:)\d+(?=\)?]?(\n|$))", " ", res)
+    # Trailing ":<n>" only reads as a "<file>:<lineno>" frame marker when the colon
+    # follows a filename/identifier char. A bare "<digit>:<digit>" is a line:column
+    # position (e.g. Newman's "at 1:1"), not a frame, so require a non-digit,
+    # non-space char before the colon.
+    res = re.sub(r"(?<=[^\s\d]:)\d+(?=\)?]?(\n|$))", " ", res)
     if res != text:
         return True
     res = re.sub(r"line\s*\d+\s*(?:(?=, in)|(?=,in)|(?=\n)|(?=$))", "line ", res, flags=re.I)

@@ -218,6 +218,25 @@ def test_detect_log_description_and_stacktrace_splits_java():
     assert "com.example.Foo.bar" in stack
 
 
+def test_is_line_from_stacktrace_ignores_line_column_position():
+    # Newman/JS report a parse error position as "at <line>:<col>". The trailing
+    # ":1" (a column) must NOT be mistaken for a ":<lineno>" frame marker, or the
+    # informative line is shunted into the stacktrace half and lost from the
+    # signature (leaving only the useless "<html>" fragment behind).
+    assert not tp.is_line_from_stacktrace("Unexpected token '<' at 1:1")
+    # Real file:line frames must still be detected.
+    assert tp.is_line_from_stacktrace("\tat com.example.Foo.bar(Foo.java:42)")
+
+
+def test_detect_log_description_keeps_newman_json_parse_message():
+    # RP/Postman failure: the endpoint returned HTML instead of JSON, so Newman's
+    # JSON parser fails. The descriptive first line must stay in the description
+    # so the failure signature is meaningful (not just "<html>").
+    log = "Unexpected token '<' at 1:1\n<html>\n^"
+    msg, _stack = tp.detect_log_description_and_stacktrace(log)
+    assert "Unexpected token" in msg
+
+
 def test_preprocess_test_item_name_camel_split():
     out = tp.preprocess_test_item_name("MyClass.shouldDoThing_case")
     assert "should" in out.lower().split()
