@@ -189,9 +189,7 @@ def _rpc(
         channel.basic_publish(
             exchange=exchange,
             routing_key=routing_key,
-            properties=pika.BasicProperties(
-                reply_to=reply_queue, correlation_id=correlation_id
-            ),
+            properties=pika.BasicProperties(reply_to=reply_queue, correlation_id=correlation_id),
             body=body,
         )
         deadline = time.monotonic() + timeout
@@ -231,9 +229,7 @@ def rp_service(
 # --------------------------------------------------------------------------- #
 def test_index_round_trips_to_schema_valid_bulk_response(rp_service: ServiceHandle) -> None:
     launches = _load_fixture("rp_index_launches.json")
-    reply, _ = _rpc(
-        rp_service.params, rp_service.exchange, "index", json.dumps(launches).encode()
-    )
+    reply, _ = _rpc(rp_service.params, rp_service.exchange, "index", json.dumps(launches).encode())
     parsed = json.loads(reply)
     # Legacy wire shape: a single BulkResponse object (model_dump_json).
     assert isinstance(parsed, dict)
@@ -264,9 +260,7 @@ def test_analyze_round_trips_to_json_array_of_results(rp_service: ServiceHandle)
 
 def test_suggest_round_trips_to_json_array_of_suggestions(rp_service: ServiceHandle) -> None:
     info = _load_fixture("rp_suggest_test_item_info.json")
-    reply, _ = _rpc(
-        rp_service.params, rp_service.exchange, "suggest", json.dumps(info).encode()
-    )
+    reply, _ = _rpc(rp_service.params, rp_service.exchange, "suggest", json.dumps(info).encode())
     parsed = json.loads(reply)
     # Legacy wire shape: a JSON array of SuggestAnalysisResult dumps (empty in
     # Phase 1). Any present element must expose ALL UI-required legacy fields.
@@ -286,9 +280,7 @@ def test_suggest_round_trips_to_json_array_of_suggestions(rp_service: ServiceHan
 
 def test_delete_round_trips_to_stringified_count(rp_service: ServiceHandle) -> None:
     project = _load_fixture("rp_delete_project.json")  # raw JSON number (project id)
-    reply, _ = _rpc(
-        rp_service.params, rp_service.exchange, "delete", json.dumps(project).encode()
-    )
+    reply, _ = _rpc(rp_service.params, rp_service.exchange, "delete", json.dumps(project).encode())
     # Legacy wire shape: a plain stringified int (count of affected entities).
     text = reply.decode()
     assert text == str(int(text))  # a base-10 integer literal, no envelope
@@ -315,9 +307,7 @@ def test_defect_update_round_trips_to_json_int_list(rp_service: ServiceHandle) -
 # --------------------------------------------------------------------------- #
 # 3. 406 redeclare fallback (spec 01 §3.2).
 # --------------------------------------------------------------------------- #
-def _predeclare_conflicting_exchange(
-    params: pika.ConnectionParameters, exchange: str
-) -> None:
+def _predeclare_conflicting_exchange(params: pika.ConnectionParameters, exchange: str) -> None:
     """Declare ``exchange`` with a conflicting type BEFORE the service starts.
 
     Only the ``type`` differs from the service's declaration (durable/auto_delete
@@ -449,7 +439,7 @@ def test_bootstrap_and_migrate_on_cold_db_applies_initial_schema(
     fresh_dsn = _dsn_for_db(base_dsn, dbname)
     try:
         applied = bootstrap_and_migrate(fresh_dsn, create_db=True, attempts=5, delay=0.2)
-        assert applied == [1, 2, 3, 4, 5]
+        assert applied == [1, 2, 3, 4, 5, 6, 7, 8]
         # Idempotent restart applies nothing further.
         assert bootstrap_and_migrate(fresh_dsn, create_db=True, attempts=5, delay=0.2) == []
     finally:

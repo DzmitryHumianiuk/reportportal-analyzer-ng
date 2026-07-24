@@ -60,6 +60,9 @@ analyzer_ng = ["seeds/*.yaml", "seeds/*.json", "db/migrations/*.sql", "db/bootst
 line-length = 100
 target-version = "py312"
 src = ["src", "tests", "inspector"]
+# demo-data holds dev-only corpus generators, scoring and demo scripts, not part
+# of the shipped package. Keep them out of lint/format (mypy already only checks src).
+extend-exclude = ["demo-data"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B"]
@@ -67,11 +70,11 @@ select = ["E", "F", "I", "W", "UP", "B"]
 [tool.mypy]
 python_version = "3.12"
 
-# pika ships no type stubs or py.typed marker; silence import-untyped for it
-# (it is a deliberate dependency choice — spec 01 §2.1). All first-party code and
-# other deps remain fully type-checked.
+# These third-party packages ship no type stubs or py.typed marker; silence
+# import-untyped for them (deliberate dependency choices — spec 01 §2.1). All
+# first-party code and other deps remain fully type-checked.
 [[tool.mypy.overrides]]
-module = ["pika.*", "yaml"]
+module = ["pika.*", "yaml", "sklearn.*", "drain3.*", "onnxruntime", "scipy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

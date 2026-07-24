@@ -244,6 +244,7 @@ class AnalysisEngine:
 
         out: list[AnalysisResult] = []
         for group in groups:
+            assert group.representative is not None  # grouping always sets a representative
             rep = by_id[group.representative.item_id]
             decision, mode_match = self._decide(
                 project, scope_q, analyzer_mode, rep, group, total_failures, route="analyze"
@@ -404,8 +405,7 @@ class AnalysisEngine:
         or reorder a grounded suggestion.
         """
         if any(
-            r.matchScore >= TAU_SUGGEST * 100 and _row_provenance(r) != "unlabeled"
-            for r in out
+            r.matchScore >= TAU_SUGGEST * 100 and _row_provenance(r) != "unlabeled" for r in out
         ):
             return out
         return [*out, *self._rubric_provisional_suggestions(info, rep, elapsed)]
@@ -478,6 +478,7 @@ class AnalysisEngine:
 
         clusters: list[ClusterInfo] = []
         for group in groups:
+            assert group.representative is not None  # grouping always sets a representative
             rep = by_id[group.representative.item_id]
             cluster_id = self._cluster_id(
                 project, launch.launchId, group.representative.error_hash, info.forUpdate
@@ -779,7 +780,9 @@ class AnalysisEngine:
         )
         items = [c for c in cands if c.item_id is not None]
         # Enrich with launch_name for name-based scope (single batched lookup).
-        names = self.retrieval.item_launch_names(project, [c.item_id for c in items])  # type: ignore[arg-type]
+        names = self.retrieval.item_launch_names(
+            project, [c.item_id for c in items if c.item_id is not None]
+        )
         scored: list[tuple[float, Candidate]] = []
         for c in items:
             sc = scope.ScopeCandidate(
@@ -1082,8 +1085,7 @@ class AnalysisEngine:
             return []
 
         candidates = [
-            c for c in self._suggestion_candidates(decision, stage_c)
-            if min(1.0, c[2]) >= floor
+            c for c in self._suggestion_candidates(decision, stage_c) if min(1.0, c[2]) >= floor
         ]
         if not candidates:
             return []
@@ -1100,9 +1102,7 @@ class AnalysisEngine:
         below_cap = max(0, min(self.suggest_below_max, SUGGEST_BELOW_MAX_CAP))
         real_all = [c for c in candidates if min(1.0, c[2]) >= TAU_SUGGEST]
         real = real_all[: self.suggest_max]
-        below = (
-            [c for c in candidates if min(1.0, c[2]) < TAU_SUGGEST] if below_on else []
-        )
+        below = [c for c in candidates if min(1.0, c[2]) < TAU_SUGGEST] if below_on else []
         # A gbm_below_suggest abstain IS the "looked at these and said no" case,
         # but it lives on the CALIBRATED scale (decision.confidence = calibrated
         # p*), not the cosine scale (e5 cosines rarely dip under ~0.85 in-domain)
@@ -1130,7 +1130,9 @@ class AnalysisEngine:
                 ),
                 None,
             )
-            if cand is not None:
+            # The generator above already filters item_id/issue_type non-None; restate
+            # for the type checker so the tuple below is (str, int, ...).
+            if cand is not None and cand.item_id is not None and cand.issue_type is not None:
                 below.append(
                     (
                         cand.issue_type,
@@ -1166,9 +1168,7 @@ class AnalysisEngine:
         method = "auto_analysis" if decision.action == ACTION_AUTO else "suggestion"
         decline_why = _DECLINE_NARRATION.get(decision.abstain_reason or "")
         out: list[SuggestAnalysisResult] = []
-        for rank, (issue_type, rel_item, score, es_score, provenance) in enumerate(
-            [*real, *below]
-        ):
+        for rank, (issue_type, rel_item, score, es_score, provenance) in enumerate([*real, *below]):
             band = self._row_band(decision, rel_item, min(1.0, score))
             # conf= rides only on the decision's own calibrated answer (the row the
             # non-abstain decision actually chose — never a mere stage-C neighbour);

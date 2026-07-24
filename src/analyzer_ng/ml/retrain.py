@@ -116,6 +116,10 @@ class Retrainer:
         # cannot lock the window; this short cooldown is the only thing that throttles a
         # hot-looping failure, and it is cleared the moment an attempt ships.
         self._last_failed_attempt_at: datetime | None = None
+        # Whether that last failure was a cold no-data skip (True) vs a gate rejection
+        # (False). A cold marker throttles only the automatic events trigger; a rejection
+        # (expensive fetch+train) throttles every reason. See the cooldown check below.
+        self._last_failed_was_cold = False
 
     def maybe_retrain(
         self, *, reason: str = REASON_EVENTS, now: datetime | None = None
@@ -137,16 +141,20 @@ class Retrainer:
             # out retraining" trap where the clock counted rejected candidates too).
             if shipped_at is not None and (now - shipped_at) < self._min_interval:
                 return RetrainOutcome(STATUS_SKIPPED, "debounced")
-            # Secondary safeguard: a short cooldown after any non-shipping attempt so a
-            # failing trigger cannot hot-loop fetch+train on every message. Unlike the old
-            # events-only throttle this applies to every reason (route/nightly included),
-            # but it is far shorter than the primary window, so a legitimate retry still
-            # lands quickly once conditions change (still honours live-fix Bug 2: a route
-            # publish is swallowed for at most FAILED_ATTEMPT_COOLDOWN, never a full hour).
-            if (
+            # Secondary safeguard: a short cooldown after a non-shipping attempt so a
+            # failing trigger cannot hot-loop fetch+train on every message. What it gates
+            # depends on WHY the last attempt failed:
+            #   * gate rejection (a real candidate trained, then rejected — expensive) →
+            #     throttles every reason until the cooldown elapses;
+            #   * cold no-data skip → throttles only the automatic events trigger (spares
+            #     AMQP-worker thrash on feedback), never an explicit train_models (route)
+            #     or the nightly job — those are deliberate and must ship as soon as data
+            #     exists (live-fix Bug 2), not wait out a cold attempt's cooldown.
+            in_cooldown = (
                 self._last_failed_attempt_at is not None
                 and (now - self._last_failed_attempt_at) < self._failed_cooldown
-            ):
+            )
+            if in_cooldown and not (self._last_failed_was_cold and reason != REASON_EVENTS):
                 return RetrainOutcome(STATUS_SKIPPED, "debounced")
             if reason == REASON_EVENTS and shipped_at is not None:
                 new_events = self._labels.count_events_since(shipped_at)
@@ -157,9 +165,15 @@ class Retrainer:
             except TrainingError as exc:
                 logger.info("retrain skipped (cold): %s", exc)
                 self._last_failed_attempt_at = now
+                self._last_failed_was_cold = True
                 return RetrainOutcome(STATUS_SKIPPED, "cold")
-            # Clear the cooldown on a real ship; a gate rejection (STATUS_SKIPPED) arms it.
-            self._last_failed_attempt_at = None if outcome.shipped else now
+            # Clear the cooldown on a real ship; a gate rejection (STATUS_SKIPPED) arms it
+            # as a non-cold failure (throttles every reason, not just events).
+            if outcome.shipped:
+                self._last_failed_attempt_at = None
+            else:
+                self._last_failed_attempt_at = now
+                self._last_failed_was_cold = False
             return outcome
 
     def retrain(self, *, reason: str = REASON_ROUTE, now: datetime | None = None) -> RetrainOutcome:

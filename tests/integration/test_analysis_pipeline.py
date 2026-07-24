@@ -38,6 +38,7 @@ from analyzer_ng.amqp.models import (
 )
 from analyzer_ng.amqp.models import TestItem as RPItem
 from analyzer_ng.amqp.models import TestItemInfo as RPItemInfo
+from analyzer_ng.core.features import feature_names
 from analyzer_ng.core.handlers import PipelineHandlers
 from analyzer_ng.db.repositories.kb import PgKBStore
 from analyzer_ng.db.startup import bootstrap_and_migrate
@@ -231,9 +232,10 @@ def test_g2_suggestions_written_with_features_and_launch_groups(db_factory) -> N
         ).fetchall()
         assert len(sug) == 7
         for _iid, _label, _conf, features, model_ver, group_id in sug:
-            # 39 classical (spec 03 §6.4) + 2 LLM-extractor (spec 04 §4.2)
-            # + 4 discriminant-agreement columns (2026-07-18 errata).
-            assert len(features) == 45  # full feature snapshot (training reads these)
+            # Full feature snapshot: every column the current FEATURES registry
+            # defines (training reads these). Pinned to the registry so adding a
+            # feature does not silently shrink what the suggestion row persists.
+            assert len(features) == len(feature_names())
             assert model_ver.startswith("rule_cold")
             assert group_id is not None
 
@@ -369,8 +371,7 @@ def test_suggest_abstain_still_writes_suggestion_row(db_factory) -> None:
     assert handlers.suggest(info) == []
     with pool.connection() as conn:
         row = conn.execute(
-            "SELECT predicted_label FROM analyzer.suggestion "
-            "WHERE project_id=%s AND item_id=888",
+            "SELECT predicted_label FROM analyzer.suggestion WHERE project_id=%s AND item_id=888",
             (PROJECT,),
         ).fetchone()
     assert row is not None, "abstained suggest must persist a suggestion row (spec 03 §6.6)"
@@ -389,8 +390,11 @@ def _mode_row(pool: ConnectionPool, seed_key: str) -> dict:
         ).fetchone()
     assert row is not None, f"seed mode {seed_key} not created"
     return {
-        "mode_id": row[0], "purity": row[1], "support": row[2],
-        "has_centroid": row[3], "emb_model_ver": row[4],
+        "mode_id": row[0],
+        "purity": row[1],
+        "support": row[2],
+        "has_centroid": row[3],
+        "emb_model_ver": row[4],
     }
 
 

@@ -25,6 +25,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import cast
 
 from analyzer_ng.core.features import FEATURE_SCHEMA_VER
 from analyzer_ng.ml.artifacts import KIND_GBM, ArtifactSpec, ModelStore
@@ -206,7 +207,8 @@ def run_gate(
     if active_calibrator is _REFIT_ACTIVE_CALIBRATOR:
         act_cal = _fit_scoring_calibrator(active, train_events)
     else:
-        act_cal = active_calibrator  # score the active AS SHIPPED (real calibrator or raw)
+        # Not the sentinel: a real calibrator or None passed by the caller.
+        act_cal = cast("IsotonicCalibrator | None", active_calibrator)  # score AS SHIPPED
     act_report = evaluate(active, eval_events, act_cal)
     return passes_gate(cand_report, act_report)
 

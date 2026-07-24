@@ -145,7 +145,11 @@ class AnalyzerService:
         one — the surfacing half of live-fix Bug 2 (Finding #2: "gbm_model_ver stays
         null"). Falls back to the constructor-injected value for store-less configs."""
         handlers = getattr(self, "_handlers", None)
-        live = handlers.gbm_version() if hasattr(handlers, "gbm_version") else None
+        live = (
+            handlers.gbm_version()
+            if handlers is not None and hasattr(handlers, "gbm_version")
+            else None
+        )
         return live or self._gbm_model_ver_injected
 
     def _next_seq(self) -> int:

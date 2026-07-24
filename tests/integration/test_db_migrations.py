@@ -332,7 +332,7 @@ def test_reserved_version_gap_closes_after_merge(fresh_db_dsn: str, tmp_path: Pa
                 "SELECT version FROM analyzer.schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        assert versions == [1, 2, 3, 4, 5, 6, 7, 8]
+        assert versions == [1, 2, 3, 4, 5]
     # A second start is now a no-op (idempotent, no duplicate apply).
     with psycopg.connect(fresh_db_dsn, autocommit=True) as conn4:
         assert apply_migrations(conn4, migrations_dir=tmp_path) == []

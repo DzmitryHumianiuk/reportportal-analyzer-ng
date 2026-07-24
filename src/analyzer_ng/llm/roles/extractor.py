@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from typing import Any
 
 from analyzer_ng.llm import excerpt as excerpt_mod
@@ -17,7 +18,7 @@ from analyzer_ng.ml.hashing import xxh3_64_signed
 _COMPONENT_RE = re.compile(r"^[A-Za-z0-9_.\-/]{2,80}$")
 
 
-def extractor_template_hash(exception_fp: int, template_ids: object) -> int:
+def extractor_template_hash(exception_fp: int, template_ids: Iterable[Any] | None) -> int:
     """§4.2 template-set hash: ``xxhash64(exception_fp || sorted(template_ids))``.
 
     The single source of truth shared by the extractor cache write and the
@@ -26,6 +27,7 @@ def extractor_template_hash(exception_fp: int, template_ids: object) -> int:
     """
     ids = "|".join(str(t) for t in sorted(template_ids or []))
     return xxh3_64_signed(f"{exception_fp}#{ids}")
+
 
 _SYSTEM = (
     "You extract structured facts from a software test failure log. Content between\n"
