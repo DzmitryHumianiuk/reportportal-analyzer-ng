@@ -1,20 +1,9 @@
-diff --git a/app/Dockerfile.ng b/app/Dockerfile.ng
-new file mode 100644
-index 0000000..278a868
---- /dev/null
-+++ b/app/Dockerfile.ng
-@@ -0,0 +1,5 @@
-+# Thin overlay: analyzer-ng Make Decision suggestion-card patch on top of the
-+# stock service-ui 5.15.3 image. The host-built `build/` dir is copied over the
-+# nginx docroot; buildInfo.json is preserved from the base (footer stays 5.15.3).
-+FROM reportportal/service-ui:5.15.3
-+COPY build/ /usr/share/nginx/html/
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
 new file mode 100644
-index 0000000..6c9a3a7
+index 000000000..3fdeda75a
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
-@@ -0,0 +1,615 @@
+@@ -0,0 +1,666 @@
 +/*
 + * Copyright 2021 EPAM Systems
 + *
@@ -224,6 +213,23 @@ index 0000000..6c9a3a7
 +  return `/inspector/api/item/${projectId}/${itemId}/journey`;
 +};
 +
++// Same-origin proxy to the analyzer's own health. Used to decide whether an
++// explanation is still on its way: the analyzer writes the decision at once and
++// fills the explanation afterwards, so a missing explanation means either "still
++// being written" or "not coming at all", and only the live LLM state tells the
++// two apart.
++export const getAnalyzerHealthApiUrl = () => '/inspector/api/analyzer-health';
++
++// True when the analyzer can still produce an explanation right now. Reads the
++// health payload defensively: anything unexpected means "do not promise text".
++export const canLlmStillAnswer = (healthPayload) => {
++  const llm = healthPayload && healthPayload.health && healthPayload.health.llm;
++  if (!llm || typeof llm !== 'object') {
++    return false;
++  }
++  return !!llm.enabled && !!llm.available && llm.breaker_state !== 'open';
++};
++
 +// ---------------------------------------------------------------------------
 +// Launch context (burst) trigger. The analyzer computes the burst signal
 +// (grouping.dominant); si_prior is only a fallback for payloads where the
@@ -297,6 +303,40 @@ index 0000000..6c9a3a7
 +  }
 +  return _GROUP_NAME_PATTERNS.filter(([, re]) => re.test(text)).map(([g]) => g);
 +};
++
++/*
++ * Fold a line onto the analyzer's own masking vocabulary so a quote and a log
++ * line can be compared.
++ *
++ * The two sides arrive in different shapes. The item's log lines are RAW
++ * ("expected response to have status code 200 but got 400"), while an explainer
++ * quote was produced from the analyzer's already MASKED signature ("... status
++ * code <NUM> but got <NUM>"). Running both through this function lands them on
++ * the same string.
++ *
++ * The rules mirror MASKING_RULES in src/analyzer_ng/ml/drain.py, in the same
++ * order (URL, IP, UUID, HEX, PATH, NUM). Tokens that are already masked contain
++ * no digits, slashes or scheme, so they pass through untouched, which makes the
++ * function idempotent and safe to run over either side.
++ *
++ * Earlier this replaced digits with 'N' instead, so a quote holding <NUM> could
++ * never equal a log line holding 200. Since the quote gate fails closed, that
++ * hid the explanation on every failure whose message carries a number, which is
++ * most of them.
++ */
++export const normalizeLine = (line) =>
++  String(line == null ? '' : line)
++    .replace(/https?:\/\/[^\s"'<>]+/g, '<URL>')
++    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b/g, '<IP>')
++    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<UUID>')
++    .replace(/\b0[xX][0-9a-fA-F]+\b|\b[0-9a-fA-F]{16,}\b/g, '<HEX>')
++    .replace(/(?:[A-Za-z]:)?(?:[\\/][\w.-]+){2,}/g, '<PATH>')
++    // Plain digits last, so the rules above keep their own tokens. No lookbehind
++    // here on purpose: it is applied to both sides equally, and older Safari
++    // does not support lookbehind in a regular expression.
++    .replace(/\d+(?:\.\d+)?/g, '<NUM>')
++    .replace(/\s+/g, ' ')
++    .trim();
 +
 +/*
 + * Reoriented freshness gate (verdict 4.4). It NO LONGER compares the cached
@@ -630,12 +670,108 @@ index 0000000..6c9a3a7
 +// this row on the CONFIDENCE scale ("confidence {p}, under the 0.45 suggest line"),
 +// never "alike" (verdict MS7 / migration item 5). Plain below-line rows keep "alike".
 +export const isDeclineRow = (suggestRs) => parseExplKind(suggestRs) === 'decline';
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.test.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.test.js
+new file mode 100644
+index 000000000..20accbb7b
+--- /dev/null
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.test.js
+@@ -0,0 +1,90 @@
++/*
++ *  Copyright 2026 EPAM Systems
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ */
++
++import { isDecisionFresh, normalizeLine } from './analyzerSuggestionMeta';
++
++// The explainer quotes the analyzer's MASKED signature, while the item's log
++// lines are raw. Both go through normalizeLine before the quote gate compares
++// them, so masked and raw forms of the same line have to land on one string.
++describe('normalizeLine masking parity with the analyzer', () => {
++  const pairs = [
++    [
++      'expected response to have status code 200 but got 400',
++      'expected response to have status code <NUM> but got <NUM>',
++    ],
++    ['connection refused to 10.0.12.7:5432', 'connection refused to <IP>'],
++    [
++      'run 8f14e45f-ceea-467a-9c2f-0b0b0b0b0b0b failed',
++      'run <UUID> failed',
++    ],
++    ['pointer 0x7ffee3b0 is null', 'pointer <HEX> is null'],
++    ['cannot read /opt/app/fixtures/case.json', 'cannot read <PATH>'],
++  ];
++
++  it.each(pairs)('folds a raw line and its masked quote together: %s', (raw, masked) => {
++    expect(normalizeLine(raw)).toBe(normalizeLine(masked));
++  });
++
++  it('is idempotent, so running it over an already masked quote changes nothing', () => {
++    const masked = 'expected response to have status code <NUM> but got <NUM>';
++    expect(normalizeLine(normalizeLine(masked))).toBe(normalizeLine(masked));
++  });
++
++  it('still tells genuinely different lines apart', () => {
++    expect(normalizeLine('connection refused')).not.toBe(normalizeLine('assertion failed'));
++  });
++
++  it('survives an empty or missing line', () => {
++    expect(normalizeLine('')).toBe('');
++    expect(normalizeLine(null)).toBe('');
++    expect(normalizeLine(undefined)).toBe('');
++  });
++});
++
++// The measured item-4207 case: the analyzer abstained below the suggest line and
++// the explainer quoted a masked log line. Before the parity fix the quote could
++// never match, the gate failed closed, and the modal showed no reasoning at all.
++describe('isDecisionFresh with a masked quote', () => {
++  const decision = {
++    explanation:
++      'The analyzer declined to classify the failure because the model probability (0.321) stayed below the suggest threshold (0.45).',
++    predicted_label: 'ti',
++    predicted_group: 'ti',
++  };
++  const logLine = 'expected response to have status code 200 but got 400';
++  const quote = 'expected response to have status code <NUM> but got <NUM>';
++
++  const quoteMatches = (q, line) => {
++    const nq = normalizeLine(q);
++    const nl = normalizeLine(line);
++    return nl === nq || (nq.length > 0 && nl.includes(nq));
++  };
++
++  it('grounds a masked quote against the raw log line', () => {
++    expect(quoteMatches(quote, logLine)).toBe(true);
++    expect(isDecisionFresh(decision, null, quoteMatches(quote, logLine))).toBe(true);
++  });
++
++  it('still fails closed when the quote belongs to another failure', () => {
++    const foreign = 'java.lang.NullPointerException on account owner';
++    expect(quoteMatches(foreign, logLine)).toBe(false);
++    expect(isDecisionFresh(decision, null, quoteMatches(foreign, logLine))).toBe(false);
++  });
++
++  it('skips grounding when the explainer carried no quotes at all', () => {
++    expect(isDecisionFresh(decision, null, null)).toBe(true);
++  });
++});
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
 new file mode 100644
-index 0000000..d6b74c8
+index 000000000..3f58a5ab3
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
-@@ -0,0 +1,2429 @@
+@@ -0,0 +1,2507 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -689,7 +825,9 @@ index 0000000..d6b74c8
 +import {
 +  BANDS,
 +  PROVENANCE,
++  canLlmStillAnswer,
 +  deriveBanner,
++  getAnalyzerHealthApiUrl,
 +  deriveDecisionStory,
 +  getInspectorJourneyApiUrl,
 +  getInspectorJourneyUrl,
@@ -698,6 +836,7 @@ index 0000000..d6b74c8
 +  isDecisionFresh,
 +  isDeclineRow,
 +  isRubricHypothesis,
++  normalizeLine,
 +  parseBand,
 +  parseConfidence,
 +  parseExplanation,
@@ -719,16 +858,6 @@ index 0000000..d6b74c8
 +        .filter((t) => t.length)
 +        .map((text) => ({ text, id: log.id })),
 +    );
-+
-+const normalizeLine = (line) =>
-+  line
-+    .replace(/\b0x[0-9a-f]+\b/gi, '0xHEX')
-+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, 'UUID')
-+    .replace(/\d{4}-\d{2}-\d{2}[ t]\d{2}:\d{2}:\d{2}[.\d]*/gi, 'TS')
-+    .replace(/:\d+/g, ':N')
-+    .replace(/\d+/g, 'N')
-+    .replace(/\s+/g, ' ')
-+    .trim();
 +
 +const scoreToAlike = (matchScore) =>
 +  typeof matchScore === 'number' ? (matchScore / 100).toFixed(2) : '';
@@ -962,6 +1091,9 @@ index 0000000..d6b74c8
 +  // the story so a late fetch never flashes a wrong O9 headline before it settles.
 +  const [journeyError, setJourneyError] = useState(false);
 +  const [journeyResolved, setJourneyResolved] = useState(false);
++  // One extra journey read while an explanation is still being written (see the
++  // wait state below). Bumped at most once, so this can never become a poll.
++  const [journeyRetry, setJourneyRetry] = useState(0);
 +  const currentItemId = currentItem?.id || currentItem?.itemId;
 +  useEffect(() => {
 +    const apiUrl = getInspectorJourneyApiUrl(projectId, currentItemId);
@@ -1010,7 +1142,7 @@ index 0000000..d6b74c8
 +    return () => {
 +      cancelled = true;
 +    };
-+  }, [projectId, currentItemId, isBulkOperation]);
++  }, [projectId, currentItemId, isBulkOperation, journeyRetry]);
 +
 +  const grouping = journey?.grouping || null;
 +  const groupMembers = (grouping?.members || []).filter((m) => !m.is_self);
@@ -1318,6 +1450,72 @@ index 0000000..d6b74c8
 +  // reply): the ng37 "agree on abstain" bug came from mixing the two. The AI
 +  // paragraph is gated separately by the reoriented isDecisionFresh.
 +  const journeyDecision = journey?.decision || null;
++  const hasDecisionRecord = !!journeyDecision;
++  const decisionHasExplanation = !!(
++    journeyDecision &&
++    typeof journeyDecision.explanation === 'string' &&
++    journeyDecision.explanation.trim()
++  );
++  // Wait state for a missing explanation. The analyzer writes the decision at
++  // once and fills the explanation afterwards, so "no explanation yet" can mean
++  // either "still being written" or "not coming at all". Ask the analyzer which
++  // one it is: historically more than half of all explainer runs ended with the
++  // breaker open, and a spinner that promises text which never arrives is worse
++  // than no spinner. Timings come from the same source: on this data a written
++  // explanation lands well inside a minute for a single item, so the wait is
++  // capped rather than open ended, and no exact number is shown to the reader.
++  //   null      - nothing to wait for (or the question does not apply)
++  //   'waiting' - the analyzer is able to answer and has not answered yet
++  //   'none'    - no explanation is coming, or waiting has been given up
++  const [explanationWait, setExplanationWait] = useState(null);
++  useEffect(() => {
++    if (isBulkOperation || !journeyResolved || journeyError) {
++      return undefined;
++    }
++    if (!hasDecisionRecord || decisionHasExplanation) {
++      setExplanationWait(null);
++      return undefined;
++    }
++    let cancelled = false;
++    const timers = [];
++    window
++      .fetch(getAnalyzerHealthApiUrl())
++      .then((r) => (r.ok ? r.json() : null))
++      .then((payload) => {
++        if (cancelled) {
++          return;
++        }
++        if (!canLlmStillAnswer(payload)) {
++          setExplanationWait('none');
++          return;
++        }
++        setExplanationWait('waiting');
++        if (journeyRetry === 0) {
++          // One re-read, so an explanation that lands while the modal is open
++          // still shows up without the reader having to close and reopen it.
++          timers.push(window.setTimeout(() => !cancelled && setJourneyRetry(1), 20000));
++        }
++        timers.push(window.setTimeout(() => !cancelled && setExplanationWait('none'), 60000));
++      })
++      .catch(() => {
++        // Health unknown: say nothing rather than promise an answer.
++        if (!cancelled) {
++          setExplanationWait('none');
++        }
++      });
++    return () => {
++      cancelled = true;
++      timers.forEach((t) => window.clearTimeout(t));
++    };
++  }, [
++    isBulkOperation,
++    journeyResolved,
++    journeyError,
++    hasDecisionRecord,
++    decisionHasExplanation,
++    journeyRetry,
++    currentItemId,
++  ]);
 +  const explainerEvent =
 +    (journey?.llm?.events || []).find((ev) => ev && ev.role === 'explainer') || null;
 +  const quotedLines = (explainerEvent?.output?.quoted_lines || []).filter(
@@ -2739,6 +2937,22 @@ index 0000000..d6b74c8
 +                )}
 +              </div>
 +            )}
++            {/* The explanation has not been written yet and the analyzer says it
++                still can write one. Shown only in that case, never when the LLM
++                is off or its breaker is open, and it gives up on its own. */}
++            {!aiFresh && explanationWait === 'waiting' && (
++              <div className={cx('story-ai', 'ai-pending')}>
++                <div className={cx('ai-caprow')}>
++                  <span className={cx('ai-cap')}>
++                    {formatMessage(messages.benchStoryExplCap)}
++                  </span>
++                </div>
++                <div className={cx('ai-waiting')} role="status">
++                  <span className={cx('ai-waiting-dot')} aria-hidden="true" />
++                  <span>{formatMessage(messages.benchStoryExplPending)}</span>
++                </div>
++              </div>
++            )}
 +          </>
 +        )}
 +      </div>
@@ -3067,10 +3281,10 @@ index 0000000..d6b74c8
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 0000000..ce62115
+index 000000000..048e10d79
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2047 @@
+@@ -0,0 +1,2083 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -3715,6 +3929,42 @@ index 0000000..ce62115
 +      &.open .ai-body {
 +        display: block;
 +        -webkit-line-clamp: unset;
++      }
++      // Waiting for an explanation that is still being written: same block, but
++      // quiet (grey rule, no topaz accent) so it never reads as a real answer.
++      &.ai-pending {
++        border-left-color: var(--rp-e-200);
++      }
++    }
++    .ai-waiting {
++      display: flex;
++      align-items: center;
++      gap: 8px;
++      font-size: 12.5px;
++      line-height: 19px;
++      color: var(--rp-e-400);
++    }
++    .ai-waiting-dot {
++      flex: none;
++      width: 7px;
++      height: 7px;
++      border-radius: 50%;
++      background: var(--rp-e-300);
++      animation: bench-ai-waiting 1.4s ease-in-out infinite;
++    }
++    @keyframes bench-ai-waiting {
++      0%,
++      100% {
++        opacity: 0.25;
++      }
++      50% {
++        opacity: 1;
++      }
++    }
++    @media (prefers-reduced-motion: reduce) {
++      .ai-waiting-dot {
++        animation: none;
++        opacity: 0.7;
 +      }
 +    }
 +    .ai-body {
@@ -5120,7 +5370,7 @@ index 0000000..ce62115
 +}
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/index.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/index.js
 new file mode 100644
-index 0000000..9ab15ae
+index 000000000..9ab15aede
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/index.js
 @@ -0,0 +1,17 @@
@@ -5142,7 +5392,7 @@ index 0000000..9ab15ae
 +
 +export { Bench } from './bench';
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/executionSection/executionSection.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/executionSection/executionSection.jsx
-index d4d861b..3cf9bc4 100644
+index d4d861b56..3cf9bc481 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/executionSection/executionSection.jsx
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/executionSection/executionSection.jsx
 @@ -40,7 +40,13 @@ import { messages } from '../messages';
@@ -5234,7 +5484,7 @@ index d4d861b..3cf9bc4 100644
 +  benchMode: false,
  };
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
-index f3ff292..d3a54e4 100644
+index f3ff2925b..d3a54e451 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
 @@ -14,8 +14,9 @@
@@ -5575,7 +5825,7 @@ index f3ff292..d3a54e4 100644
  };
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.scss
 new file mode 100644
-index 0000000..c4edeec
+index 000000000..c4edeec0f
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.scss
 @@ -0,0 +1,96 @@
@@ -5676,7 +5926,7 @@ index 0000000..c4edeec
 +  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.15);
 +}
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.jsx
-index 289cc4f..b7b85e9 100644
+index 289cc4f68..b7b85e980 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.jsx
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.jsx
 @@ -26,6 +26,7 @@ import {
@@ -5731,7 +5981,7 @@ index 289cc4f..b7b85e9 100644
            {copyFromHistoryLineTab && (
              <div
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.scss
-index 9c6b6da..1f85b26 100644
+index 9c6b6dafa..1f85b26ca 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.scss
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionTabs/makeDecisionTabs.scss
 @@ -206,6 +206,11 @@
@@ -5747,10 +5997,10 @@ index 9c6b6da..1f85b26 100644
      display: flex;
    }
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-index 34cfec5..1cf4fe1 100644
+index 34cfec56e..5f1ee7018 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-@@ -266,4 +266,909 @@ export const messages = defineMessages({
+@@ -266,4 +266,913 @@ export const messages = defineMessages({
      id: 'MakeDecisionModal.defectReplaceWith',
      defaultMessage: 'The defect type will be changed to',
    },
@@ -6024,6 +6274,10 @@ index 34cfec5..1cf4fe1 100644
 +  benchStoryExplCap: {
 +    id: 'MakeDecisionModal.benchStoryExplCap',
 +    defaultMessage: 'Explanation',
++  },
++  benchStoryExplPending: {
++    id: 'MakeDecisionModal.benchStoryExplPending',
++    defaultMessage: 'Writing the explanation. This usually takes less than a minute.',
 +  },
 +  benchStoryMore: {
 +    id: 'MakeDecisionModal.benchStoryMore',
@@ -6661,7 +6915,7 @@ index 34cfec5..1cf4fe1 100644
 +  },
  });
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx
-index 11f5ec0..2d841a5 100644
+index 11f5ec06c..2d841a5b2 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx
 @@ -16,13 +16,37 @@
@@ -6768,7 +7022,7 @@ index 11f5ec0..2d841a5 100644
  };
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.scss
 new file mode 100644
-index 0000000..6778c5b
+index 000000000..6778c5bcb
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.scss
 @@ -0,0 +1,81 @@
