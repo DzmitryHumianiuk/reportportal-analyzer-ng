@@ -561,7 +561,9 @@ def replay_defects(
                     "testItemId": dst_id,
                     "issue": {
                         "issueType": target_loc,
-                        "comment": meta.get("comment", "") or "migrated triage",
+                        # Carry the source item's own comment through verbatim; if it
+                        # had none, leave it empty (do not stamp a synthetic marker).
+                        "comment": meta.get("comment", ""),
                         "ignoreAnalyzer": meta.get("ignoreAnalyzer", False),
                         "autoAnalyzed": False,
                     },
