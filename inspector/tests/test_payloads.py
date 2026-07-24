@@ -114,3 +114,105 @@ def test_no_suggestion():
 def test_iso_helper():
     assert payloads._iso(None) is None
     assert payloads._iso("2026-01-01") == "2026-01-01"
+
+
+# --------------------------------------------------------------------------- #
+# Explanation carry-forward (every Make Decision open writes a fresh, still
+# unexplained suggestion row that shadows the explained one; when the decision
+# itself is unchanged the old explanation is still true, so it is carried over)
+# --------------------------------------------------------------------------- #
+
+
+def _row(**over: Any) -> dict[str, Any]:
+    base = {
+        "suggestion_id": 10,
+        "predicted_label": "ti",
+        "confidence": 0.32142857,
+        "matched_item_id": None,
+        "model_ver": "gbm-20260721T175504Z",
+        "abstain_reason": "gbm_below_suggest",
+        "features": {"top1_cosine": 0.9},
+        "explanation": "because the probability stayed below the suggest line",
+        "llm_used": True,
+        "created_at": "2026-07-24T19:47:54+00:00",
+    }
+    base.update(over)
+    return base
+
+
+def test_carry_forward_reuses_explanation_when_decision_identical():
+    latest = _row(suggestion_id=11, explanation=None, llm_used=False)
+    carried = payloads._carried_explanation(latest, _row())
+    assert carried is not None
+    assert carried["explanation"].startswith("because the probability")
+    assert carried["carried_from_suggestion_id"] == 10
+
+
+def test_carry_forward_ignores_judge_only_feature_change():
+    # The judge only reorders candidates after the fact; it never moves the label
+    # or the confidence, so it must not invalidate an otherwise identical decision.
+    latest = _row(
+        suggestion_id=11, explanation=None, features={"top1_cosine": 0.9, "judge": {"x": 1}}
+    )
+    assert payloads._carried_explanation(latest, _row()) is not None
+
+
+def test_carry_forward_refuses_on_exact_confidence_drift():
+    # 0.3214 and 0.3221 both round to 0.32, but the prose quotes an exact number,
+    # so the carried text would state a value the new decision no longer holds.
+    latest = _row(suggestion_id=11, explanation=None, confidence=0.32210000)
+    assert payloads._carried_explanation(latest, _row()) is None
+
+
+def test_carry_forward_refuses_after_retrain():
+    latest = _row(suggestion_id=11, explanation=None, model_ver="gbm-20260725T000000Z")
+    assert payloads._carried_explanation(latest, _row()) is None
+
+
+def test_carry_forward_refuses_on_different_decision():
+    latest = _row(suggestion_id=11, explanation=None, predicted_label="pb001")
+    assert payloads._carried_explanation(latest, _row()) is None
+    other_neighbour = _row(suggestion_id=11, explanation=None, matched_item_id=999)
+    assert payloads._carried_explanation(other_neighbour, _row()) is None
+
+
+def test_carry_forward_refuses_when_feature_vector_changed():
+    latest = _row(suggestion_id=11, explanation=None, features={"top1_cosine": 0.4})
+    assert payloads._carried_explanation(latest, _row()) is None
+
+
+def test_carry_forward_ignores_clock_drift_features():
+    # Measured on the live stand: two runs of the SAME decision (same label,
+    # same exact confidence, same model, same neighbour) still differ, because
+    # test_age_days and recency_top1 decay with wall-clock time alone. Counting
+    # them would make carry-forward impossible by construction.
+    explained = _row(features={"top1_cosine": 0.9, "test_age_days": 0.3629580144398265})
+    latest = _row(
+        suggestion_id=11,
+        explanation=None,
+        features={"top1_cosine": 0.9, "test_age_days": 0.3642368646301906},
+    )
+    assert payloads._carried_explanation(latest, explained) is not None
+
+
+def test_carry_forward_never_mixes_rubric_and_classical():
+    # A rubric row is a provisional hypothesis, never an explanation of a
+    # classical decision (its model_ver format keeps the two apart).
+    latest = _row(suggestion_id=11, explanation=None)
+    rubric = _row(model_ver="rubric+qwen3:4b-q4_K_M")
+    assert payloads._carried_explanation(latest, rubric) is None
+
+
+def test_carry_forward_needs_a_non_empty_source():
+    latest = _row(suggestion_id=11, explanation=None)
+    assert payloads._carried_explanation(latest, _row(explanation="   ")) is None
+    assert payloads._carried_explanation(latest, None) is None
+
+
+def test_below_band_abstain_detection():
+    # Only a below-band abstain may resurface the cold-start hypothesis.
+    assert payloads._is_below_band_abstain(_row(confidence=0.32)) is True
+    assert payloads._is_below_band_abstain(_row(predicted_label="pb001", confidence=0.20)) is True
+    assert payloads._is_below_band_abstain(_row(predicted_label="pb001", confidence=0.80)) is False
+    assert payloads._is_below_band_abstain(_row(model_ver="rubric+x", confidence=0.1)) is False
+    assert payloads._is_below_band_abstain(None) is False
