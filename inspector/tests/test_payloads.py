@@ -181,6 +181,45 @@ def test_carry_forward_refuses_when_feature_vector_changed():
     assert payloads._carried_explanation(latest, _row()) is None
 
 
+def test_carry_forward_ignores_decayed_history_drift():
+    # Measured on item 5917 over three consecutive opens of one unchanged
+    # decision: test_age_days, hist_pb and hist_nd all crept, the last two down
+    # at 2.7e-14 (numerically zero, still moving), because hist_* is a ratio of
+    # decay-weighted candidate mass and the candidates age at different rates.
+    explained = _row(
+        features={
+            "top1_cosine": 0.9,
+            "test_age_days": 0.2488993405813739,
+            "hist_pb": 2.681210876544236e-14,
+            "hist_nd": 2.7652124682585877e-14,
+        }
+    )
+    latest = _row(
+        suggestion_id=11,
+        explanation=None,
+        features={
+            "top1_cosine": 0.9,
+            "test_age_days": 0.2490183744991811,
+            "hist_pb": 2.6812739485949365e-14,
+            "hist_nd": 2.76527751633911e-14,
+        },
+    )
+    assert payloads._carried_explanation(latest, explained) is not None
+
+
+def test_carry_forward_still_refuses_a_real_history_shift():
+    # A genuine change in what history votes for is not drift, and it moves the
+    # confidence too, which the key compares exactly.
+    explained = _row(features={"top1_cosine": 0.9, "hist_pb": 0.1})
+    latest = _row(
+        suggestion_id=11,
+        explanation=None,
+        confidence=0.71,
+        features={"top1_cosine": 0.9, "hist_pb": 0.8},
+    )
+    assert payloads._carried_explanation(latest, explained) is None
+
+
 def test_carry_forward_ignores_clock_drift_features():
     # Measured on the live stand: two runs of the SAME decision (same label,
     # same exact confidence, same model, same neighbour) still differ, because

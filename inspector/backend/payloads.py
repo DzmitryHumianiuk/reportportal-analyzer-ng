@@ -130,14 +130,36 @@ def _s(v: Any) -> str | None:
 # and rewrites the text against current facts within the usual enrichment window.
 #
 # Excluded from the comparison:
-#   judge          — only reorders candidates after the fact; never moves the
-#                    label or the confidence.
-#   test_age_days  — log1p(days) of the test's age.
-#   recency_top1   — decay over the top candidate's age.
-# The last two decay with wall-clock time alone. Measured on a live stand: two
-# runs of an identical decision differed ONLY in test_age_days, so counting them
-# would make carry-forward impossible by construction.
-_IGNORED_FEATURES = frozenset({"judge", "test_age_days", "recency_top1"})
+#   judge                — only reorders candidates after the fact; it never
+#                          moves the label or the confidence.
+#   test_age_days        — log1p(days) of the test's own age.
+#   recency_top1         — decay() over the top candidate's age.
+#   hist_pb/ab/si/nd     — Σ(cos · decay(age) · src_weight) ÷ Σ all. Candidates
+#                          age at different rates, so the ratio never settles.
+# Everything after ``judge`` moves with the wall clock on its own. This is the
+# complete set: in core/features.py the only clock-derived inputs are
+# ``test_age_days`` and the two decay() call sites, which feed exactly
+# ``recency_top1`` and the four ``hist_*`` values.
+#
+# Measured on a live stand, three consecutive opens of one unchanged decision
+# differed only in test_age_days, hist_pb and hist_nd, the last two down at
+# 2.7e-14 (numerically zero, still drifting). Counting them would make
+# carry-forward impossible by construction.
+#
+# Dropping them is safe because the GBM confidence is itself a function of the
+# features and is compared EXACTLY: any feature change big enough to matter
+# moves the confidence, which fails the key on its own.
+_IGNORED_FEATURES = frozenset(
+    {
+        "judge",
+        "test_age_days",
+        "recency_top1",
+        "hist_pb",
+        "hist_ab",
+        "hist_si",
+        "hist_nd",
+    }
+)
 
 
 def _decision_key(row: dict[str, Any]) -> tuple[Any, ...]:
