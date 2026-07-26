@@ -216,11 +216,88 @@ class AnalysisEngine:
     # Declined-dock rows (README-bench "Follow-up"): OFF by default — flip only
     # once every consuming UI parses band= tokens (Bench ng2+). Kill switch: env.
     suggest_below_enabled: bool = False  # ANALYZER_SUGGEST_BELOW_ENABLED
+    # Early per-item auto-analysis (docs/EARLY-ITEM-AA.md). Off = the route is
+    # inert (empty reply, no rows, no LLM). The policy caps what the early pass
+    # may auto-apply: 'kb_inherit_only' lets deterministic decisions (Stage-A
+    # hash inherit, KB short-circuit) label while every GBM decision is demoted
+    # to a stored suggestion; 'suggest_only' demotes everything.
+    early_item_analysis: bool = False  # ANALYZER_EARLY_ITEM_ANALYSIS
+    early_label_policy: str = "kb_inherit_only"  # ANALYZER_EARLY_AA_LABEL_POLICY
     suggest_below_max: int = SUGGEST_BELOW_MAX  # ANALYZER_SUGGEST_BELOW_MAX (≤ 3)
 
     # ------------------------------------------------------------------ #
     # analyze (spec §6.6 analyze column)
     # ------------------------------------------------------------------ #
+    def analyze_item_early(self, launches: Sequence[Launch]) -> list[AnalysisResult]:
+        """Early per-item pass, before the launch finishes (docs/EARLY-ITEM-AA.md).
+
+        Same wire contract as ``analyze`` (the trigger sends one launch holding
+        one just-finished item, logs inline), but the item is decided as a group
+        of one — the same singleton shape the suggest route uses — and the
+        policy gate rules what may be applied:
+
+        * Stage-A hash inherit / KB short-circuit at the auto band → applied
+          (reply row + mirror update), exactly like ``analyze``. These depend on
+          no launch-context feature, so early versus late cannot change them.
+        * Every GBM decision is demoted to a stored suggestion, whatever its
+          confidence: the singleton corner (group_dominance=1.0, si_prior=0.0)
+          was never validated against the auto threshold, and the System Issue
+          signal cannot exist before the launch ends. The launch-finish pass
+          re-analyzes the full launch and remains the only source of GBM-driven
+          auto-labels.
+
+        Every decision writes a ``source='early'`` suggestion row (the training
+        frame refuses those snapshots; early/final pairs give the flip-rate
+        metric), and LLM enrichment is enqueued as on every other route so the
+        caches are warm long before launch finish.
+        """
+        if not self.early_item_analysis:
+            return []
+        out: list[AnalysisResult] = []
+        deterministic = (METHOD_HASH, METHOD_KB)
+        for launch in launches:
+            project = launch.project
+            entries = [(launch, item) for item in launch.testItems]
+            analyses = self.pipeline.build_item_analyses(project, entries)
+            scope_q = self._scope_query(launch)
+            for rep in analyses:
+                if not rep.signature.signature_text:
+                    continue  # no ERROR logs → nothing to analyze (spec §3.4)
+                item_id = rep.item.testItemId
+                group = self._singleton_group(rep)
+                decision, mode_match = self._decide(
+                    project,
+                    scope_q,
+                    launch.analyzerConfig.analyzerMode,
+                    rep,
+                    group,
+                    total_failures=1,
+                    route="analyze_item_early",
+                )
+                self._record_membership(project, [item_id], mode_match, rep)
+                sid = self._write_suggestion(
+                    project, item_id, launch.launchId, None, decision, source="early"
+                )
+                self._enqueue_llm(project, item_id, launch.launchId, decision, suggestion_id=sid)
+                applies = (
+                    decision.action == ACTION_AUTO
+                    and decision.label != "ti"
+                    and decision.method in deterministic
+                    and self.early_label_policy != "suggest_only"
+                )
+                if applies:
+                    self.retrieval.update_issue_type(
+                        project, item_id, decision.issue_type, is_auto=True
+                    )
+                    out.append(
+                        AnalysisResult(
+                            testItem=item_id,
+                            issueType=decision.issue_type,
+                            relevantItem=decision.relevant_item_id or 0,
+                        )
+                    )
+        return out
+
     def analyze(self, launches: Sequence[Launch]) -> list[AnalysisResult]:
         results: list[AnalysisResult] = []
         for launch in launches:
@@ -884,6 +961,8 @@ class AnalysisEngine:
         launch_id: int,
         group_id: int | None,
         decision: DecisionResult,
+        *,
+        source: str | None = None,
     ) -> int:
         return self.retrieval.write_suggestion(
             SuggestionIn(
@@ -900,6 +979,7 @@ class AnalysisEngine:
                 explanation=self._stage_a_explanation(decision),
                 method=decision.method,
                 abstain_reason=decision.abstain_reason,
+                source=source,  # type: ignore[arg-type]  # 'early' | None (migration 0009)
             )
         )
 

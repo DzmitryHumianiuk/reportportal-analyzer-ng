@@ -202,6 +202,8 @@ class AnalyzerService:
                 "suggest_below_max": config.analyzer_suggest_below_max,
                 "burst_si_share": config.analyzer_burst_si_share,
                 "time_decay": config.analyzer_time_decay,
+                "early_item_analysis": config.analyzer_early_item_analysis,
+                "early_label_policy": config.analyzer_early_aa_label_policy,
             },
             retrain_debounce_s=config.analyzer_retrain_debounce_s,
         )

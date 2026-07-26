@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import quote
 
 from pydantic import BeforeValidator, Field, ValidationError, field_validator, model_validator
@@ -136,6 +136,14 @@ class AppConfig(BaseSettings):
     analyzer_suggest_below_max: int = 2  # == analysis.SUGGEST_BELOW_MAX
     analyzer_burst_si_share: UnitInterval = 0.4  # == grouping.BURST_X
     analyzer_time_decay: UnitInterval = 2.0 ** (-1.0 / 90.0)  # == features.TIME_DECAY_PER_DAY
+    # Early per-item auto-analysis (docs/EARLY-ITEM-AA.md). Ships dark: the route
+    # answers an empty list until the master switch is on. The label policy caps
+    # what the early pass may auto-apply — the consilium ruling is that only
+    # deterministic decisions (Stage-A hash inherit, KB short-circuit) may label
+    # before launch finish; ``suggest_only`` is the even-darker first step where
+    # nothing auto-labels and every decision is stored and enriched only.
+    analyzer_early_item_analysis: LegacyBool = False
+    analyzer_early_aa_label_policy: Literal["kb_inherit_only", "suggest_only"] = "kb_inherit_only"
     # Operator-tunable retrain debounce window, in seconds (spec §6.5). This is the
     # PRIMARY throttle on how often a *shipped* model may be replaced; a ship-gate
     # rejection no longer counts against it (retrain.last_shipped_at anchor). The default

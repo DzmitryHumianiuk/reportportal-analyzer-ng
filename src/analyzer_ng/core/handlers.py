@@ -81,6 +81,9 @@ class StubHandlers:
     def analyze(self, launches: list[Launch]) -> list[AnalysisResult]:
         return []
 
+    def analyze_item_early(self, launches: list[Launch]) -> list[AnalysisResult]:
+        return []
+
     def suggest(self, info: TestItemInfo) -> list[SuggestAnalysisResult]:
         return []
 
@@ -347,6 +350,13 @@ class PipelineHandlers(StubHandlers):
         if launches:
             obs.set_project(int(launches[0].project))
         return self._engine.analyze(launches)
+
+    def analyze_item_early(self, launches: list[Launch]) -> list[AnalysisResult]:
+        if self._engine is None:
+            return super().analyze_item_early(launches)
+        if launches:
+            obs.set_project(int(launches[0].project))
+        return self._engine.analyze_item_early(launches)
 
     def suggest(self, info: TestItemInfo) -> list[SuggestAnalysisResult]:
         if self._engine is None:
