@@ -146,7 +146,13 @@ def _engine(
         early_label_policy=policy,
     )
     queue = list(decisions)
-    engine._decide = lambda *a, **k: (queue.pop(0), None)  # type: ignore[method-assign]
+    engine.decide_routes: list[str] = []  # type: ignore[attr-defined]
+
+    def _fake_decide(*a: Any, **k: Any) -> tuple[DecisionResult, None]:
+        engine.decide_routes.append(k.get("route", ""))  # type: ignore[attr-defined]
+        return (queue.pop(0), None)
+
+    engine._decide = _fake_decide  # type: ignore[method-assign]
     engine._record_membership = lambda *a, **k: None  # type: ignore[method-assign]
     return engine
 
@@ -284,6 +290,34 @@ def test_mixed_batch_applies_only_the_deterministic_item() -> None:
     assert [(r.testItem, r.issueType) for r in out] == [(ITEM, "pb001")]
     assert len(retr.suggestions) == 2
     assert {s.source for s in retr.suggestions} == {"early"}
+
+
+def test_route_is_analyze_scoped() -> None:
+    # Review finding (2026-07-26): the early route can APPLY labels, so its
+    # Stage-A/Stage-C candidates must pass the hard in_analyze_scope filter that
+    # honors analyzerMode — without this, a LAUNCH_NAME-scoped project could
+    # early-inherit (and auto-apply) a label from a launch the finish pass would
+    # refuse to look at. Two pins: the route string is threaded into _decide,
+    # and that string is a member of the hard-scoped route set.
+    from analyzer_ng.core.analysis import ANALYZE_SCOPED_ROUTES
+
+    retr = FakeRetrieval()
+    engine = _engine(retr, FakeSidecar(), [_decision(method=METHOD_HASH)])
+    engine.analyze_item_early([_launch()])
+    assert engine.decide_routes == ["analyze_item_early"]
+    assert "analyze_item_early" in ANALYZE_SCOPED_ROUTES
+    assert "analyze" in ANALYZE_SCOPED_ROUTES
+    assert "suggest" not in ANALYZE_SCOPED_ROUTES  # suggest only displays
+
+
+def test_unknown_policy_fails_closed() -> None:
+    # A typo'd or future policy value must demote everything, never label.
+    retr = FakeRetrieval()
+    engine = _engine(retr, FakeSidecar(), [_decision(method=METHOD_HASH)], policy="yolo")
+
+    assert engine.analyze_item_early([_launch()]) == []
+    assert retr.issue_updates == []
+    assert len(retr.suggestions) == 1  # still stored + tagged
 
 
 def test_other_routes_leave_source_untagged() -> None:

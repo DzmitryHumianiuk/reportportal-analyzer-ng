@@ -25,7 +25,10 @@ from analyzer_ng.core.decision import TAU_AUTO, TAU_SUGGEST
 # as a group of one (verified against core/features.py):
 #   group_dominance       = group_size / launch_failures = 1/1
 #   co_failure_group_size = log1p(1) / log1p(200)   (the size-1 point)
-#   launch_fail_fraction  = 0.0                      (unknown mid-launch)
+#   launch_fail_fraction  = 0.0  (a no-op today: launch_items never rides the
+#                                 wire, so finish snapshots also store 0.0 —
+#                                 kept so the set stays complete if that gap
+#                                 is ever fixed)
 #   si_prior              = 0.0                      (burst needs >= 5 members)
 SINGLETON_OVERRIDES: dict[str, float] = {
     "group_dominance": 1.0,

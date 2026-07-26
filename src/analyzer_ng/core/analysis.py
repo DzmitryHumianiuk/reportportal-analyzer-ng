@@ -107,6 +107,15 @@ BAND_AUTO = "auto"
 BAND_SUGGEST = "suggest"
 BAND_BELOW_SUGGEST = "below_suggest"
 
+# Routes whose decisions can be APPLIED (auto-label), so their Stage-A and
+# Stage-C candidates must pass the hard ``in_analyze_scope`` filter honoring the
+# project's analyzerMode (ALL / LAUNCH_NAME / CURRENT_LAUNCH / …). The suggest
+# route only displays, so it keeps the softer base filter + boost. The early
+# per-item route (docs/EARLY-ITEM-AA.md) belongs HERE: without it, a project
+# scoped to LAUNCH_NAME could early-inherit — and auto-apply — a label from a
+# launch the finish pass would refuse to look at.
+ANALYZE_SCOPED_ROUTES = ("analyze", "analyze_item_early")
+
 # Plain-English abstain narration for the first below-band row's ek=decline;why=
 # token (same DB-derived texts the LLM fact block quotes — llm.wiring._ABSTAIN_GATE).
 _DECLINE_NARRATION = {
@@ -279,11 +288,15 @@ class AnalysisEngine:
                     project, item_id, launch.launchId, None, decision, source="early"
                 )
                 self._enqueue_llm(project, item_id, launch.launchId, decision, suggestion_id=sid)
+                # Fail closed: only the one policy that permits labeling is
+                # compared by name, so a typo'd or future policy value demotes
+                # everything instead of silently labeling. rule_cold seed-prior
+                # autos are also demoted — deliberately: v1 applies hash/kb only.
                 applies = (
                     decision.action == ACTION_AUTO
                     and decision.label != "ti"
                     and decision.method in deterministic
-                    and self.early_label_policy != "suggest_only"
+                    and self.early_label_policy == "kb_inherit_only"
                 )
                 if applies:
                     self.retrieval.update_issue_type(
@@ -739,7 +752,7 @@ class AnalysisEngine:
                     issue_type_group=row["issue_type_group"] or "",
                     is_labeled=True,
                 )
-                if route == "analyze":
+                if route in ANALYZE_SCOPED_ROUTES:
                     if not scope.in_analyze_scope(analyzer_mode, scope_q, sc):
                         continue
                 elif not scope.passes_base(sc):
@@ -868,7 +881,7 @@ class AnalysisEngine:
                 issue_type_group="".join(x for x in (c.issue_type or "")[:2] if x.isalpha()),
                 is_labeled=c.issue_type is not None,
             )
-            if route == "analyze":
+            if route in ANALYZE_SCOPED_ROUTES:
                 if not scope.in_analyze_scope(analyzer_mode, scope_q, sc):
                     continue
                 boost = scope.analyze_boost(analyzer_mode, scope_q, sc)
