@@ -768,10 +768,10 @@ index 000000000..20accbb7b
 +});
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
 new file mode 100644
-index 000000000..3f58a5ab3
+index 000000000..ffc2b0c91
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
-@@ -0,0 +1,2507 @@
+@@ -0,0 +1,2518 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -2904,6 +2904,17 @@ index 000000000..3f58a5ab3
 +                  which writes a fresh suggestion row (created_at=now), so the journey
 +                  always reads a just-created decision and the relative time was
 +                  invariably "just now" — no information for the reader. */}
++              {/* Early per-item result: decided while the launch was still
++                  running. One small hover icon, no extra text on screen. */}
++              {journeyDecision && journeyDecision.source === 'early' && (
++                <span
++                  className={cx('early-mark')}
++                  title={formatMessage(messages.benchEarlyMarkTitle)}
++                  aria-label={formatMessage(messages.benchEarlyMarkTitle)}
++                >
++                  i
++                </span>
++              )}
 +            </div>
 +            <div className={cx('story-reason')}>
 +              {formatMessage(messages[decisionStory.reasonKey], storyParams)}
@@ -3281,10 +3292,10 @@ index 000000000..3f58a5ab3
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 000000000..048e10d79
+index 000000000..af2d22b7e
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2083 @@
+@@ -0,0 +1,2101 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -3935,6 +3946,24 @@ index 000000000..048e10d79
 +      &.ai-pending {
 +        border-left-color: var(--rp-e-200);
 +      }
++    }
++    .early-mark {
++      display: inline-flex;
++      align-items: center;
++      justify-content: center;
++      width: 14px;
++      height: 14px;
++      margin-left: 7px;
++      border-radius: 50%;
++      border: 1px solid var(--rp-e-300);
++      color: var(--rp-e-400);
++      font-size: 10px;
++      font-style: italic;
++      font-weight: 700;
++      line-height: 1;
++      cursor: help;
++      user-select: none;
++      vertical-align: 1px;
 +    }
 +    .ai-waiting {
 +      display: flex;
@@ -5997,10 +6026,10 @@ index 9c6b6dafa..1f85b26ca 100644
      display: flex;
    }
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-index 34cfec56e..5f1ee7018 100644
+index 34cfec56e..78366fc6d 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-@@ -266,4 +266,913 @@ export const messages = defineMessages({
+@@ -266,4 +266,918 @@ export const messages = defineMessages({
      id: 'MakeDecisionModal.defectReplaceWith',
      defaultMessage: 'The defect type will be changed to',
    },
@@ -6274,6 +6303,11 @@ index 34cfec56e..5f1ee7018 100644
 +  benchStoryExplCap: {
 +    id: 'MakeDecisionModal.benchStoryExplCap',
 +    defaultMessage: 'Explanation',
++  },
++  benchEarlyMarkTitle: {
++    id: 'MakeDecisionModal.benchEarlyMarkTitle',
++    defaultMessage:
++      'Early result. This test was analyzed right after it finished, while the launch was still running. The analysis at launch finish may revise it.',
 +  },
 +  benchStoryExplPending: {
 +    id: 'MakeDecisionModal.benchStoryExplPending',
