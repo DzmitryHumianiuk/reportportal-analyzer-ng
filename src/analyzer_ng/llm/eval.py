@@ -17,6 +17,16 @@ Auto-disable fires iff all of these hold (§6.2, amended):
 * ``precision_llm < precision_classical − 0.02``,
 * the 95 % Wilson lower bound of ``(precision_llm − precision_classical)`` is ``< 0``.
 
+Independently of (and checked before) that relative comparison, an **absolute**
+kill-switch (§6.2, amended) closes the trade-off the two arm guards opened: with
+them, a genuinely bad role (say 30 % precision over n=200) could never be
+auto-disabled while the classical arm stayed under 50 cases, because the relative
+comparison was the only disable path. If the LLM arm alone has ``n ≥ 50``
+resolved cases and the 95 % Wilson *upper* bound of its precision is below
+``0.80``, the role is disabled with reason ``llm_below_absolute_floor``. The
+0.95 floor guard belongs to the relative path only and cannot shield a role
+here (nor could it mathematically: upper < 0.80 implies precision far below 0.95).
+
 The Wilson math lives here as pure functions (unit-tested at the boundaries). The
 difference bound uses the MOVER (Method of Variance Estimates Recovery) combination
 of the two arms' Wilson intervals — treating the arms as independent, which is
@@ -50,10 +60,19 @@ AUTO_DISABLE_MIN_CLASSICAL_N = 50
 # rule_cold); a role right ≥ 95 % of the time under human review is doing its
 # job even against a locally perfect baseline.
 AUTO_DISABLE_PRECISION_FLOOR = 0.95
+# Absolute kill-switch, independent of the classical arm. The two guards above
+# leave a hole: while the classical arm stays under its min size the relative
+# comparison can never bind, so a genuinely bad role would run forever. No
+# baseline is needed to condemn one — an LLM arm of at least this many resolved
+# cases whose Wilson *upper* precision bound sits below this floor is bad on
+# its own evidence (even the optimistic read of its precision is unacceptable).
+AUTO_DISABLE_MIN_LLM_N = 50
+AUTO_DISABLE_ABSOLUTE_FLOOR = 0.80
 WILSON_Z = 1.96  # 95 % two-sided
 
 EVAL_WINDOW_DAYS = 30
 AUTO_DISABLE_REASON = "auto_disabled_precision"
+ABSOLUTE_DISABLE_REASON = "llm_below_absolute_floor"
 
 # The four adopted roles the eval reports the disabled-project gauge for (§6.3).
 ALL_ROLES = ("explainer", "extractor", "judge", "coldstart")
@@ -141,7 +160,15 @@ def evaluate_role(project_id: int, role: str, cmp: RoleComparison) -> RoleEval:
     diff_lower = mover_difference_lower(cmp.s_llm, cmp.n_llm, cmp.s_classical, cmp.n_classical)
 
     disabled = False
-    if cmp.n < AUTO_DISABLE_MIN_N:
+    # Absolute floor first: it depends on the LLM arm alone, so none of the
+    # relative comparison's guards below (min N, classical-arm size, the 0.95
+    # floor) can shield a role from it. Strict ``<`` on the *upper* bound: only
+    # when even the optimistic read of the arm's precision is under the floor.
+    _llm_lower, llm_upper = wilson_interval(cmp.s_llm, cmp.n_llm)
+    if cmp.n_llm >= AUTO_DISABLE_MIN_LLM_N and llm_upper < AUTO_DISABLE_ABSOLUTE_FLOOR:
+        disabled = True
+        reason = ABSOLUTE_DISABLE_REASON
+    elif cmp.n < AUTO_DISABLE_MIN_N:
         reason = "n_below_min"
     elif cmp.n_classical < AUTO_DISABLE_MIN_CLASSICAL_N:
         reason = "classical_arm_below_min"
@@ -216,14 +243,15 @@ class LlmEvalJob:
                     project_id,
                     role,
                     enabled=False,
-                    reason=AUTO_DISABLE_REASON,
+                    reason=ev.reason,
                     stats=ev.stats,
                 )
                 logger.warning(
-                    "LLM role '%s' auto-disabled for project %s: precision_llm=%.3f "
-                    "< precision_classical=%.3f (N=%d, diff_lower=%.3f)",
+                    "LLM role '%s' auto-disabled for project %s (%s): precision_llm=%.3f, "
+                    "precision_classical=%.3f (N=%d, diff_lower=%.3f)",
                     role,
                     project_id,
+                    ev.reason,
                     ev.precision_llm,
                     ev.precision_classical,
                     ev.n,
