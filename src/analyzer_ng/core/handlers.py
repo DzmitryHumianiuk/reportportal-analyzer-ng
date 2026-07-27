@@ -210,7 +210,7 @@ class PipelineHandlers(StubHandlers):
         self._judge_tau: float = 0.75
         # Operator-tunable decision/pipeline knobs (spec 01 §5.2). Defaults equal the
         # code constants so an unbound / defaulted engine is byte-identical.
-        self._engine_tunables: dict[str, float | int] = {}
+        self._engine_tunables: dict[str, float | int | str] = {}
 
     def bind(
         self,
@@ -225,7 +225,7 @@ class PipelineHandlers(StubHandlers):
         sidecar: object | None = None,
         extractor_features: object | None = None,
         judge_tau: float = 0.75,
-        engine_tunables: dict[str, float | int] | None = None,
+        engine_tunables: dict[str, float | int | str] | None = None,
         retrain_debounce_s: int | None = None,
     ) -> None:
         """Attach the store layer once the PostgreSQL pool is open (spec 01 §6)."""
