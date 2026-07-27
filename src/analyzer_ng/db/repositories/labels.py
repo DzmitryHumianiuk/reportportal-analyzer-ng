@@ -96,6 +96,11 @@ class PgLabelStore(StoreBase):
                     FROM analyzer.suggestion sg
                     WHERE sg.project_id = le.project_id AND sg.item_id = le.item_id
                       AND sg.created_at <= le.ts
+                      -- docs/EARLY-ITEM-AA.md: 'early' rows carry singleton-context
+                      -- features (group_dominance frozen at 1.0, si_prior at 0.0) and
+                      -- must never train the launch-finish GBM. An item whose only
+                      -- snapshot is early contributes no feature row at all.
+                      AND sg.source IS DISTINCT FROM 'early'
                     ORDER BY sg.created_at DESC, sg.suggestion_id DESC LIMIT 1
                 ) sg ON true
                 LEFT JOIN analyzer.test_history_stats ths

@@ -184,6 +184,11 @@ class SuggestionIn(BaseModel):
     # ``llm_used=false`` — the provenance marker distinguishing a template rationale
     # from the LLM explainer (which sets ``llm_used=true``). None for every other path.
     explanation: str | None = None
+    # Which route wrote the row (migration 0009, docs/EARLY-ITEM-AA.md). 'early' =
+    # the per-item pre-launch-finish pass, whose launch-context features are a
+    # degenerate group of one; the training frame refuses those snapshots. None =
+    # a launch-scoped or suggest route (the trusted provenance).
+    source: Literal["early"] | None = None
 
 
 class LabelEventIn(BaseModel):

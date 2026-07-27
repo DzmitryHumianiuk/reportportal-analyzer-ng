@@ -78,10 +78,12 @@ def test_explainer_rejects_tamper_canary() -> None:
 
 
 # ---- Extractor ---- #
-def _extractor_input() -> dict:
+def _extractor_input(
+    excerpt: str = "org.apache.http.conn.ConnectTimeoutException: connect timed out",
+) -> dict:
     return {
         "fact_block": {"exception_chain": ["org.apache.http.conn.ConnectTimeoutException"]},
-        "log_excerpt": "org.apache.http.conn.ConnectTimeoutException: connect timed out",
+        "log_excerpt": excerpt,
         "exception_fp": 555,
         "template_ids": [9, 3, 7],
     }
@@ -110,7 +112,13 @@ def test_extractor_rejects_hallucinated_class() -> None:
     assert not role.post_validate(bad, inp)
 
 
-def test_extractor_component_pattern() -> None:
+def test_extractor_component_pattern_filters_not_fails() -> None:
+    # A malformed component (a log phrase instead of an identifier) is DROPPED,
+    # never fatal: components feed nothing downstream, while failing_layer and
+    # error_class feed 19 GBM columns. Measured live (item 5917): the model put
+    # "host:<NUM> failed to respond" into components on every seed, so the fatal
+    # rule burned two generation attempts per Make Decision open, forever, and
+    # threw away a correct layer/class extraction each time.
     role = ExtractorRole()
     inp = _extractor_input()
     role.build_prompt(inp, nonce="beadfeed")
@@ -119,7 +127,50 @@ def test_extractor_component_pattern() -> None:
         "wrapper_chain": [],
         "failing_layer": "infrastructure",
         "error_class": "timeout",
-        "components": ["has space"],
+        "components": ["has space", "http.client"],
+    }
+    assert role.post_validate(out, inp)
+    assert out["components"] == ["http.client"]
+
+
+def test_extractor_salvages_measured_5917_output() -> None:
+    # The exact output qwen3:4b produced for item 5917 on both retry seeds. The
+    # grounded fields are all correct; only the components entry is misshapen.
+    role = ExtractorRole()
+    inp = _extractor_input(
+        excerpt=(
+            "java.util.concurrent.CompletionException: "
+            "org.apache.http.NoHttpResponseException: "
+            "beta.example.io:<NUM> failed to respond"
+        )
+    )
+    role.build_prompt(inp, nonce="beadfeed")
+    out = {
+        "root_exception": "org.apache.http.NoHttpResponseException",
+        "wrapper_chain": [
+            "java.util.concurrent.CompletionException",
+            "org.apache.http.NoHttpResponseException",
+        ],
+        "failing_layer": "app_code",
+        "error_class": "not_found",
+        "components": ["beta.example.io:<NUM> failed to respond"],
+    }
+    assert role.post_validate(out, inp)
+    assert out["components"] == []
+
+
+def test_extractor_hallucinated_wrapper_still_fatal() -> None:
+    # Grounding stays fatal: a wrapper class that never appears in the corpus is
+    # a hallucination, not a formatting slip.
+    role = ExtractorRole()
+    inp = _extractor_input()
+    role.build_prompt(inp, nonce="beadfeed")
+    out = {
+        "root_exception": "org.apache.http.conn.ConnectTimeoutException",
+        "wrapper_chain": ["com.fake.NeverSeenException"],
+        "failing_layer": "infrastructure",
+        "error_class": "timeout",
+        "components": [],
     }
     assert not role.post_validate(out, inp)
 

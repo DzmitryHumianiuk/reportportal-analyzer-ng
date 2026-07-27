@@ -120,6 +120,7 @@ class Handlers(Protocol):
 
     def index(self, launches: list[Launch]) -> Any: ...
     def analyze(self, launches: list[Launch]) -> Any: ...
+    def analyze_item_early(self, launches: list[Launch]) -> Any: ...
     def suggest(self, info: TestItemInfo) -> Any: ...
     def cluster(self, info: LaunchInfoForClustering) -> Any: ...
     def search(self, request: SearchLogs) -> Any: ...
@@ -149,6 +150,11 @@ def build_routes(handlers: Handlers) -> dict[str, RouteSpec]:
     return {
         "index": RouteSpec(_adapt_launches, handlers.index, serialize_model),
         "analyze": RouteSpec(_adapt_launches, handlers.analyze, serialize_model_list),
+        # Early per-item pass (docs/EARLY-ITEM-AA.md): same body and reply shape as
+        # ``analyze``; the RP-side trigger publishes one launch holding one item.
+        "analyze_item_early": RouteSpec(
+            _adapt_launches, handlers.analyze_item_early, serialize_model_list
+        ),
         "suggest": RouteSpec(lambda b: TestItemInfo(**b), handlers.suggest, serialize_model_list),
         "cluster": RouteSpec(
             lambda b: LaunchInfoForClustering(**b), handlers.cluster, serialize_model

@@ -685,8 +685,8 @@ class PgRetrievalStore(StoreBase):
                 INSERT INTO analyzer.suggestion
                     (project_id, item_id, launch_id, group_id, predicted_label, confidence,
                      matched_mode_id, matched_item_id, features, model_ver, llm_used,
-                     explanation, method, abstain_reason)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     explanation, method, abstain_reason, source)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING suggestion_id
                 """,
                 (
@@ -704,6 +704,7 @@ class PgRetrievalStore(StoreBase):
                     sug.explanation,
                     sug.method,
                     sug.abstain_reason,
+                    sug.source,
                 ),
             )
             return int(require_row(cur)[0])

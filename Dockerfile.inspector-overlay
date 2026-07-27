@@ -1,0 +1,22 @@
+# Thin overlay over an already built inspector image: swaps in the changed app
+# files without re-running pip.
+#
+# Why: the minikube VM has no outbound DNS, so a full `inspector/Dockerfile`
+# build fails at `pip install`. The base image already carries the dependencies,
+# so an app-only rebuild needs no network and takes about a second. Same trick
+# the service-ui patch uses over the stock ReportPortal image.
+#
+# Build context is the REPO ROOT, same as inspector/Dockerfile:
+#
+#   minikube image build -f Dockerfile.inspector-overlay \
+#     --build-arg BASE=analyzer-inspector:ins39 -t analyzer-inspector:ins40 .
+#   kubectl set image deployment/analyzer-inspector inspector=analyzer-inspector:ins40
+#
+# Use inspector/Dockerfile instead whenever the build host has network, or when
+# inspector/requirements.txt changed (this file cannot pick up new dependencies).
+ARG BASE=analyzer-inspector:ins39
+FROM ${BASE}
+
+COPY --chown=inspector:inspector inspector/backend /app/backend
+COPY --chown=inspector:inspector inspector/static /app/static
+COPY --chown=inspector:inspector src/analyzer_ng/db/repositories/queries.py /app/analyzer_sql/queries.py

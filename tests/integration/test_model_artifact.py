@@ -330,3 +330,77 @@ def test_training_frame_returns_stored_snapshot(pool: ConnectionPool) -> None:
     assert row["new_label"] == "ab001"
     assert row["features"]  # the stored snapshot is present (training reads only this)
     assert row["features"]["hist_ab"] == feats["hist_ab"]
+
+
+def test_training_frame_refuses_early_snapshots(pool: ConnectionPool) -> None:
+    """docs/EARLY-ITEM-AA.md: a ``source='early'`` row is a singleton-context
+    snapshot (group_dominance frozen at 1.0, si_prior at 0.0) and must never
+    become training input, even when it is the item's newest row."""
+    retrieval = PgRetrievalStore(pool)
+    labels = PgLabelStore(pool)
+    retrieval.upsert_items(
+        [TestItemIn(item_id=78, project_id=1, launch_id=9, issue_type="pb001", test_case_hash=556)]
+    )
+    launch_feats = _features_for("pb", random.Random(1))
+    retrieval.write_suggestion(
+        SuggestionIn(
+            project_id=1,
+            item_id=78,
+            launch_id=9,
+            predicted_label="pb001",
+            confidence=0.8,
+            features=launch_feats,
+            model_ver="gbm-x;fs=1;emb=none",
+        )
+    )
+    # The EARLY row is written AFTER the launch-scoped one, so without the guard
+    # the newest-snapshot lookup would pick it.
+    early_feats = dict(launch_feats)
+    early_feats["group_dominance"] = 1.0  # the degenerate singleton constant
+    retrieval.write_suggestion(
+        SuggestionIn(
+            project_id=1,
+            item_id=78,
+            launch_id=9,
+            predicted_label="pb001",
+            confidence=0.8,
+            features=early_feats,
+            model_ver="gbm-x;fs=1;emb=none",
+            source="early",
+        )
+    )
+    labels.append_event(
+        LabelEventIn(project_id=1, item_id=78, new_label="pb001", source="rp_defect_update")
+    )
+    frame = labels.fetch_training_frame(project_id=1)
+    row = next(r for r in frame if r["item_id"] == 78)
+    # The launch-scoped snapshot won, not the newer early one.
+    assert row["features"]["group_dominance"] == launch_feats["group_dominance"]
+
+
+def test_training_frame_early_only_item_has_no_snapshot(pool: ConnectionPool) -> None:
+    """An item labeled before any launch-scoped row exists contributes no
+    feature snapshot at all — better no example than a degenerate one."""
+    retrieval = PgRetrievalStore(pool)
+    labels = PgLabelStore(pool)
+    retrieval.upsert_items(
+        [TestItemIn(item_id=79, project_id=1, launch_id=9, issue_type="pb001", test_case_hash=557)]
+    )
+    retrieval.write_suggestion(
+        SuggestionIn(
+            project_id=1,
+            item_id=79,
+            launch_id=9,
+            predicted_label="pb001",
+            confidence=0.8,
+            features=_features_for("pb", random.Random(2)),
+            model_ver="gbm-x;fs=1;emb=none",
+            source="early",
+        )
+    )
+    labels.append_event(
+        LabelEventIn(project_id=1, item_id=79, new_label="pb001", source="rp_defect_update")
+    )
+    frame = labels.fetch_training_frame(project_id=1)
+    row = next(r for r in frame if r["item_id"] == 79)
+    assert row["features"] is None

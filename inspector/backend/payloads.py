@@ -108,6 +108,113 @@ def _s(v: Any) -> str | None:
     return None if v is None else str(v)
 
 
+# --------------------------------------------------------------------------- #
+# Explanation carry-forward
+# --------------------------------------------------------------------------- #
+# Opening ReportPortal's Make Decision modal makes the analyzer re-decide and
+# write a NEW suggestion row (spec §6.6), which is correct: retrains and fresh
+# human labels genuinely move the decision. That row starts with no explanation
+# (LLM enrichment is async), so it shadows the older, already explained row and
+# the modal shows no analyzer reasoning at all.
+#
+# When the new decision is IDENTICAL to the explained one, the old text is still
+# true, so it is carried forward and shown at once. Equivalence is deliberately
+# strict — every field the explanation can talk about:
+#   predicted_label, abstain_reason, matched_item_id, model_ver,
+#   confidence (EXACT, never rounded: the prose quotes precise numbers),
+#   the feature vector, minus the keys listed below.
+# A rubric row (model_ver 'rubric+…') is a provisional hypothesis and is never
+# equivalent to a classical decision, so the two can never borrow each other's
+# text. Anything the key cannot see (a neighbour edited after the fact, a KB
+# reindex) is covered by the analyzer's own explainer job, which keeps running
+# and rewrites the text against current facts within the usual enrichment window.
+#
+# Excluded from the comparison:
+#   judge                — only reorders candidates after the fact; it never
+#                          moves the label or the confidence.
+#   test_age_days        — log1p(days) of the test's own age.
+#   recency_top1         — decay() over the top candidate's age.
+#   hist_pb/ab/si/nd     — Σ(cos · decay(age) · src_weight) ÷ Σ all. Candidates
+#                          age at different rates, so the ratio never settles.
+# Everything after ``judge`` moves with the wall clock on its own. This is the
+# complete set: in core/features.py the only clock-derived inputs are
+# ``test_age_days`` and the two decay() call sites, which feed exactly
+# ``recency_top1`` and the four ``hist_*`` values.
+#
+# Measured on a live stand, three consecutive opens of one unchanged decision
+# differed only in test_age_days, hist_pb and hist_nd, the last two down at
+# 2.7e-14 (numerically zero, still drifting). Counting them would make
+# carry-forward impossible by construction.
+#
+# Dropping them is safe because the GBM confidence is itself a function of the
+# features and is compared EXACTLY: any feature change big enough to matter
+# moves the confidence, which fails the key on its own.
+_IGNORED_FEATURES = frozenset(
+    {
+        "judge",
+        "test_age_days",
+        "recency_top1",
+        "hist_pb",
+        "hist_ab",
+        "hist_si",
+        "hist_nd",
+    }
+)
+
+
+def _decision_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    """Fields that must all match before an explanation may be reused."""
+    feats = row.get("features") or {}
+    if not isinstance(feats, dict):
+        feats = {}
+    return (
+        row.get("predicted_label"),
+        row.get("abstain_reason"),
+        _s(row.get("matched_item_id")),
+        row.get("model_ver"),
+        _s(row.get("confidence")),
+        {k: v for k, v in feats.items() if k not in _IGNORED_FEATURES},
+    )
+
+
+def _carried_explanation(
+    latest: dict[str, Any] | None, explained: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """The explained row's text when its decision equals the latest one's, else None."""
+    if not latest or not explained:
+        return None
+    text = (explained.get("explanation") or "").strip()
+    if not text:
+        return None
+    if _decision_key(latest) != _decision_key(explained):
+        return None
+    return {
+        "explanation": text,
+        "llm_used": bool(explained.get("llm_used")),
+        "carried_from_suggestion_id": explained.get("suggestion_id"),
+        "carried_from": _iso(explained.get("created_at")),
+    }
+
+
+def _is_below_band_abstain(row: dict[str, Any] | None) -> bool:
+    """True when the classical decision produced no usable answer.
+
+    The analyzer looked and stayed under the suggest line, so it has nothing to
+    offer. That is the one case where an older cold-start hypothesis is worth
+    resurfacing next to the (empty) decision. Rubric rows are excluded: a rubric
+    is the hypothesis itself, not a classical decision about it.
+    """
+    if not row:
+        return False
+    if str(row.get("model_ver") or "").startswith("rubric+"):
+        return False
+    try:
+        confidence = float(row.get("confidence") or 0.0)
+    except (TypeError, ValueError):
+        return False
+    return confidence < TAU_SUGGEST
+
+
 def _slist(v: Any) -> list[str]:
     return [str(x) for x in (v or [])]
 
@@ -422,6 +529,74 @@ def item_journey(
         (project_id, item_id),
     )
     matching_block, decision_block = _matching_decision(db, project_id, sug)
+
+    # ---- Explanation carry-forward (see _carried_explanation) ----
+    # The freshly written row has no explanation yet. If an older row explains the
+    # SAME decision, that text is still true, so surface it right away instead of
+    # leaving the reader with no reasoning at all.
+    if decision_block is not None and not str(sug.get("explanation") or "").strip():
+        explained = db.one(
+            f"""
+            SELECT suggestion_id, predicted_label, confidence, matched_item_id,
+                   model_ver, features, explanation, llm_used, created_at{extra_cols}
+            FROM analyzer.suggestion
+            WHERE project_id = %s AND item_id = %s
+              AND explanation IS NOT NULL AND explanation <> ''
+            ORDER BY created_at DESC, suggestion_id DESC
+            LIMIT 1
+            """,
+            (project_id, item_id),
+        )
+        carried = _carried_explanation(sug, explained)
+        if carried:
+            decision_block["explanation"] = carried["explanation"]
+            decision_block["llm_used"] = carried["llm_used"]
+            # Provenance so the UI can label the text honestly and a drift
+            # investigation can find the row the text actually came from.
+            decision_block["explanation_carried_from"] = {
+                "suggestion_id": carried["carried_from_suggestion_id"],
+                "created_at": carried["carried_from"],
+            }
+
+    # ---- Cold-start hypothesis resurface ----
+    # A below-band abstain means the classical path has no answer. An older
+    # cold-start hypothesis is better than an empty panel, but it is a guess, so
+    # it rides in its own block (never merged into the decision) and carries the
+    # role's current state: the role can be auto-disabled on precision, and the
+    # reader has to know that before acting on the text.
+    if decision_block is not None and _is_below_band_abstain(sug):
+        rubric = db.one(
+            """
+            SELECT suggestion_id, predicted_label, confidence, model_ver,
+                   explanation, features, created_at
+            FROM analyzer.suggestion
+            WHERE project_id = %s AND item_id = %s AND model_ver LIKE 'rubric+%%'
+            ORDER BY created_at DESC, suggestion_id DESC
+            LIMIT 1
+            """,
+            (project_id, item_id),
+        )
+        if rubric:
+            role = db.one(
+                """
+                SELECT enabled, reason FROM analyzer.llm_role_state
+                WHERE project_id = %s AND role = 'coldstart'
+                """,
+                (project_id,),
+            )
+            decision_block["rubric_hypothesis"] = {
+                "suggestion_id": rubric["suggestion_id"],
+                "predicted_label": rubric["predicted_label"],
+                "predicted_group": _grp(rubric["predicted_label"]),
+                "confidence": float(rubric["confidence"] or 0.0),
+                "model_ver": rubric["model_ver"],
+                "explanation": rubric["explanation"],
+                "created_at": _iso(rubric["created_at"]),
+                # False when the analyzer turned the cold-start role off for this
+                # project (e.g. it scored worse than the classical path).
+                "source_role_enabled": bool(role["enabled"]) if role else True,
+                "source_role_reason": (role or {}).get("reason"),
+            }
 
     # Honesty split for LLM cold-start rows: a rubric row (model_ver 'rubric+…') is a
     # PROVISIONAL ai_suggested hint — never surfaced in RP's Make Decision. When it is

@@ -348,3 +348,27 @@ def test_load_config_accepts_existing_model_path(
     env.setenv("ANALYZER_EMB_MODEL_PATH", str(tmp_path))
     cfg = load_config()
     assert cfg.analyzer_emb_model_path == str(tmp_path)
+
+
+def test_early_item_analysis_defaults_off(env: pytest.MonkeyPatch) -> None:
+    # docs/EARLY-ITEM-AA.md: ships dark — flag off, deterministic-only policy.
+    _minimal(env)
+    cfg = _cfg()
+    assert cfg.analyzer_early_item_analysis is False
+    assert cfg.analyzer_early_aa_label_policy == "kb_inherit_only"
+
+
+def test_early_item_analysis_env_overrides(env: pytest.MonkeyPatch) -> None:
+    _minimal(env)
+    env.setenv("ANALYZER_EARLY_ITEM_ANALYSIS", "true")
+    env.setenv("ANALYZER_EARLY_AA_LABEL_POLICY", "suggest_only")
+    cfg = _cfg()
+    assert cfg.analyzer_early_item_analysis is True
+    assert cfg.analyzer_early_aa_label_policy == "suggest_only"
+
+
+def test_early_aa_label_policy_rejects_unknown_value(env: pytest.MonkeyPatch) -> None:
+    _minimal(env)
+    env.setenv("ANALYZER_EARLY_AA_LABEL_POLICY", "yolo")
+    with pytest.raises(Exception):
+        _cfg()
