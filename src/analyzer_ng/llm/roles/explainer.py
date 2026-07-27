@@ -24,13 +24,21 @@ _SYSTEM = (
     "schema only."
 )
 
+# F1b: log quotes and fact values are separate fields, each grounded against its
+# own source, so fact-only strings (gate sentences, thresholds, status codes) can
+# no longer pass as log quotes. Pre-split ``llm_cache`` rows (up to 90 days old)
+# still carry the single ``quoted_lines`` field; ``post_validate`` accepts that
+# legacy shape under the old contract, and new outputs are tagged ``schema_ver``.
+SCHEMA_VER = 2
+
 _SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "explanation": {"type": "string", "maxLength": 700},
-        "quoted_lines": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
+        "quoted_log_lines": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
+        "quoted_fact_values": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
     },
-    "required": ["explanation", "quoted_lines"],
+    "required": ["explanation", "quoted_log_lines", "quoted_fact_values"],
     "additionalProperties": False,
 }
 
@@ -55,6 +63,8 @@ class ExplainerRole(Role):
         fact_json, fact_leaves = prepare_fact_block(inp["fact_block"])
         block, corpus_text = build_untrusted_excerpt(inp["log_excerpt"], nonce)
         inp["_corpus"] = [corpus_text, *fact_leaves]
+        inp["_corpus_log"] = [corpus_text]
+        inp["_corpus_facts"] = list(fact_leaves)
         user = (
             f'Matched failure mode: "{inp["mode_title"]}" (label {inp["mode_label"]}, '
             f"seen {inp['mode_support']}\n"
@@ -62,17 +72,28 @@ class ExplainerRole(Role):
             f"Match signals: {inp['match_signals']}\n\n"
             f"Facts:\n```json\n{fact_json}\n```\n\n"
             f"{block}\n\n"
-            "Explain in 2-3 sentences why this failure matches the mode. Include at "
-            "most 2 exact\nquotes from the log data."
+            "Explain in 2-3 sentences why this failure matches the mode. Put up to 2 "
+            "exact quotes\nfrom the log data in quoted_log_lines, and up to 2 exact "
+            "values copied from the facts\nin quoted_fact_values."
         )
         return _SYSTEM, user
 
     def post_validate(self, output: dict[str, Any], inp: dict[str, Any]) -> bool:
         corpus: list[str] = inp.get("_corpus", [])
+        corpus_log: list[str] = inp.get("_corpus_log", corpus)
+        corpus_facts: list[str] = inp.get("_corpus_facts", corpus)
         explanation = output.get("explanation", "")
         if _TAMPER_RE.search(explanation):
             return False
-        # Every quoted_lines element must be verbatim in the corpus.
+        # Each split field must be verbatim in its own source (F1b).
+        for line in output.get("quoted_log_lines", []):
+            if not _in_corpus(line, corpus_log):
+                return False
+        for value in output.get("quoted_fact_values", []):
+            if not _in_corpus(value, corpus_facts):
+                return False
+        # Legacy single-field shape from pre-split cache rows: the old contract
+        # grounded every quote against the combined corpus. Never tagged.
         for line in output.get("quoted_lines", []):
             if not _in_corpus(line, corpus):
                 return False
@@ -80,6 +101,8 @@ class ExplainerRole(Role):
         for match in _QUOTED_RE.findall(explanation):
             if not _in_corpus(match, corpus):
                 return False
+        if "quoted_lines" not in output:
+            output["schema_ver"] = SCHEMA_VER  # tag new-shape cache writes
         return True
 
 
@@ -136,6 +159,8 @@ class AbstainExplainerRole(ExplainerRole):
             f"{block}\n\n"
             "In 1-3 sentences, explain why the analyzer declined to choose a defect "
             "type,\nciting the conflicting labels (neighbours or the hash pool) and the "
-            "blocking gate.\nInclude at most 2 exact quotes from the facts or log data."
+            "blocking gate.\nPut up to 2 exact quotes from the log data in "
+            "quoted_log_lines, and up to 2 exact\nvalues copied from the facts in "
+            "quoted_fact_values."
         )
         return _ABSTAIN_SYSTEM, user
