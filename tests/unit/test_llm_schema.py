@@ -55,8 +55,17 @@ def test_bool_is_not_integer() -> None:
 
 
 def test_explainer_schema_accepts_wellformed() -> None:
-    assert is_valid({"explanation": "ok", "quoted_lines": ["x"]}, EXPLAINER_SCHEMA)
-    assert not is_valid({"explanation": "ok", "quoted_lines": ["a", "b", "c"]}, EXPLAINER_SCHEMA)
+    assert is_valid(
+        {"explanation": "ok", "quoted_log_lines": ["x"], "quoted_fact_values": []},
+        EXPLAINER_SCHEMA,
+    )
+    assert not is_valid(
+        {"explanation": "ok", "quoted_log_lines": ["a", "b", "c"], "quoted_fact_values": []},
+        EXPLAINER_SCHEMA,
+    )
+    # Fresh generations must use the split shape; the legacy single field is
+    # accepted only from pre-split cache rows (which bypass schema validation).
+    assert not is_valid({"explanation": "ok", "quoted_lines": ["x"]}, EXPLAINER_SCHEMA)
 
 
 def test_validate_raises_with_path() -> None:

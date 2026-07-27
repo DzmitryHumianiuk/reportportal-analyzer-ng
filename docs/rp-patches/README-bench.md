@@ -10,7 +10,24 @@ parsing intact. This is an **RP-side** change (the user owns the stand).
 > the public repo; only the patch and its evidence ship here.
 
 - Patch: [`service-ui-5.15.3-bench.patch`](./service-ui-5.15.3-bench.patch)
-- Built image: `reportportal/service-ui:5.15.3-ng52`
+- Built image: `reportportal/service-ui:5.15.3-ng54`
+
+**ng54 — the AI guess card remembers the cold-start hypothesis.** Paired with
+analyzer image `mk28` (quote-field split + auto-disable gate fix):
+
+- *The journey's hypothesis now reaches the modal.* When the live suggest reply
+  has no rubric row (newer classical rows displaced it, or the guess feature is
+  off for the project), the AI guess card falls back to the journey record's
+  `rubric_hypothesis` block: same adoptable card, tagged `hypothesis`, with
+  plain copy ("No confident match yet. This is an early guess from rules.
+  Check it before you decide."). When the analyzer has turned the guess feature
+  off for the project, the card says the guess will not update instead of
+  pretending it is current.
+- *Quote grounding reads the split quote fields.* Analyzer images after the
+  F1b split write `quoted_log_lines` (log quotes only); cached outputs up to
+  90 days old still carry the single `quoted_lines` field, and both are read.
+  Fact values (`quoted_fact_values`) are never matched against the log, so
+  they can no longer poison the grounding check.
 
 **ng52 — the analyzer explanation actually reaches the modal.** Two fixes, paired
 with the inspector-side carry-forward (see `docs/OPERATIONS.md`):

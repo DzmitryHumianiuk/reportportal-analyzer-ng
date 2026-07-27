@@ -13,7 +13,13 @@ from analyzer_ng.config import AppConfig
 from analyzer_ng.llm.client import OllamaClient
 from analyzer_ng.llm.manager import LlmSidecar
 
-_GOOD_EXPLAINER = json.dumps({"explanation": "matched", "quoted_lines": ["Connection refused"]})
+_GOOD_EXPLAINER = json.dumps(
+    {
+        "explanation": "matched",
+        "quoted_log_lines": ["Connection refused"],
+        "quoted_fact_values": [],
+    }
+)
 
 
 def _config(**overrides: object) -> AppConfig:

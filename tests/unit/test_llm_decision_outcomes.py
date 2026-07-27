@@ -380,6 +380,27 @@ def test_abstain_role_grounding_rejects_fabricated_quote() -> None:
     assert role.post_validate(fabricated, inp) is False
 
 
+def test_abstain_role_fact_value_cannot_ground_as_log_quote() -> None:
+    # F1b regression: the abstain role must populate the split corpora like the
+    # match explainer does. Gate sentences and thresholds live only in the fact
+    # block, and the abstain narrative is the role most tempted to quote them as
+    # "log" evidence — a combined-only corpus would let that pass.
+    role = AbstainExplainerRole()
+    inp = _abstain_role_input()
+    role.build_prompt(inp, "abcd1234")
+    gate = "the nearest neighbour shared no structural evidence (boilerplate guard)"
+    as_log = {"explanation": "ok", "quoted_log_lines": [gate], "quoted_fact_values": []}
+    assert role.post_validate(as_log, inp) is False
+    as_fact = {"explanation": "ok", "quoted_log_lines": [], "quoted_fact_values": [gate]}
+    assert role.post_validate(as_fact, inp) is True
+    # And the reverse: a real log line is not a fact value.
+    log_line = "org.example.ApiException: payment failed"
+    log_as_fact = {"explanation": "ok", "quoted_log_lines": [], "quoted_fact_values": [log_line]}
+    assert role.post_validate(log_as_fact, inp) is False
+    log_as_log = {"explanation": "ok", "quoted_log_lines": [log_line], "quoted_fact_values": []}
+    assert role.post_validate(log_as_log, inp) is True
+
+
 def test_abstain_role_content_key_distinct_from_match_explainer() -> None:
     # Same error_hash must not collide in the shared 'explainer' cache namespace.
     abstain = AbstainExplainerRole().content_key(_abstain_role_input())

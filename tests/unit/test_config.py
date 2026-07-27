@@ -370,7 +370,7 @@ def test_early_item_analysis_env_overrides(env: pytest.MonkeyPatch) -> None:
 def test_early_aa_label_policy_rejects_unknown_value(env: pytest.MonkeyPatch) -> None:
     _minimal(env)
     env.setenv("ANALYZER_EARLY_AA_LABEL_POLICY", "yolo")
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         _cfg()
 
 
