@@ -14,7 +14,9 @@ from _llm_fakes import FakeRoleStateStore
 
 from analyzer_ng.llm.eval import (
     AUTO_DISABLE_GAP,
+    AUTO_DISABLE_MIN_CLASSICAL_N,
     AUTO_DISABLE_MIN_N,
+    AUTO_DISABLE_PRECISION_FLOOR,
     LlmEvalJob,
     RoleComparison,
     evaluate_role,
@@ -100,6 +102,34 @@ def test_role_not_disabled_when_llm_better() -> None:
 def test_constants_match_spec() -> None:
     assert AUTO_DISABLE_MIN_N == 50
     assert AUTO_DISABLE_GAP == 0.02
+    assert AUTO_DISABLE_MIN_CLASSICAL_N == 50
+    assert AUTO_DISABLE_PRECISION_FLOOR == 0.95
+
+
+# ---- Guards against a degenerate classical arm ---- #
+def test_role_not_disabled_when_classical_arm_below_min() -> None:
+    # Live incident (project 7): rubric 119/124 vs rule_cold 12/12. A perfect
+    # 12-case classical arm has zero Wilson upside width (p̂=1 → upper=1), so the
+    # MOVER bound treated it as certainty and killed a 96 %-precision role. A
+    # classical arm below the min size must not bind the comparison.
+    ev = evaluate_role(7, "coldstart", _cmp(124, 119, 124, 12, 12))
+    assert ev.disabled is False
+    assert ev.reason == "classical_arm_below_min"
+
+
+def test_role_not_disabled_above_precision_floor() -> None:
+    # Both arms large, classical perfect: 96 % LLM precision loses the relative
+    # comparison but clears the absolute floor → keep the role on.
+    ev = evaluate_role(1, "coldstart", _cmp(100, 96, 100, 100, 100))
+    assert ev.disabled is False
+    assert ev.reason == "llm_above_precision_floor"
+
+
+def test_role_still_disabled_when_bad_with_large_arms() -> None:
+    # The real failure mode (LLM genuinely worse at scale) must still trip.
+    ev = evaluate_role(1, "coldstart", _cmp(60, 42, 60, 48, 60))
+    assert ev.disabled is True
+    assert ev.reason == "auto_disabled_precision"
 
 
 # ---- Job: per-project isolation + metrics ---- #

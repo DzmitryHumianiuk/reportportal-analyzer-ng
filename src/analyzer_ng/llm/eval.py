@@ -7,9 +7,13 @@ when a role is *demonstrably* worse than the classical path, flips its
 admin re-enables it (row delete/update); this job re-evaluates but **never**
 auto-re-enables (it only ever writes ``enabled=false``).
 
-Auto-disable fires iff all three hold (§6.2):
+Auto-disable fires iff all of these hold (§6.2, amended):
 
 * the comparison set has ``N ≥ 50`` gated cases,
+* the classical arm has ``n ≥ 50`` resolved cases (a tiny arm cannot bind),
+* ``precision_llm < 0.95`` (a role above the absolute floor is never killed
+  by a relative comparison — the comparison is precision-only and ignores
+  that the LLM arm usually covers far more cases than the classical one),
 * ``precision_llm < precision_classical − 0.02``,
 * the 95 % Wilson lower bound of ``(precision_llm − precision_classical)`` is ``< 0``.
 
@@ -35,6 +39,17 @@ logger = logging.getLogger(__name__)
 # §6.2 auto-disable thresholds.
 AUTO_DISABLE_MIN_N = 50
 AUTO_DISABLE_GAP = 0.02
+# The classical arm must be at least this large before the relative comparison
+# binds. A tiny perfect arm is degenerate: Wilson at p̂ = 1 has upper bound
+# exactly 1, so it contributes zero width to the MOVER bound and reads as
+# certainty (observed live: rule_cold 12/12 disabling a 96 %-precision rubric).
+AUTO_DISABLE_MIN_CLASSICAL_N = 50
+# Never auto-disable a role whose own precision clears this absolute floor,
+# regardless of the classical arm. The comparison is precision-only and
+# coverage-blind (the rubric arm typically answers far more cases than
+# rule_cold); a role right ≥ 95 % of the time under human review is doing its
+# job even against a locally perfect baseline.
+AUTO_DISABLE_PRECISION_FLOOR = 0.95
 WILSON_Z = 1.96  # 95 % two-sided
 
 EVAL_WINDOW_DAYS = 30
@@ -128,6 +143,10 @@ def evaluate_role(project_id: int, role: str, cmp: RoleComparison) -> RoleEval:
     disabled = False
     if cmp.n < AUTO_DISABLE_MIN_N:
         reason = "n_below_min"
+    elif cmp.n_classical < AUTO_DISABLE_MIN_CLASSICAL_N:
+        reason = "classical_arm_below_min"
+    elif p_llm >= AUTO_DISABLE_PRECISION_FLOOR:
+        reason = "llm_above_precision_floor"
     elif not (p_llm < p_classical - AUTO_DISABLE_GAP):
         reason = "gap_within_tolerance"
     elif not (diff_lower < 0.0):
