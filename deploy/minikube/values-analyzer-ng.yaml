@@ -78,6 +78,15 @@ serviceanalyzer:
     # CREATE the DB (already created by POSTGRES_DB) + `CREATE EXTENSION vector`.
     - name: ANALYZER_PG_CREATE_DB
       value: "true"
+    # LLM call budget. The code default (20s) leaves only ~3s of headroom over
+    # the local qwen3:4b p90 generation (~17s), so a single slow generation
+    # opens the circuit breaker, whose cooldown doubles on every re-open —
+    # observed live 2026-07-27 as a flapping breaker during a cache warmup.
+    # 30s keeps honest headroom without letting a hung sidecar stall the queue.
+    # (The LLM enablement env — ANALYZER_LLM_ENABLED, ANALYZER_LLM_API,
+    # OLLAMA_URL — is currently applied out-of-band on this stand via kubectl.)
+    - name: ANALYZER_LLM_TIMEOUT_S
+      value: "30"
 
 # ---------------------------------------------------------------------------- #
 # minikube registry workaround.
