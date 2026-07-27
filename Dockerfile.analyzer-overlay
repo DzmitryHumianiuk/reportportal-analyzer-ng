@@ -13,6 +13,6 @@
 #
 # Bump FROM when the deployed base moves. Use the full Dockerfile instead when
 # dependencies, the model, or the entrypoint changed.
-FROM analyzer-ng:mk25
+FROM analyzer-ng:mk26
 
 COPY src/analyzer_ng /opt/venv/lib/python3.12/site-packages/analyzer_ng

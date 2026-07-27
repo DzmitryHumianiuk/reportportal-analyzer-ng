@@ -232,6 +232,10 @@ class AnalysisEngine:
     # to a stored suggestion; 'suggest_only' demotes everything.
     early_item_analysis: bool = False  # ANALYZER_EARLY_ITEM_ANALYSIS
     early_label_policy: str = "kb_inherit_only"  # ANALYZER_EARLY_AA_LABEL_POLICY
+    # kb_inherit_and_pb only: the stricter-than-auto confidence bar a GBM 'pb'
+    # decision must clear to label early (replay: pb holds at the singleton
+    # corner, si flips — so pb may earn early labeling, si never does).
+    early_gbm_pb_min: float = 0.85  # ANALYZER_EARLY_GBM_PB_MIN
     suggest_below_max: int = SUGGEST_BELOW_MAX  # ANALYZER_SUGGEST_BELOW_MAX (≤ 3)
 
     # ------------------------------------------------------------------ #
@@ -288,15 +292,29 @@ class AnalysisEngine:
                     project, item_id, launch.launchId, None, decision, source="early"
                 )
                 self._enqueue_llm(project, item_id, launch.launchId, decision, suggestion_id=sid)
-                # Fail closed: only the one policy that permits labeling is
-                # compared by name, so a typo'd or future policy value demotes
-                # everything instead of silently labeling. rule_cold seed-prior
-                # autos are also demoted — deliberately: v1 applies hash/kb only.
+                # Fail closed: only policies named here may label; a typo'd or
+                # future value demotes everything instead of silently labeling.
+                # rule_cold seed-prior autos are demoted deliberately (hash/kb
+                # only). kb_inherit_and_pb additionally admits a GBM 'pb' above
+                # the stricter early bar — replay showed pb holds at the
+                # singleton corner while si flips. si never labels early on ANY
+                # path, deterministic included: an environment burst is only
+                # visible launch-wide, so mid-launch si stays a suggestion.
+                policy = self.early_label_policy
+                allows_deterministic = policy in ("kb_inherit_only", "kb_inherit_and_pb")
+                pb_gbm_applies = (
+                    policy == "kb_inherit_and_pb"
+                    and decision.method == METHOD_GBM
+                    and decision.label == "pb"
+                    and decision.confidence >= self.early_gbm_pb_min
+                )
                 applies = (
                     decision.action == ACTION_AUTO
-                    and decision.label != "ti"
-                    and decision.method in deterministic
-                    and self.early_label_policy == "kb_inherit_only"
+                    and decision.label not in ("ti", "si")
+                    and (
+                        (decision.method in deterministic and allows_deterministic)
+                        or pb_gbm_applies
+                    )
                 )
                 if applies:
                     self.retrieval.update_issue_type(
@@ -948,10 +966,12 @@ class AnalysisEngine:
             window_failures=stats_row.get("window_failures", 0) or 0,
             window_flips=stats_row.get("window_flips", 0) or 0,
             group_size=len(group.members),
-            # We know the failing-item count; the launch's *total* item count is not
-            # carried on the wire, so launch_fail_fraction stays 0 (unknown, §6.4 #31).
             launch_failures=total_failures,
-            launch_items=0,
+            # Total items in the launch, when the sender carries it (§6.4 #31,
+            # Launch.launchItemsCount, 2026-07-26). Legacy senders and the early
+            # per-item trigger send 0, so launch_fail_fraction stays 0 for them;
+            # a launch-finish sender that fills the count makes it live.
+            launch_items=rep.launch.launchItemsCount,
             si_prior=group.si_prior,
             test_age_days=test_age_days,
             item_log_count=rep.log_count,

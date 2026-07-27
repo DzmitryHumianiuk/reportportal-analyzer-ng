@@ -89,7 +89,7 @@ def _suggestion_opt_cols(db: Database) -> set[str]:
             WHERE table_schema = 'analyzer' AND table_name = 'suggestion'
               AND column_name = ANY(%s)
             """,
-            (["method", "abstain_reason"],),
+            (["method", "abstain_reason", "source"],),
         )
         _SUGGESTION_OPT_COLS = {r["column_name"] for r in rows}
     return _SUGGESTION_OPT_COLS
@@ -515,7 +515,7 @@ def item_journey(
     # method / abstain_reason appended only when the columns exist (see
     # _suggestion_opt_cols); _matching_decision derives method otherwise.
     opt_cols = _suggestion_opt_cols(db)
-    extra_cols = "".join(f", {c}" for c in ("method", "abstain_reason") if c in opt_cols)
+    extra_cols = "".join(f", {c}" for c in ("method", "abstain_reason", "source") if c in opt_cols)
     sug = db.one(
         f"""
         SELECT suggestion_id, group_id, predicted_label, confidence, matched_mode_id,
@@ -1106,6 +1106,9 @@ def _matching_decision(
         # Verbatim when the suggestion row stores it; None otherwise (the frontend
         # omits the reason clause rather than guessing).
         "abstain_reason": sug.get("abstain_reason"),
+        # 'early' when the row came from the per-item pre-launch-finish pass
+        # (docs/EARLY-ITEM-AA.md); the UI marks such decisions as revisable.
+        "source": sug.get("source"),
         "llm_used": sug["llm_used"],
         "explanation": sug["explanation"],
         "outcome": sug["outcome"],

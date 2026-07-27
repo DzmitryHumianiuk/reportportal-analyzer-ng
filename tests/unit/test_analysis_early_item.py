@@ -190,13 +190,27 @@ def test_stage_a_auto_is_applied_and_tagged_early() -> None:
 def test_kb_short_circuit_auto_is_applied() -> None:
     retr = FakeRetrieval()
     engine = _engine(
+        retr, FakeSidecar(), [_decision(method=METHOD_KB, issue_type="ab001", label="ab")]
+    )
+
+    out = engine.analyze_item_early([_launch()])
+
+    assert [(r.testItem, r.issueType) for r in out] == [(ITEM, "ab001")]
+    assert retr.issue_updates == [(PROJECT, ITEM, "ab001", True)]
+
+
+def test_kb_si_is_demoted_never_labels_early() -> None:
+    retr = FakeRetrieval()
+    engine = _engine(
         retr, FakeSidecar(), [_decision(method=METHOD_KB, issue_type="si001", label="si")]
     )
 
     out = engine.analyze_item_early([_launch()])
 
-    assert [(r.testItem, r.issueType) for r in out] == [(ITEM, "si001")]
-    assert retr.issue_updates == [(PROJECT, ITEM, "si001", True)]
+    assert out == []
+    assert retr.issue_updates == []
+    assert len(retr.suggestions) == 1
+    assert retr.suggestions[0].source == "early"
 
 
 # ---- the demotion: GBM never auto-labels early ---------------------------- #
@@ -327,3 +341,110 @@ def test_other_routes_leave_source_untagged() -> None:
     engine = _engine(retr, FakeSidecar(), [])
     engine._write_suggestion(PROJECT, ITEM, LAUNCH_ID, None, _decision())
     assert retr.suggestions[0].source is None
+
+
+# ---- v2: pb-only GBM early labeling (kb_inherit_and_pb) ------------------- #
+# Replay evidence (2026-07-25, project 7, 410 rows): every label flip at the
+# singleton corner was si->pb; pb decisions held. So pb may auto-label early at
+# a stricter-than-auto threshold, si/ab/nd never.
+
+
+def test_pb_gbm_above_strict_threshold_is_applied() -> None:
+    retr = FakeRetrieval()
+    engine = _engine(
+        retr,
+        FakeSidecar(),
+        [_decision(method=METHOD_GBM, issue_type="pb001", label="pb", confidence=0.9)],
+        policy="kb_inherit_and_pb",
+    )
+    out = engine.analyze_item_early([_launch()])
+    assert [(r.testItem, r.issueType) for r in out] == [(ITEM, "pb001")]
+    assert retr.issue_updates == [(PROJECT, ITEM, "pb001", True)]
+
+
+def test_pb_gbm_below_strict_threshold_is_demoted() -> None:
+    retr = FakeRetrieval()
+    engine = _engine(
+        retr,
+        FakeSidecar(),
+        [_decision(method=METHOD_GBM, issue_type="pb001", label="pb", confidence=0.80)],
+        policy="kb_inherit_and_pb",
+    )
+    # 0.80 clears the normal auto band but not the stricter early bar (0.85).
+    assert engine.analyze_item_early([_launch()]) == []
+    assert retr.issue_updates == []
+    assert len(retr.suggestions) == 1
+
+
+def test_si_gbm_never_applies_early_even_at_max_confidence() -> None:
+    retr = FakeRetrieval()
+    engine = _engine(
+        retr,
+        FakeSidecar(),
+        [_decision(method=METHOD_GBM, issue_type="si001", label="si", confidence=0.99)],
+        policy="kb_inherit_and_pb",
+    )
+    assert engine.analyze_item_early([_launch()]) == []
+    assert retr.issue_updates == []
+
+
+def test_kb_inherit_and_pb_still_applies_deterministic() -> None:
+    retr = FakeRetrieval()
+    engine = _engine(
+        retr, FakeSidecar(), [_decision(method=METHOD_HASH)], policy="kb_inherit_and_pb"
+    )
+    assert len(engine.analyze_item_early([_launch()])) == 1
+
+
+def test_default_policy_still_demotes_pb_gbm() -> None:
+    retr = FakeRetrieval()
+    engine = _engine(
+        retr,
+        FakeSidecar(),
+        [_decision(method=METHOD_GBM, issue_type="pb001", label="pb", confidence=0.99)],
+    )
+    assert engine.analyze_item_early([_launch()]) == []
+
+
+# ---- launch_fail_fraction wire (spec 6.4 #31 gap) ------------------------- #
+
+
+def test_feature_ctx_reads_launch_items_count() -> None:
+    from analyzer_ng.amqp.models import Launch as WireLaunch
+
+    engine = AnalysisEngine(
+        retrieval=SimpleNamespace(test_case_first_seen=lambda *a: None),  # type: ignore[arg-type]
+        kb=object(),
+        stats=SimpleNamespace(get_test_history=lambda *a: {}),
+        pipeline=SimpleNamespace(template_id=lambda h: 0),  # type: ignore[arg-type]
+    )
+    launch = WireLaunch(launchId=LAUNCH_ID, project=PROJECT, launchItemsCount=50)
+    rep = SimpleNamespace(
+        item=SimpleNamespace(testItemId=ITEM, testCaseHash=0),
+        launch=launch,
+        signature=SimpleNamespace(
+            signature_text="TEST: boom",
+            exception_fp=1,
+            error_hash=2,
+            has_stacktrace=True,
+            is_assertion=False,
+            is_merged_small_logs=False,
+            exc_classes=[],
+            template_hashes=[],
+            status_codes=[],
+            msg_text="boom",
+        ),
+        emb=None,
+        log_count=1,
+    )
+    group = SimpleNamespace(members=[1], si_prior=0.0)
+    ctx = engine._feature_ctx(rep, group, total_failures=20)  # type: ignore[arg-type]
+    assert ctx.launch_items == 50
+    assert ctx.launch_failures == 20
+
+
+def test_launch_model_carries_items_count_default_zero() -> None:
+    from analyzer_ng.amqp.models import Launch as WireLaunch
+
+    assert WireLaunch(launchId=1, project=2).launchItemsCount == 0
+    assert WireLaunch(launchId=1, project=2, launchItemsCount=7).launchItemsCount == 7

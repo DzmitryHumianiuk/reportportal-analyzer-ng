@@ -1,0 +1,348 @@
+diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/AnalyzerService.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/AnalyzerService.java
+index 6d2b60c..a5a462f 100644
+--- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/AnalyzerService.java
++++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/AnalyzerService.java
+@@ -37,6 +37,19 @@ public interface AnalyzerService {
+    */
+   void runAnalyzers(Launch launch, List<Long> testItemIds, AnalyzerConfig analyzerConfig);
+ 
++  /**
++   * Analyze the provided items through the early per-item route
++   * (analyzer-ng, docs/EARLY-ITEM-AA.md): the analyzer applies only
++   * deterministic answers and stores the rest as suggestions. Used for items
++   * analyzed right after their finish request, while the launch is still in
++   * progress; the launch-finish {@link #runAnalyzers} pass stays the authority.
++   *
++   * @param launch         Launch
++   * @param testItemIds    Test Item IDs
++   * @param analyzerConfig Analyzer Configuration
++   */
++  void runEarlyAnalyzers(Launch launch, List<Long> testItemIds, AnalyzerConfig analyzerConfig);
++
+   /**
+    * Checks if any analyzer is available
+    *
+diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/AnalyzerServiceClient.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/AnalyzerServiceClient.java
+index 07ab6f1..d7b33a5 100644
+--- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/AnalyzerServiceClient.java
++++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/AnalyzerServiceClient.java
+@@ -61,6 +61,16 @@ public interface AnalyzerServiceClient {
+    */
+   Map<String, List<AnalyzedItemRs>> analyze(IndexLaunch rq);
+ 
++  /**
++   * Analyze items through the early per-item route (analyzer-ng,
++   * routing key {@code analyze_item_early}): same request and reply shape as
++   * {@link #analyze}, but the analyzer applies only deterministic answers.
++   *
++   * @param rq Launch
++   * @return Analyzed Launch
++   */
++  Map<String, List<AnalyzedItemRs>> analyzeItemEarly(IndexLaunch rq);
++
+   /**
+    * Searches logs with similar log message
+    *
+diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/impl/AnalyzerServiceClientImpl.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/impl/AnalyzerServiceClientImpl.java
+index f3d4cd2..96fc02e 100644
+--- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/impl/AnalyzerServiceClientImpl.java
++++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/impl/AnalyzerServiceClientImpl.java
+@@ -54,6 +54,7 @@ import org.springframework.util.CollectionUtils;
+ public class AnalyzerServiceClientImpl implements AnalyzerServiceClient {
+ 
+   private static final String ANALYZE_ROUTE = "analyze";
++  private static final String ANALYZE_ITEM_EARLY_ROUTE = "analyze_item_early";
+   private static final String SEARCH_ROUTE = "search";
+   private static final String SUGGEST_ROUTE = "suggest";
+   private static final String SUGGEST_INFO_ROUTE = "index_suggest_info";
+@@ -84,7 +85,16 @@ public class AnalyzerServiceClientImpl implements AnalyzerServiceClient {
+   public Map<String, List<AnalyzedItemRs>> analyze(IndexLaunch rq) {
+     List<ExchangeInfo> analyzerExchanges = rabbitMqManagementClient.getAnalyzerExchangesInfo();
+     Map<String, List<AnalyzedItemRs>> resultMap = new HashMap<>(analyzerExchanges.size());
+-    analyzerExchanges.forEach(exchange -> analyze(rq, resultMap, exchange));
++    analyzerExchanges.forEach(exchange -> analyze(rq, resultMap, exchange, ANALYZE_ROUTE));
++    return resultMap;
++  }
++
++  @Override
++  public Map<String, List<AnalyzedItemRs>> analyzeItemEarly(IndexLaunch rq) {
++    List<ExchangeInfo> analyzerExchanges = rabbitMqManagementClient.getAnalyzerExchangesInfo();
++    Map<String, List<AnalyzedItemRs>> resultMap = new HashMap<>(analyzerExchanges.size());
++    analyzerExchanges.forEach(
++        exchange -> analyze(rq, resultMap, exchange, ANALYZE_ITEM_EARLY_ROUTE));
+     return resultMap;
+   }
+ 
+@@ -148,9 +158,9 @@ public class AnalyzerServiceClientImpl implements AnalyzerServiceClient {
+   }
+ 
+   private void analyze(IndexLaunch rq, Map<String, List<AnalyzedItemRs>> resultMap,
+-      ExchangeInfo exchangeInfo) {
++      ExchangeInfo exchangeInfo, String route) {
+     List<AnalyzedItemRs> result =
+-        rabbitTemplate.convertSendAndReceiveAsType(exchangeInfo.getName(), ANALYZE_ROUTE,
++        rabbitTemplate.convertSendAndReceiveAsType(exchangeInfo.getName(), route,
+             Collections.singletonList(rq), new ParameterizedTypeReference<>() {
+             }
+         );
+diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerServiceImpl.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerServiceImpl.java
+index 5a1ccd5..bda6f53 100644
+--- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerServiceImpl.java
++++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerServiceImpl.java
+@@ -133,6 +133,24 @@ public class AnalyzerServiceImpl implements AnalyzerService {
+     }
+   }
+ 
++  @Override
++  public void runEarlyAnalyzers(Launch launch, List<Long> testItemIds,
++      AnalyzerConfig analyzerConfig) {
++    // Early per-item pass (analyzer-ng): same prepare/apply machinery as
++    // runAnalyzers, but the request goes to the analyze_item_early route where
++    // only deterministic answers are applied. No analyzer status cache entry:
++    // the pass is a short single-item hop and must not flip the launch's
++    // "analysis in progress" indicator on every item finish.
++    try {
++      Optional<Long> previousLaunchId = findPreviousLaunchId(launch, analyzerConfig);
++      Iterables.partition(testItemIds, itemsBatchSize)
++          .forEach(partition -> analyzeItemsPartition(launch, partition, analyzerConfig,
++              previousLaunchId, true));
++    } catch (Exception e) {
++      LOGGER.error(e.getMessage(), e);
++    }
++  }
++
+   /**
+    * Prepare and analyze the number of provided test item ids.
+    *
+@@ -142,15 +160,21 @@ public class AnalyzerServiceImpl implements AnalyzerService {
+    */
+   private void analyzeItemsPartition(Launch launch, List<Long> testItemIds,
+       AnalyzerConfig analyzerConfig, Optional<Long> previousLaunchId) {
+-    LOGGER.info("Start analysis of '{}' items for launch with id '{}'", testItemIds.size(),
+-        launch.getId());
++    analyzeItemsPartition(launch, testItemIds, analyzerConfig, previousLaunchId, false);
++  }
++
++  private void analyzeItemsPartition(Launch launch, List<Long> testItemIds,
++      AnalyzerConfig analyzerConfig, Optional<Long> previousLaunchId, boolean early) {
++    LOGGER.info("Start {}analysis of '{}' items for launch with id '{}'", early ? "early " : "",
++        testItemIds.size(), launch.getId());
+     List<TestItem> toAnalyze = testItemRepository.findAllById(testItemIds);
+     Optional<IndexLaunch> rqLaunch = launchPreparerService.prepare(launch, toAnalyze,
+         analyzerConfig);
+     rqLaunch.ifPresent(rq -> {
+       int amountToAnalyze = rq.getTestItems().size();
+       previousLaunchId.ifPresent(rq::setPreviousLaunchId);
+-      Map<String, List<AnalyzedItemRs>> analyzedMap = analyzerServicesClient.analyze(rq);
++      Map<String, List<AnalyzedItemRs>> analyzedMap =
++          early ? analyzerServicesClient.analyzeItemEarly(rq) : analyzerServicesClient.analyze(rq);
+ 
+       if (!MapUtils.isEmpty(analyzedMap)) {
+         analyzedMap.forEach(
+diff --git a/src/main/java/com/epam/ta/reportportal/core/events/handler/item/TestItemAutoAnalysisRunner.java b/src/main/java/com/epam/ta/reportportal/core/events/handler/item/TestItemAutoAnalysisRunner.java
+index 2013b6c..3222af9 100644
+--- a/src/main/java/com/epam/ta/reportportal/core/events/handler/item/TestItemAutoAnalysisRunner.java
++++ b/src/main/java/com/epam/ta/reportportal/core/events/handler/item/TestItemAutoAnalysisRunner.java
+@@ -16,25 +16,63 @@
+ 
+ package com.epam.ta.reportportal.core.events.handler.item;
+ 
++import com.epam.reportportal.model.project.AnalyzerConfig;
+ import com.epam.ta.reportportal.core.analyzer.auto.AnalyzerService;
+ import com.epam.ta.reportportal.core.analyzer.auto.LogIndexer;
+ import com.epam.ta.reportportal.core.analyzer.auto.impl.AnalyzerUtils;
+ import com.epam.ta.reportportal.core.events.activity.item.TestItemFinishedEvent;
+ import com.epam.ta.reportportal.core.events.handler.ConfigurableEventHandler;
+ import com.epam.ta.reportportal.core.launch.GetLaunchHandler;
++import com.epam.ta.reportportal.dao.TestItemRepository;
++import com.epam.ta.reportportal.entity.enums.LaunchModeEnum;
++import com.epam.ta.reportportal.entity.enums.StatusEnum;
+ import com.epam.ta.reportportal.entity.enums.TestItemIssueGroup;
+ import com.epam.ta.reportportal.entity.item.TestItem;
+ import com.epam.ta.reportportal.entity.launch.Launch;
+-import com.epam.reportportal.model.project.AnalyzerConfig;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Objects;
++import java.util.Optional;
++import java.util.concurrent.Executors;
++import java.util.concurrent.ScheduledExecutorService;
++import java.util.concurrent.TimeUnit;
++import org.apache.commons.lang3.BooleanUtils;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ import org.springframework.stereotype.Component;
+ 
+ /**
+- * Run auto analyzer for finished test item with immediateAutoAnalysis attribute.
++ * Run auto analysis for a just-finished test item, while its launch is still in
++ * progress.
++ *
++ * analyzer-ng extension (docs/EARLY-ITEM-AA.md in the analyzer repo). Two
++ * separate triggers, each keeping its own analysis route:
+  *
+- * @author <a href="mailto:andrei_piankouski@epam.com">Andrei Piankouski</a>
++ * 1. Early path: the project has auto analysis enabled. Every finished item
++ *    that landed as To Investigate is analyzed a few seconds after its finish
++ *    request, through the early per-item route ({@code analyze_item_early})
++ *    where the analyzer applies only deterministic answers and stores the rest
++ *    as suggestions. The launch-finish analysis pass is unchanged and remains
++ *    the authority.
++ * 2. Stock path: the item carries the system attribute
++ *    {@code immediateAutoAnalysis=true}. This is the unmodified 5.15 behavior:
++ *    the item goes through the normal {@code analyze} route where every
++ *    confident answer is applied, even when the project auto analysis setting
++ *    is off. When both triggers match, the early path wins.
++ *
++ * Both paths run on a short debounce (EARLY_ITEM_ANALYSIS_DEBOUNCE_MS, default
++ * 2000 ms) so log entries still sitting in the reporting queue land first. At
++ * fire time the item is reloaded from the database and the analysis is skipped
++ * if the item no longer needs it (issue removed, analyzer ignored, or already
++ * labeled by the launch-finish pass or a human).
++ *
++ * Launch-state guards differ by trigger. The early path additionally requires
++ * the launch to still be IN_PROGRESS and not in DEBUG mode. The stock path
++ * keeps stock semantics and applies neither launch guard: unpatched 5.15 ran
++ * the attribute trigger inline at item finish with no launch checks, and with
++ * asynchronous reporting the item-finish event can legitimately be processed
++ * after the launch already finished, so requiring IN_PROGRESS here would break
++ * the stock use case.
+  */
+ @Component
+ public class TestItemAutoAnalysisRunner implements
+@@ -42,29 +80,100 @@ public class TestItemAutoAnalysisRunner implements
+ 
+   protected static final String IMMEDIATE_AUTO_ANALYSIS = "immediateAutoAnalysis";
+ 
++  private static final Logger LOGGER = LoggerFactory.getLogger(TestItemAutoAnalysisRunner.class);
++
++  /**
++   * Delay between the item finish request and the analysis, in milliseconds.
++   * Covers log entries still sitting in the reporting queue when the finish
++   * lands. Override with the EARLY_ITEM_ANALYSIS_DEBOUNCE_MS environment
++   * variable.
++   */
++  private static final long DEBOUNCE_MS = resolveDebounceMs();
++
++  private static final ScheduledExecutorService SCHEDULER =
++      Executors.newScheduledThreadPool(2, runnable -> {
++        Thread thread = new Thread(runnable, "early-item-analysis");
++        thread.setDaemon(true);
++        return thread;
++      });
++
+   private final AnalyzerService analyzerService;
+ 
+   private final LogIndexer logIndexer;
+ 
+   private final GetLaunchHandler getLaunchHandler;
+ 
++  private final TestItemRepository testItemRepository;
++
+   public TestItemAutoAnalysisRunner(AnalyzerService analyzerService, LogIndexer logIndexer,
+-      GetLaunchHandler getLaunchHandler) {
++      GetLaunchHandler getLaunchHandler, TestItemRepository testItemRepository) {
+     this.analyzerService = analyzerService;
+     this.logIndexer = logIndexer;
+     this.getLaunchHandler = getLaunchHandler;
++    this.testItemRepository = testItemRepository;
++  }
++
++  private static long resolveDebounceMs() {
++    String raw = System.getenv("EARLY_ITEM_ANALYSIS_DEBOUNCE_MS");
++    if (raw == null || raw.isBlank()) {
++      return 2000L;
++    }
++    try {
++      return Math.max(0L, Long.parseLong(raw.trim()));
++    } catch (NumberFormatException e) {
++      return 2000L;
++    }
+   }
+ 
+   @Override
+   public void handle(TestItemFinishedEvent testItemFinishedEvent,
+       Map<String, String> projectConfig) {
+-    if (analyzerService.hasAnalyzers() && isNeedToRunAA(testItemFinishedEvent.getTestItem())) {
+-      final AnalyzerConfig analyzerConfig = AnalyzerUtils.getAnalyzerConfig(projectConfig);
+-      TestItem testItem = testItemFinishedEvent.getTestItem();
+-      logIndex(testItem, testItemFinishedEvent.getProjectId(), analyzerConfig);
+-      Launch launch = getLaunchHandler.get(testItem.getLaunchId());
+-      analyzerService.runAnalyzers(launch, List.of(testItem.getItemId()), analyzerConfig);
+-      logIndex(testItem, testItemFinishedEvent.getProjectId(), analyzerConfig);
++    if (!analyzerService.hasAnalyzers()) {
++      return;
++    }
++    TestItem testItem = testItemFinishedEvent.getTestItem();
++    if (!isAnalyzableToInvestigate(testItem)) {
++      return;
++    }
++    final AnalyzerConfig analyzerConfig = AnalyzerUtils.getAnalyzerConfig(projectConfig);
++    // Early path: project-level auto analysis switch is on.
++    final boolean early = BooleanUtils.isTrue(analyzerConfig.getIsAutoAnalyzerEnabled());
++    // Stock 5.15 path: the per-item system attribute works on its own.
++    if (!early && !hasImmediateAutoAnalysisAttribute(testItem)) {
++      return;
++    }
++    Long itemId = testItem.getItemId();
++    Long launchId = testItem.getLaunchId();
++    Long projectId = testItemFinishedEvent.getProjectId();
++    SCHEDULER.schedule(() -> analyzeDeferred(itemId, launchId, projectId, analyzerConfig, early),
++        DEBOUNCE_MS, TimeUnit.MILLISECONDS);
++  }
++
++  private void analyzeDeferred(Long itemId, Long launchId, Long projectId,
++      AnalyzerConfig analyzerConfig, boolean early) {
++    try {
++      // Re-check against the current database state: the debounced task may
++      // fire after the launch-finish analysis pass or a human already labeled
++      // the item, and must not overwrite that label.
++      Optional<TestItem> fresh = testItemRepository.findById(itemId);
++      if (fresh.isEmpty() || !isAnalyzableToInvestigate(fresh.get())) {
++        return;
++      }
++      Launch launch = getLaunchHandler.get(launchId);
++      if (early && (!StatusEnum.IN_PROGRESS.equals(launch.getStatus())
++          || LaunchModeEnum.DEBUG.equals(launch.getMode()))) {
++        return;
++      }
++      TestItem testItem = fresh.get();
++      logIndex(testItem, projectId, analyzerConfig);
++      if (early) {
++        analyzerService.runEarlyAnalyzers(launch, List.of(itemId), analyzerConfig);
++      } else {
++        analyzerService.runAnalyzers(launch, List.of(itemId), analyzerConfig);
++      }
++      logIndex(testItem, projectId, analyzerConfig);
++    } catch (Exception e) {
++      LOGGER.error("Early item analysis failed for item {}: {}", itemId, e.getMessage(), e);
+     }
+   }
+ 
+@@ -73,15 +182,16 @@ public class TestItemAutoAnalysisRunner implements
+         config);
+   }
+ 
+-  private boolean isNeedToRunAA(TestItem testItem) {
+-    if (Objects.nonNull(testItem.getItemResults().getIssue()) && testItem.getItemResults()
+-        .getIssue().getIssueType().getIssueGroup().getTestItemIssueGroup()
+-        .equals(TestItemIssueGroup.TO_INVESTIGATE)) {
+-      return testItem.getAttributes().stream()
+-          .filter(at -> !at.getTestItem().getItemResults().getIssue().getIgnoreAnalyzer())
+-          .anyMatch(at -> IMMEDIATE_AUTO_ANALYSIS.equals(at.getKey()) && Boolean.parseBoolean(
+-              at.getValue()) && at.isSystem());
+-    }
+-    return false;
++  private boolean isAnalyzableToInvestigate(TestItem testItem) {
++    return Objects.nonNull(testItem.getItemResults().getIssue())
++        && !BooleanUtils.isTrue(testItem.getItemResults().getIssue().getIgnoreAnalyzer())
++        && testItem.getItemResults().getIssue().getIssueType().getIssueGroup()
++        .getTestItemIssueGroup().equals(TestItemIssueGroup.TO_INVESTIGATE);
++  }
++
++  private boolean hasImmediateAutoAnalysisAttribute(TestItem testItem) {
++    return testItem.getAttributes().stream()
++        .anyMatch(at -> IMMEDIATE_AUTO_ANALYSIS.equals(at.getKey()) && Boolean.parseBoolean(
++            at.getValue()) && at.isSystem());
+   }
+ }
