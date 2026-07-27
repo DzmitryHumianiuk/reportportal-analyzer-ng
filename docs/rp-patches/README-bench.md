@@ -10,7 +10,32 @@ parsing intact. This is an **RP-side** change (the user owns the stand).
 > the public repo; only the patch and its evidence ship here.
 
 - Patch: [`service-ui-5.15.3-bench.patch`](./service-ui-5.15.3-bench.patch)
-- Built image: `reportportal/service-ui:5.15.3-ng54`
+- Built image: `reportportal/service-ui:5.15.3-ng55`
+
+**ng55 — an empty answer says why, and stops being final.** Found on a fresh
+project during the two-run live check (`demo-data/live_check.py`):
+
+- *The empty state named the wrong cause.* Every empty analyzer reply was
+  reported as "No error logs to analyze". That is true for one cause and false
+  for the two common ones. The analyzer answers the suggest call from what it
+  has already worked out, so the first look at a failure it has not seen before
+  gets an empty reply while the ERROR logs are right there and the answer is
+  seconds away. A project with no decided failures like this one has nothing to
+  point at however good the logs are. Measured on the stand: item 6238 had one
+  ERROR log, a signature, an extractor result and a cold-start answer 26 seconds
+  later, and still read "this test recorded no ERROR-level logs". The hero now
+  picks between three headings — still working, nothing in this project to match
+  against, the real silent case — using the analyzer's own `signature` block to
+  decide whether it got anything to read, with the fetched ERROR lines as the
+  fallback before the journey lands. Variant choice is a pure function
+  (`emptyReplyVariant`) with unit tests.
+- *The empty state was final.* The answer landing seconds later was only visible
+  if the reader closed and reopened the modal. On an empty reply the modal now
+  asks the analyzer whether it can still answer (the same health question the
+  explanation wait state asks) and, if it can, asks again at 15s and 40s. One
+  20-second retry would still be too early: measured, a first answer for a
+  never-seen failure lands about 25 seconds after the reply goes out. Fixed
+  schedule, then it stops; it never runs once the analyzer has answered.
 
 **ng54 — the AI guess card remembers the cold-start hypothesis.** Paired with
 analyzer image `mk28` (quote-field split + auto-disable gate fix):

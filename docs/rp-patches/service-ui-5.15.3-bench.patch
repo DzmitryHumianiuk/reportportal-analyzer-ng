@@ -11,10 +11,10 @@ index 000000000..278a8689a
 +COPY build/ /usr/share/nginx/html/
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
 new file mode 100644
-index 000000000..3fdeda75a
+index 000000000..0c1705464
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
-@@ -0,0 +1,666 @@
+@@ -0,0 +1,696 @@
 +/*
 + * Copyright 2021 EPAM Systems
 + *
@@ -239,6 +239,36 @@ index 000000000..3fdeda75a
 +    return false;
 +  }
 +  return !!llm.enabled && !!llm.available && llm.breaker_state !== 'open';
++};
++
++// ---------------------------------------------------------------------------
++// Empty analyzer reply: which of the three causes to tell the reader about.
++//
++// An empty reply used to be reported as "no ERROR logs to analyze" in every case.
++// That is right for one cause and wrong for the two common ones. The analyzer
++// answers the suggest call from what it has already worked out, so the first look
++// at a fresh failure gets an empty reply while the logs are there and the answer
++// is seconds away; and a project with no decided failures like this one has
++// nothing to point at however good the logs are. Naming the wrong cause sends
++// people looking for missing logs that are not missing.
++//
++//   'working'   - keep quiet about causes: the analyzer read the logs and is still
++//                 working, or we do not know yet (journey not resolved). Saying
++//                 "still working" is the only claim safe to make before the facts
++//                 are in, and it is the one that is true most of the time.
++//   'noHistory' - the analyzer read the logs, nothing left to wait for, but this
++//                 project has no decided failure to match against.
++//   'noLogs'    - the real silent case: no ERROR logs, so no signature at all.
++// ---------------------------------------------------------------------------
++export const EMPTY_REPLY_WORKING = 'working';
++export const EMPTY_REPLY_NO_HISTORY = 'noHistory';
++export const EMPTY_REPLY_NO_LOGS = 'noLogs';
++
++export const emptyReplyVariant = ({ journeyResolved, stillWorking, analyzerReadLogs }) => {
++  if (!journeyResolved || stillWorking) {
++    return EMPTY_REPLY_WORKING;
++  }
++  return analyzerReadLogs ? EMPTY_REPLY_NO_HISTORY : EMPTY_REPLY_NO_LOGS;
 +};
 +
 +// ---------------------------------------------------------------------------
@@ -683,10 +713,10 @@ index 000000000..3fdeda75a
 +export const isDeclineRow = (suggestRs) => parseExplKind(suggestRs) === 'decline';
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.test.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.test.js
 new file mode 100644
-index 000000000..20accbb7b
+index 000000000..d25b3758f
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.test.js
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,123 @@
 +/*
 + *  Copyright 2026 EPAM Systems
 + *
@@ -703,7 +733,14 @@ index 000000000..20accbb7b
 + *  limitations under the License.
 + */
 +
-+import { isDecisionFresh, normalizeLine } from './analyzerSuggestionMeta';
++import {
++  EMPTY_REPLY_NO_HISTORY,
++  EMPTY_REPLY_NO_LOGS,
++  EMPTY_REPLY_WORKING,
++  emptyReplyVariant,
++  isDecisionFresh,
++  normalizeLine,
++} from './analyzerSuggestionMeta';
 +
 +// The explainer quotes the analyzer's MASKED signature, while the item's log
 +// lines are raw. Both go through normalizeLine before the quote gate compares
@@ -777,12 +814,38 @@ index 000000000..20accbb7b
 +    expect(isDecisionFresh(decision, null, null)).toBe(true);
 +  });
 +});
++
++describe('emptyReplyVariant', () => {
++  it('says "still working" before the journey has resolved', () => {
++    expect(
++      emptyReplyVariant({ journeyResolved: false, stillWorking: false, analyzerReadLogs: false }),
++    ).toBe(EMPTY_REPLY_WORKING);
++  });
++
++  it('says "still working" while another ask is on its way', () => {
++    expect(
++      emptyReplyVariant({ journeyResolved: true, stillWorking: true, analyzerReadLogs: true }),
++    ).toBe(EMPTY_REPLY_WORKING);
++  });
++
++  it('never blames missing logs when the analyzer did read logs', () => {
++    expect(
++      emptyReplyVariant({ journeyResolved: true, stillWorking: false, analyzerReadLogs: true }),
++    ).toBe(EMPTY_REPLY_NO_HISTORY);
++  });
++
++  it('keeps the silent case for an item with no error logs at all', () => {
++    expect(
++      emptyReplyVariant({ journeyResolved: true, stillWorking: false, analyzerReadLogs: false }),
++    ).toBe(EMPTY_REPLY_NO_LOGS);
++  });
++});
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
 new file mode 100644
-index 000000000..cac170714
+index 000000000..4b584275c
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
-@@ -0,0 +1,2567 @@
+@@ -0,0 +1,2607 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -838,6 +901,7 @@ index 000000000..cac170714
 +  PROVENANCE,
 +  canLlmStillAnswer,
 +  deriveBanner,
++  emptyReplyVariant,
 +  getAnalyzerHealthApiUrl,
 +  deriveDecisionStory,
 +  getInspectorJourneyApiUrl,
@@ -923,6 +987,7 @@ index 000000000..cac170714
 +  suggestedItems,
 +  currentItem,
 +  emptyNoSignal,
++  emptyStillWorking,
 +  modalState,
 +  setModalState,
 +  activeTab,
@@ -2765,11 +2830,47 @@ index 000000000..cac170714
 +  const itemInspector = getInspectorJourneyUrlForItem(projectId, currentItem);
 +  const savedIssueType = currentItem?.issue?.issueType;
 +
-+  // silent-no-signal empty state (gpos-silent-VERDICT): a FAILED item with no ERROR
-+  // logs, so no signature and no advisor content. One calm grey hero replaces the
-+  // whole middle of the Bench; the identity header and verdict bar stay.
++  // Empty-reply state: name the cause that actually applies (see emptyReplyVariant).
++  // The analyzer's own signature is the authority on "did it get anything to read":
++  // it is what the analyzer built from the ERROR logs. errorLines is the fallback
++  // for the moment before the journey lands.
++  const emptyVariant = emptyReplyVariant({
++    journeyResolved,
++    stillWorking: emptyStillWorking,
++    analyzerReadLogs: !!journey?.signature || errorLines.length > 0,
++  });
++  const EMPTY_COPY = {
++    working: {
++      cap: messages.benchWaitCap,
++      title: messages.benchWaitTitle,
++      tip: messages.benchWaitTitleTip,
++      body: messages.benchWaitBody,
++      next: messages.benchWaitNext,
++      note: messages.benchWaitNote,
++    },
++    noHistory: {
++      cap: messages.benchNoHistoryCap,
++      title: messages.benchNoHistoryTitle,
++      tip: messages.benchNoHistoryTitleTip,
++      body: messages.benchNoHistoryBody,
++      next: messages.benchNoHistoryNext,
++      note: messages.benchNoHistoryNote,
++    },
++    noLogs: {
++      cap: messages.benchSilentCap,
++      title: messages.benchSilentTitle,
++      tip: messages.benchSilentTitleTip,
++      body: messages.benchSilentBody,
++      next: messages.benchSilentNext,
++      note: messages.benchSilentNote,
++    },
++  };
++  const emptyCopy = EMPTY_COPY[emptyVariant];
++  // One calm grey hero replaces the whole middle of the Bench; the identity header
++  // and the verdict bar (defect picker + Apply) stay, so a manual call is always
++  // one click away whichever cause applies.
 +  const silentHero = (
-+    <div className={cx('band', 'band-grey', 'silent-hero')}>
++    <div className={cx('band', 'band-grey', 'silent-hero', { waiting: emptyVariant === 'working' })}>
 +      <span className={cx('sh-bar')} />
 +      <span className={cx('sh-glyph')} aria-hidden>
 +        <svg width="16" height="16" viewBox="0 0 16 16">
@@ -2777,16 +2878,16 @@ index 000000000..cac170714
 +        </svg>
 +      </span>
 +      <div className={cx('sh-main')}>
-+        <div className={cx('sh-cap')}>{formatMessage(messages.benchSilentCap)}</div>
++        <div className={cx('sh-cap')}>{formatMessage(emptyCopy.cap)}</div>
 +        <div className={cx('sh-title')}>
-+          {formatMessage(messages.benchSilentTitle)}
-+          <span className={cx('sh-info', 'tip')} title={formatMessage(messages.benchSilentTitleTip)}>
++          {formatMessage(emptyCopy.title)}
++          <span className={cx('sh-info', 'tip')} title={formatMessage(emptyCopy.tip)}>
 +            ?
 +          </span>
 +        </div>
-+        <div className={cx('sh-body')}>{formatMessage(messages.benchSilentBody)}</div>
-+        <div className={cx('sh-next')}>{formatMessage(messages.benchSilentNext)}</div>
-+        <div className={cx('sh-note')}>{formatMessage(messages.benchSilentNote)}</div>
++        <div className={cx('sh-body')}>{formatMessage(emptyCopy.body)}</div>
++        <div className={cx('sh-next')}>{formatMessage(emptyCopy.next)}</div>
++        <div className={cx('sh-note')}>{formatMessage(emptyCopy.note)}</div>
 +      </div>
 +    </div>
 +  );
@@ -3329,6 +3430,7 @@ index 000000000..cac170714
 +  suggestedItems: PropTypes.array,
 +  currentItem: PropTypes.object,
 +  emptyNoSignal: PropTypes.bool,
++  emptyStillWorking: PropTypes.bool,
 +  modalState: PropTypes.object.isRequired,
 +  setModalState: PropTypes.func.isRequired,
 +  activeTab: PropTypes.string.isRequired,
@@ -3345,6 +3447,7 @@ index 000000000..cac170714
 +  suggestedItems: [],
 +  currentItem: {},
 +  emptyNoSignal: false,
++  emptyStillWorking: false,
 +  modalHasChanges: false,
 +  scopeSection: null,
 +  scopeRef: null,
@@ -3352,10 +3455,10 @@ index 000000000..cac170714
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 000000000..af2d22b7e
+index 000000000..778b2d777
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2101 @@
+@@ -0,0 +1,2122 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -3596,6 +3699,27 @@ index 000000000..af2d22b7e
 +      align-items: center;
 +      justify-content: center;
 +      flex: none;
++    }
++    // Waiting for an answer that is on its way: the glyph breathes so the state
++    // reads as "in progress", not "nothing here". Motion is limited to the glyph;
++    // the text must stay still to be read.
++    &.waiting .sh-glyph {
++      animation: bench-sh-waiting 1.6s ease-in-out infinite;
++    }
++    @keyframes bench-sh-waiting {
++      0%,
++      100% {
++        opacity: 0.45;
++      }
++      50% {
++        opacity: 1;
++      }
++    }
++    @media (prefers-reduced-motion: reduce) {
++      &.waiting .sh-glyph {
++        animation: none;
++        opacity: 0.7;
++      }
 +    }
 +    .sh-main {
 +      max-width: 640px;
@@ -5573,7 +5697,7 @@ index d4d861b56..3cf9bc481 100644
 +  benchMode: false,
  };
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
-index f3ff2925b..d3a54e451 100644
+index f3ff2925b..58f9aa09b 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
 @@ -14,8 +14,9 @@
@@ -5597,12 +5721,16 @@ index f3ff2925b..d3a54e451 100644
  import isEqual from 'fast-deep-equal';
  import { URLS } from 'common/urls';
  import { fetch, isEmptyObject } from 'common/utils';
-@@ -54,12 +57,29 @@ import {
+@@ -54,12 +57,33 @@ import {
    SHOW_LOGS_BY_DEFAULT,
  } from './constants';
  import { ExecutionSection } from './executionSection';
 +import { Bench } from './bench';
-+import { isRubricHypothesis } from './analyzerSuggestionMeta';
++import {
++  canLlmStillAnswer,
++  getAnalyzerHealthApiUrl,
++  isRubricHypothesis,
++} from './analyzerSuggestionMeta';
 +import styles from './makeDecisionModal.scss';
 +
 +const cx = classNames.bind(styles);
@@ -5627,7 +5755,7 @@ index f3ff2925b..d3a54e451 100644
    const historyItems = useSelector(historyItemsSelector);
    const isAnalyzerAvailable = !!useSelector(analyzerExtensionsSelector).length;
    const isBulkOperation = data.items && data.items.length > 1;
-@@ -94,9 +114,31 @@ const MakeDecision = ({ data }) => {
+@@ -94,9 +118,34 @@ const MakeDecision = ({ data }) => {
    });
    const [activeTab, setActiveTab] = useState(SELECT_DEFECT_MANUALLY);
    const windowSize = useWindowResize();
@@ -5644,6 +5772,9 @@ index f3ff2925b..d3a54e451 100644
 +  // eligible decision) we render the Bench shell with a loader, NOT the stock tabs,
 +  // so the user never sees the old Make Decision flash before the Bench appears.
 +  const [mlResolved, setMlResolved] = useState(false);
++  // True while the first reply came back empty and the analyzer says it can still
++  // answer, so one more ask is on its way. Drives the Bench empty-state wording.
++  const [suggestStillWorking, setSuggestStillWorking] = useState(false);
 +
 +  // The Bench replaces the stock execution/suggestions area when the analyzer
 +  // actually spoke (non-empty suggest reply).
@@ -5659,7 +5790,7 @@ index f3ff2925b..d3a54e451 100644
    useEffect(() => {
      let hasChanges;
      const newIssueData = modalState[ACTIVE_TAB_MAP[modalState.decisionType]].issue;
-@@ -113,7 +155,19 @@ const MakeDecision = ({ data }) => {
+@@ -113,27 +162,101 @@ const MakeDecision = ({ data }) => {
      } else {
        hasChanges = !isEqual(itemData.issue, newIssueData);
      }
@@ -5680,22 +5811,97 @@ index f3ff2925b..d3a54e451 100644
    }, [modalState]);
  
    useEffect(() => {
-@@ -129,10 +183,14 @@ const MakeDecision = ({ data }) => {
-             setModalState({ suggestedItems: resp });
-           }
-           setLoadingMLSuggest(false);
+-    if (isMLSuggestionsAvailable) {
++    if (!isMLSuggestionsAvailable) {
++      setMlResolved(true);
++      return undefined;
++    }
++    let cancelled = false;
++    const timers = [];
++    const url =
++      clusterIds.length === 1
++        ? URLS.MLSuggestionsByCluster(activeProject, clusterIds[0])
++        : URLS.MLSuggestions(activeProject, itemData.id);
++    // An empty reply does NOT mean the analyzer has nothing to say. It answers the
++    // suggest call from what it has already worked out; for a failure it has not
++    // seen before the answer is still being computed when the reply goes out, and
++    // it lands seconds later. Asking once and settling on "nothing" left a reader
++    // looking at an empty screen for an answer that already existed by then, and
++    // only reopening the window would show it.
++    //
++    // So on an empty reply: ask the analyzer whether it can still answer at all
++    // (same health question the explanation wait state asks, for the same reason),
++    // and if it can, ask again on a fixed, short schedule. Measured on a cold
++    // project, a first answer for a never-seen failure lands about 25 seconds after
++    // the reply goes out, so a single 20-second retry would still be too early. Two
++    // asks bracket it: one early for the quick cases, one past the measured mark.
++    // The schedule is fixed and then it stops. This is not a poll, and it never
++    // runs at all once the analyzer has answered.
++    const RETRY_DELAYS_MS = [15000, 25000];
++    const askOnce = (attempt) => {
+       setLoadingMLSuggest(true);
+-      const url =
+-        clusterIds.length === 1
+-          ? URLS.MLSuggestionsByCluster(activeProject, clusterIds[0])
+-          : URLS.MLSuggestions(activeProject, itemData.id);
+       fetch(url)
+         .then((resp) => {
++          if (cancelled) {
++            return;
++          }
++          setLoadingMLSuggest(false);
 +          setMlResolved(true);
+           if (resp.length !== 0) {
++            setSuggestStillWorking(false);
+             setModalState({ suggestedItems: resp });
++            return;
+           }
+-          setLoadingMLSuggest(false);
++          if (attempt >= RETRY_DELAYS_MS.length) {
++            // Asked as often as we are going to: this is a real empty reply.
++            setSuggestStillWorking(false);
++            return;
++          }
++          window
++            .fetch(getAnalyzerHealthApiUrl())
++            .then((r) => (r.ok ? r.json() : null))
++            .then((payload) => {
++              if (cancelled) {
++                return;
++              }
++              if (!canLlmStillAnswer(payload)) {
++                setSuggestStillWorking(false);
++                return;
++              }
++              setSuggestStillWorking(true);
++              timers.push(
++                window.setTimeout(
++                  () => !cancelled && askOnce(attempt + 1),
++                  RETRY_DELAYS_MS[attempt],
++                ),
++              );
++            })
++            .catch(() => !cancelled && setSuggestStillWorking(false));
          })
          .catch(() => {
-           setLoadingMLSuggest(false);
-+          setMlResolved(true);
+-          setLoadingMLSuggest(false);
++          if (!cancelled) {
++            setLoadingMLSuggest(false);
++            setMlResolved(true);
++            setSuggestStillWorking(false);
++          }
          });
-+    } else {
-+      setMlResolved(true);
-     }
+-    }
++    };
++    askOnce(0);
++    return () => {
++      cancelled = true;
++      timers.forEach((t) => window.clearTimeout(t));
++    };
    }, []);
  
-@@ -181,16 +239,30 @@ const MakeDecision = ({ data }) => {
+   const prepareDataToSend = ({ isIssueAction } = {}) => {
+@@ -181,16 +304,30 @@ const MakeDecision = ({ data }) => {
        );
      }
  
@@ -5733,7 +5939,7 @@ index f3ff2925b..d3a54e451 100644
    };
    const sendSuggestResponse = () => {
      const dataToSend = modalState.suggestedItems.map((item) => {
-@@ -357,7 +429,8 @@ const MakeDecision = ({ data }) => {
+@@ -357,7 +494,8 @@ const MakeDecision = ({ data }) => {
          saveDefect();
      } else {
        modalHasChanges &&
@@ -5743,7 +5949,7 @@ index f3ff2925b..d3a54e451 100644
          saveDefect();
      }
      trackEvent(getOnApplyEvent());
-@@ -389,6 +462,22 @@ const MakeDecision = ({ data }) => {
+@@ -389,6 +527,22 @@ const MakeDecision = ({ data }) => {
      ),
    });
  
@@ -5766,7 +5972,7 @@ index f3ff2925b..d3a54e451 100644
    const getMakeDecisionTabs = () => {
      const preparedHistoryLineItems = historyItems.filter(
        (item) =>
-@@ -420,14 +509,20 @@ const MakeDecision = ({ data }) => {
+@@ -420,14 +574,20 @@ const MakeDecision = ({ data }) => {
          isOpen: activeTab === MACHINE_LEARNING_SUGGESTIONS,
          title:
            modalState.suggestChoice.suggestRs &&
@@ -5790,7 +5996,7 @@ index f3ff2925b..d3a54e451 100644
            />
          ),
        },
-@@ -458,43 +553,97 @@ const MakeDecision = ({ data }) => {
+@@ -458,43 +618,98 @@ const MakeDecision = ({ data }) => {
      ctrlEnter: applyChanges,
    };
  
@@ -5860,6 +6066,7 @@ index f3ff2925b..d3a54e451 100644
 +          suggestedItems={modalState.suggestedItems}
 +          currentItem={modalState.currentTestItems[0]}
 +          emptyNoSignal={benchEmpty}
++          emptyStillWorking={suggestStillWorking}
            modalState={modalState}
            setModalState={setModalState}
 +          activeTab={activeTab}
@@ -6086,10 +6293,10 @@ index 9c6b6dafa..1f85b26ca 100644
      display: flex;
    }
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-index 34cfec56e..8ed5e4afd 100644
+index 34cfec56e..d1987992a 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-@@ -266,4 +266,930 @@ export const messages = defineMessages({
+@@ -266,4 +266,983 @@ export const messages = defineMessages({
      id: 'MakeDecisionModal.defectReplaceWith',
      defaultMessage: 'The defect type will be changed to',
    },
@@ -6625,6 +6832,59 @@ index 34cfec56e..8ed5e4afd 100644
 +    defaultMessage: 'This decision applies to this test only.',
 +  },
 +  // silent-no-signal empty state (gpos-silent-VERDICT copy, verbatim)
++  benchWaitCap: {
++    id: 'MakeDecisionModal.benchWaitCap',
++    defaultMessage: 'ANSWER ON ITS WAY',
++  },
++  benchWaitTitle: {
++    id: 'MakeDecisionModal.benchWaitTitle',
++    defaultMessage: 'The analyzer is still working on this one',
++  },
++  benchWaitTitleTip: {
++    id: 'MakeDecisionModal.benchWaitTitleTip',
++    defaultMessage:
++      'The analyzer answers fast from what it already knows. A failure it has not seen before takes a few more seconds to work out. This screen updates on its own.',
++  },
++  benchWaitBody: {
++    id: 'MakeDecisionModal.benchWaitBody',
++    defaultMessage:
++      'It read the error logs and is working out an answer for this failure. That takes a few seconds the first time a failure like this shows up. You do not need to reopen this window: it updates on its own when the answer lands.',
++  },
++  benchWaitNext: {
++    id: 'MakeDecisionModal.benchWaitNext',
++    defaultMessage: 'Wait a few seconds, or choose a defect type below and Apply.',
++  },
++  benchWaitNote: {
++    id: 'MakeDecisionModal.benchWaitNote',
++    defaultMessage: 'Your own decision always wins. The analyzer never overwrites it.',
++  },
++  benchNoHistoryCap: {
++    id: 'MakeDecisionModal.benchNoHistoryCap',
++    defaultMessage: 'NOTHING TO COMPARE WITH',
++  },
++  benchNoHistoryTitle: {
++    id: 'MakeDecisionModal.benchNoHistoryTitle',
++    defaultMessage: 'No past failure to match this one against',
++  },
++  benchNoHistoryTitleTip: {
++    id: 'MakeDecisionModal.benchNoHistoryTitleTip',
++    defaultMessage:
++      'The analyzer suggests a defect type by matching a failure against ones people already decided in this project. There are none like this yet.',
++  },
++  benchNoHistoryBody: {
++    id: 'MakeDecisionModal.benchNoHistoryBody',
++    defaultMessage:
++      'The analyzer read the error logs, but this project has no decided failure that looks like this one, so it has nothing to point at. This is normal in a new project or for a new kind of failure.',
++  },
++  benchNoHistoryNext: {
++    id: 'MakeDecisionModal.benchNoHistoryNext',
++    defaultMessage: 'Choose a defect type below, add a reason if it helps, then Apply.',
++  },
++  benchNoHistoryNote: {
++    id: 'MakeDecisionModal.benchNoHistoryNote',
++    defaultMessage:
++      'Your decision becomes the match for the next failure like this one, so the next run gets a suggestion.',
++  },
 +  benchSilentCap: {
 +    id: 'MakeDecisionModal.benchSilentCap',
 +    defaultMessage: 'NO ANALYZER SIGNAL',
