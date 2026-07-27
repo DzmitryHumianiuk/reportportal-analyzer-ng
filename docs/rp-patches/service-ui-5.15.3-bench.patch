@@ -1,3 +1,14 @@
+diff --git a/app/Dockerfile.ng b/app/Dockerfile.ng
+new file mode 100644
+index 000000000..278a8689a
+--- /dev/null
++++ b/app/Dockerfile.ng
+@@ -0,0 +1,5 @@
++# Thin overlay: analyzer-ng Make Decision suggestion-card patch on top of the
++# stock service-ui 5.15.3 image. The host-built `build/` dir is copied over the
++# nginx docroot; buildInfo.json is preserved from the base (footer stays 5.15.3).
++FROM reportportal/service-ui:5.15.3
++COPY build/ /usr/share/nginx/html/
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
 new file mode 100644
 index 000000000..3fdeda75a
@@ -768,10 +779,10 @@ index 000000000..20accbb7b
 +});
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
 new file mode 100644
-index 000000000..3f58a5ab3
+index 000000000..cac170714
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
-@@ -0,0 +1,2507 @@
+@@ -0,0 +1,2567 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -1451,6 +1462,11 @@ index 000000000..3f58a5ab3
 +  // paragraph is gated separately by the reoriented isDecisionFresh.
 +  const journeyDecision = journey?.decision || null;
 +  const hasDecisionRecord = !!journeyDecision;
++  // Cold-start hypothesis kept on the journey record. The live suggest reply
++  // loses the rubric row as soon as newer classical rows displace it (or the
++  // guess feature is off), while the journey still remembers the guess; this is
++  // the only source for the AI card in that case.
++  const journeyRubric = journeyDecision?.rubric_hypothesis || null;
 +  const decisionHasExplanation = !!(
 +    journeyDecision &&
 +    typeof journeyDecision.explanation === 'string' &&
@@ -1518,9 +1534,16 @@ index 000000000..3f58a5ab3
 +  ]);
 +  const explainerEvent =
 +    (journey?.llm?.events || []).find((ev) => ev && ev.role === 'explainer') || null;
-+  const quotedLines = (explainerEvent?.output?.quoted_lines || []).filter(
-+    (q) => typeof q === 'string' && q.trim().length,
-+  );
++  // Analyzer images after the quote split write quoted_log_lines (log quotes
++  // only); cached outputs up to 90 days old still carry the single quoted_lines
++  // field. Read both. quoted_fact_values is never matched against the log: fact
++  // values are not log lines, and treating them as such is what used to poison
++  // the grounding check.
++  const quotedLines = (
++    explainerEvent?.output?.quoted_log_lines ||
++    explainerEvent?.output?.quoted_lines ||
++    []
++  ).filter((q) => typeof q === 'string' && q.trim().length);
 +  const normLog = useMemo(() => errorLines.map((l) => normalizeLine(l.text)), [
 +    currentItem?.logs,
 +  ]);
@@ -2057,6 +2080,43 @@ index 000000000..3f58a5ab3
 +          </div>
 +          <div className={cx('strength')}>{formatMessage(messages.benchAiGuessPct, { pct })}</div>
 +          {armedCard === 'ai' && armedNote(rubricRow.issueType)}
++        </div>
++      );
++    }
++    // The hypothesis the journey remembers when the live reply has no rubric row
++    // (newer classical rows displaced it, or the guess feature is off). Adoptable
++    // exactly like a live rubric card; when the feature is off for this project,
++    // the card says so instead of pretending the guess is current.
++    if (journeyRubric && journeyRubric.predicted_label) {
++      const pct = Math.round((journeyRubric.confidence || 0) * 100);
++      const hypoRow = {
++        issueType: journeyRubric.predicted_label,
++        explanation: journeyRubric.explanation,
++      };
++      return (
++        <div
++          className={cx('check', 'rubric', 'actionable', { armed: armedCard === 'ai' })}
++          role="button"
++          tabIndex={0}
++          onClick={armOnCardClick(() => adoptRubric(hypoRow))}
++        >
++          <span className={cx('edge')} />
++          <InspectorLink
++            corner
++            href={getInspectorJourneyUrlForItem(projectId, currentItem)}
++            label={formatMessage(messages.benchWhy)}
++          />
++          <div className={cx('method')}>
++            <span className={cx('gl')}>✦</span> {formatMessage(messages.benchCheckAi)}
++            <span className={cx('tag-nc')}>{formatMessage(messages.benchTagHypothesis)}</span>
++          </div>
++          <div className={cx('role')}>{formatMessage(messages.benchHypothesisNote)}</div>
++          <div className={cx('verd-pill')}>{renderPill(journeyRubric.predicted_label)}</div>
++          <div className={cx('strength')}>{formatMessage(messages.benchAiGuessPct, { pct })}</div>
++          {journeyRubric.source_role_enabled === false && (
++            <div className={cx('role')}>{formatMessage(messages.benchHypothesisRoleOff)}</div>
++          )}
++          {armedCard === 'ai' && armedNote(journeyRubric.predicted_label)}
 +        </div>
 +      );
 +    }
@@ -2904,6 +2964,17 @@ index 000000000..3f58a5ab3
 +                  which writes a fresh suggestion row (created_at=now), so the journey
 +                  always reads a just-created decision and the relative time was
 +                  invariably "just now" — no information for the reader. */}
++              {/* Early per-item result: decided while the launch was still
++                  running. One small hover icon, no extra text on screen. */}
++              {journeyDecision && journeyDecision.source === 'early' && (
++                <span
++                  className={cx('early-mark')}
++                  title={formatMessage(messages.benchEarlyMarkTitle)}
++                  aria-label={formatMessage(messages.benchEarlyMarkTitle)}
++                >
++                  i
++                </span>
++              )}
 +            </div>
 +            <div className={cx('story-reason')}>
 +              {formatMessage(messages[decisionStory.reasonKey], storyParams)}
@@ -3281,10 +3352,10 @@ index 000000000..3f58a5ab3
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 000000000..048e10d79
+index 000000000..af2d22b7e
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2083 @@
+@@ -0,0 +1,2101 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -3935,6 +4006,24 @@ index 000000000..048e10d79
 +      &.ai-pending {
 +        border-left-color: var(--rp-e-200);
 +      }
++    }
++    .early-mark {
++      display: inline-flex;
++      align-items: center;
++      justify-content: center;
++      width: 14px;
++      height: 14px;
++      margin-left: 7px;
++      border-radius: 50%;
++      border: 1px solid var(--rp-e-300);
++      color: var(--rp-e-400);
++      font-size: 10px;
++      font-style: italic;
++      font-weight: 700;
++      line-height: 1;
++      cursor: help;
++      user-select: none;
++      vertical-align: 1px;
 +    }
 +    .ai-waiting {
 +      display: flex;
@@ -5997,10 +6086,10 @@ index 9c6b6dafa..1f85b26ca 100644
      display: flex;
    }
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-index 34cfec56e..5f1ee7018 100644
+index 34cfec56e..8ed5e4afd 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-@@ -266,4 +266,913 @@ export const messages = defineMessages({
+@@ -266,4 +266,930 @@ export const messages = defineMessages({
      id: 'MakeDecisionModal.defectReplaceWith',
      defaultMessage: 'The defect type will be changed to',
    },
@@ -6275,6 +6364,11 @@ index 34cfec56e..5f1ee7018 100644
 +    id: 'MakeDecisionModal.benchStoryExplCap',
 +    defaultMessage: 'Explanation',
 +  },
++  benchEarlyMarkTitle: {
++    id: 'MakeDecisionModal.benchEarlyMarkTitle',
++    defaultMessage:
++      'Early result. This test was analyzed right after it finished, while the launch was still running. The analysis at launch finish may revise it.',
++  },
 +  benchStoryExplPending: {
 +    id: 'MakeDecisionModal.benchStoryExplPending',
 +    defaultMessage: 'Writing the explanation. This usually takes less than a minute.',
@@ -6445,6 +6539,18 @@ index 34cfec56e..5f1ee7018 100644
 +  benchNotConfirmed: {
 +    id: 'MakeDecisionModal.benchNotConfirmed',
 +    defaultMessage: 'not confirmed',
++  },
++  benchTagHypothesis: {
++    id: 'MakeDecisionModal.benchTagHypothesis',
++    defaultMessage: 'hypothesis',
++  },
++  benchHypothesisNote: {
++    id: 'MakeDecisionModal.benchHypothesisNote',
++    defaultMessage: 'No confident match yet. This is an early guess from rules. Check it before you decide.',
++  },
++  benchHypothesisRoleOff: {
++    id: 'MakeDecisionModal.benchHypothesisRoleOff',
++    defaultMessage: 'The AI guess feature is turned off for this project, so this guess will not update.',
 +  },
 +  benchUseThisGuess: {
 +    id: 'MakeDecisionModal.benchUseThisGuess',
