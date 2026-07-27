@@ -60,11 +60,7 @@ class ExplainerRole(Role):
         return f"{inp['mode_id']}|{inp['error_hash']}|{inp['match_signals']}"
 
     def build_prompt(self, inp: dict[str, Any], nonce: str) -> tuple[str, str]:
-        fact_json, fact_leaves = prepare_fact_block(inp["fact_block"])
-        block, corpus_text = build_untrusted_excerpt(inp["log_excerpt"], nonce)
-        inp["_corpus"] = [corpus_text, *fact_leaves]
-        inp["_corpus_log"] = [corpus_text]
-        inp["_corpus_facts"] = list(fact_leaves)
+        fact_json, block = _prepare_grounding(inp, nonce)
         user = (
             f'Matched failure mode: "{inp["mode_title"]}" (label {inp["mode_label"]}, '
             f"seen {inp['mode_support']}\n"
@@ -110,6 +106,22 @@ def _in_corpus(needle: str, corpus: list[str]) -> bool:
     return any(needle in hay for hay in corpus)
 
 
+def _prepare_grounding(inp: dict[str, Any], nonce: str) -> tuple[str, str]:
+    """Render the fact block + wrapped excerpt and record the grounding corpora.
+
+    Sets the F1b split corpora (``_corpus_log`` for ``quoted_log_lines``,
+    ``_corpus_facts`` for ``quoted_fact_values``) plus the combined ``_corpus``
+    the explanation's double-quoted substrings check against. Shared by both
+    explainer variants so neither can drift back to combined-only grounding.
+    """
+    fact_json, fact_leaves = prepare_fact_block(inp["fact_block"])
+    block, corpus_text = build_untrusted_excerpt(inp["log_excerpt"], nonce)
+    inp["_corpus"] = [corpus_text, *fact_leaves]
+    inp["_corpus_log"] = [corpus_text]
+    inp["_corpus_facts"] = list(fact_leaves)
+    return fact_json, block
+
+
 # --------------------------------------------------------------------------- #
 # Abstain explainer (extension 2026-07-20): narrate *why the analyzer declined*.
 # --------------------------------------------------------------------------- #
@@ -146,9 +158,7 @@ class AbstainExplainerRole(ExplainerRole):
         return f"abstain|{inp['error_hash']}|{inp['reason_code']}|{inp.get('candidate_key', '')}"
 
     def build_prompt(self, inp: dict[str, Any], nonce: str) -> tuple[str, str]:
-        fact_json, fact_leaves = prepare_fact_block(inp["fact_block"])
-        block, corpus_text = build_untrusted_excerpt(inp["log_excerpt"], nonce)
-        inp["_corpus"] = [corpus_text, *fact_leaves]
+        fact_json, block = _prepare_grounding(inp, nonce)
         user = (
             "The analyzer DECLINED to auto-classify this failure (abstain). The facts "
             "below\ncarry the decision confidence versus the suggest threshold, the "
