@@ -190,13 +190,27 @@ def test_stage_a_auto_is_applied_and_tagged_early() -> None:
 def test_kb_short_circuit_auto_is_applied() -> None:
     retr = FakeRetrieval()
     engine = _engine(
+        retr, FakeSidecar(), [_decision(method=METHOD_KB, issue_type="ab001", label="ab")]
+    )
+
+    out = engine.analyze_item_early([_launch()])
+
+    assert [(r.testItem, r.issueType) for r in out] == [(ITEM, "ab001")]
+    assert retr.issue_updates == [(PROJECT, ITEM, "ab001", True)]
+
+
+def test_kb_si_is_demoted_never_labels_early() -> None:
+    retr = FakeRetrieval()
+    engine = _engine(
         retr, FakeSidecar(), [_decision(method=METHOD_KB, issue_type="si001", label="si")]
     )
 
     out = engine.analyze_item_early([_launch()])
 
-    assert [(r.testItem, r.issueType) for r in out] == [(ITEM, "si001")]
-    assert retr.issue_updates == [(PROJECT, ITEM, "si001", True)]
+    assert out == []
+    assert retr.issue_updates == []
+    assert len(retr.suggestions) == 1
+    assert retr.suggestions[0].source == "early"
 
 
 # ---- the demotion: GBM never auto-labels early ---------------------------- #

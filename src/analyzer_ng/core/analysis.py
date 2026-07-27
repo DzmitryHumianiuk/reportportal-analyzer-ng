@@ -297,7 +297,9 @@ class AnalysisEngine:
                 # rule_cold seed-prior autos are demoted deliberately (hash/kb
                 # only). kb_inherit_and_pb additionally admits a GBM 'pb' above
                 # the stricter early bar — replay showed pb holds at the
-                # singleton corner while si flips, so si NEVER labels early.
+                # singleton corner while si flips. si never labels early on ANY
+                # path, deterministic included: an environment burst is only
+                # visible launch-wide, so mid-launch si stays a suggestion.
                 policy = self.early_label_policy
                 allows_deterministic = policy in ("kb_inherit_only", "kb_inherit_and_pb")
                 pb_gbm_applies = (
@@ -308,7 +310,7 @@ class AnalysisEngine:
                 )
                 applies = (
                     decision.action == ACTION_AUTO
-                    and decision.label != "ti"
+                    and decision.label not in ("ti", "si")
                     and (
                         (decision.method in deterministic and allows_deterministic)
                         or pb_gbm_applies
