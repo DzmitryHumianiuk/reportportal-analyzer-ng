@@ -204,6 +204,7 @@ class AnalyzerService:
                 "time_decay": config.analyzer_time_decay,
                 "early_item_analysis": config.analyzer_early_item_analysis,
                 "early_label_policy": config.analyzer_early_aa_label_policy,
+                "early_gbm_pb_min": config.analyzer_early_gbm_pb_min,
             },
             retrain_debounce_s=config.analyzer_retrain_debounce_s,
         )

@@ -255,3 +255,11 @@ def test_below_band_abstain_detection():
     assert payloads._is_below_band_abstain(_row(predicted_label="pb001", confidence=0.80)) is False
     assert payloads._is_below_band_abstain(_row(model_ver="rubric+x", confidence=0.1)) is False
     assert payloads._is_below_band_abstain(None) is False
+
+
+def test_decision_block_carries_source() -> None:
+    # docs/EARLY-ITEM-AA.md: 'early' rows are revisable; the UI needs to know.
+    _, dec = _matching_decision(_FakeDB(), 1, _sug(source="early"))
+    assert dec["source"] == "early"
+    _, dec2 = _matching_decision(_FakeDB(), 1, _sug())
+    assert dec2["source"] is None

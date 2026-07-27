@@ -372,3 +372,16 @@ def test_early_aa_label_policy_rejects_unknown_value(env: pytest.MonkeyPatch) ->
     env.setenv("ANALYZER_EARLY_AA_LABEL_POLICY", "yolo")
     with pytest.raises(Exception):
         _cfg()
+
+
+def test_early_pb_gbm_policy_and_threshold(env: pytest.MonkeyPatch) -> None:
+    # v2 (docs/EARLY-ITEM-AA.md): pb-only GBM early labeling behind its own
+    # policy value and a stricter-than-auto confidence bar.
+    _minimal(env)
+    cfg = _cfg()
+    assert cfg.analyzer_early_gbm_pb_min == 0.85
+    env.setenv("ANALYZER_EARLY_AA_LABEL_POLICY", "kb_inherit_and_pb")
+    env.setenv("ANALYZER_EARLY_GBM_PB_MIN", "0.9")
+    cfg = _cfg()
+    assert cfg.analyzer_early_aa_label_policy == "kb_inherit_and_pb"
+    assert cfg.analyzer_early_gbm_pb_min == 0.9

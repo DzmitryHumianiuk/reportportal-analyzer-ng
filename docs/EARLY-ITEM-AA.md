@@ -61,9 +61,22 @@ items through the existing ReportPortal mechanism.
 | Env var | Default | Meaning |
 |---|---|---|
 | `ANALYZER_EARLY_ITEM_ANALYSIS` | `false` | master switch; off means the route answers an empty list and touches nothing |
-| `ANALYZER_EARLY_AA_LABEL_POLICY` | `kb_inherit_only` | `kb_inherit_only`: deterministic decisions auto-label, GBM is demoted. `suggest_only`: nothing auto-labels, every decision is stored and enriched only |
+| `ANALYZER_EARLY_AA_LABEL_POLICY` | `kb_inherit_only` | `kb_inherit_only`: deterministic decisions auto-label, GBM is demoted. `suggest_only`: nothing auto-labels. `kb_inherit_and_pb`: deterministic plus GBM Product Bug decisions above the strict bar below |
+| `ANALYZER_EARLY_GBM_PB_MIN` | `0.85` | `kb_inherit_and_pb` only: the confidence a GBM `pb` decision must clear to label early. Stricter than the normal 0.75 auto band |
 
-Both are read once at startup like every other `ANALYZER_*` knob.
+All are read once at startup like every other `ANALYZER_*` knob. The pb
+extension is evidence-backed: the replay harness showed every label flip at the
+singleton corner is `si -> pb` — pb decisions hold, so they may label early;
+System Issue never does (a burst cannot be seen before the launch ends).
+
+## Launch total for `launch_fail_fraction`
+
+`Launch.launchItemsCount` (new, default 0) carries the launch's total item
+count, passed and failed together. When a launch-finish sender fills it, the
+`launch_fail_fraction` feature goes live for the first time (it was 0.0 on
+every route before). Legacy senders and the early per-item trigger send 0 on
+purpose: mid-launch the total does not exist yet, which is exactly the
+singleton corner the replay harness models.
 
 ## Data: the `source` column
 

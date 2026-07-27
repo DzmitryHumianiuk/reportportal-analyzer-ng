@@ -143,7 +143,14 @@ class AppConfig(BaseSettings):
     # before launch finish; ``suggest_only`` is the even-darker first step where
     # nothing auto-labels and every decision is stored and enriched only.
     analyzer_early_item_analysis: LegacyBool = False
-    analyzer_early_aa_label_policy: Literal["kb_inherit_only", "suggest_only"] = "kb_inherit_only"
+    # kb_inherit_and_pb additionally lets a GBM 'pb' decision label early when it
+    # clears analyzer_early_gbm_pb_min (stricter than the normal auto band).
+    # Replay evidence: at the singleton corner only si flips; pb holds. si and
+    # every other group never label early from the GBM.
+    analyzer_early_aa_label_policy: Literal[
+        "kb_inherit_only", "suggest_only", "kb_inherit_and_pb"
+    ] = "kb_inherit_only"
+    analyzer_early_gbm_pb_min: UnitInterval = 0.85
     # Operator-tunable retrain debounce window, in seconds (spec §6.5). This is the
     # PRIMARY throttle on how often a *shipped* model may be replaced; a ship-gate
     # rejection no longer counts against it (retrain.last_shipped_at anchor). The default
