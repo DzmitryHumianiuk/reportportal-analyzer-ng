@@ -85,11 +85,83 @@ index f3d4cd2..96fc02e 100644
              Collections.singletonList(rq), new ParameterizedTypeReference<>() {
              }
          );
+diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/model/IndexLaunchNg.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/model/IndexLaunchNg.java
+new file mode 100644
+index 0000000..1465039
+--- /dev/null
++++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/model/IndexLaunchNg.java
+@@ -0,0 +1,52 @@
++/*
++ * Copyright 2024 EPAM Systems
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.epam.ta.reportportal.core.analyzer.auto.client.model;
++
++import com.epam.reportportal.model.analyzer.IndexLaunch;
++import com.fasterxml.jackson.annotation.JsonInclude;
++import com.fasterxml.jackson.annotation.JsonProperty;
++
++/**
++ * {@link IndexLaunch} extended with the total number of executed test items in
++ * the launch (analyzer-ng addition). The base class lives in the commons
++ * dependency jar and cannot be modified here; the analyzer messages are
++ * serialized by Jackson from the runtime type, so a subclass field reaches the
++ * wire naturally. The field is serialized only when set, so legacy analyzers
++ * receive the stock payload shape and ignore the extra key when present.
++ *
++ * <p>Semantics of {@code launchItemsCount}: the launch's executions total (the
++ * number the launch view shows as the executions count), taken from the launch
++ * statistics at the moment the analyze request is built. It is filled only on
++ * the launch-finish {@code analyze} route, where the statistics are final. On
++ * the early per-item {@code analyze_item_early} route the launch is still
++ * running, so the count is intentionally left absent and the analyzer treats
++ * the total as unknown.
++ */
++public class IndexLaunchNg extends IndexLaunch {
++
++  @JsonInclude(JsonInclude.Include.NON_NULL)
++  @JsonProperty("launchItemsCount")
++  private Long launchItemsCount;
++
++  public Long getLaunchItemsCount() {
++    return launchItemsCount;
++  }
++
++  public void setLaunchItemsCount(Long launchItemsCount) {
++    this.launchItemsCount = launchItemsCount;
++  }
++}
 diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerServiceImpl.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerServiceImpl.java
-index 5a1ccd5..bda6f53 100644
+index 5a1ccd5..4052903 100644
 --- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerServiceImpl.java
 +++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerServiceImpl.java
-@@ -133,6 +133,24 @@ public class AnalyzerServiceImpl implements AnalyzerService {
+@@ -29,11 +29,13 @@ import com.epam.reportportal.rules.exception.ReportPortalException;
+ import com.epam.ta.reportportal.core.analytics.DefectUpdateStatisticsService;
+ import com.epam.ta.reportportal.core.analyzer.auto.AnalyzerService;
+ import com.epam.ta.reportportal.core.analyzer.auto.client.AnalyzerServiceClient;
++import com.epam.ta.reportportal.core.analyzer.auto.client.model.IndexLaunchNg;
+ import com.epam.ta.reportportal.core.analyzer.auto.impl.preparer.LaunchPreparerService;
+ import com.epam.ta.reportportal.core.events.MessageBus;
+ import com.epam.ta.reportportal.core.events.activity.ItemIssueTypeDefinedEvent;
+ import com.epam.ta.reportportal.core.events.activity.LinkTicketEvent;
+ import com.epam.ta.reportportal.core.item.impl.IssueTypeHandler;
++import com.epam.ta.reportportal.core.statistics.StatisticsHelper;
+ import com.epam.ta.reportportal.core.statistics.TestItemStatisticsService;
+ import com.epam.ta.reportportal.dao.LaunchRepository;
+ import com.epam.ta.reportportal.dao.TestItemRepository;
+@@ -133,6 +135,24 @@ public class AnalyzerServiceImpl implements AnalyzerService {
      }
    }
  
@@ -114,7 +186,7 @@ index 5a1ccd5..bda6f53 100644
    /**
     * Prepare and analyze the number of provided test item ids.
     *
-@@ -142,15 +160,21 @@ public class AnalyzerServiceImpl implements AnalyzerService {
+@@ -142,15 +162,30 @@ public class AnalyzerServiceImpl implements AnalyzerService {
     */
    private void analyzeItemsPartition(Launch launch, List<Long> testItemIds,
        AnalyzerConfig analyzerConfig, Optional<Long> previousLaunchId) {
@@ -131,6 +203,15 @@ index 5a1ccd5..bda6f53 100644
      Optional<IndexLaunch> rqLaunch = launchPreparerService.prepare(launch, toAnalyze,
          analyzerConfig);
      rqLaunch.ifPresent(rq -> {
++      // analyzer-ng: on the launch-finish analyze route send the launch's
++      // executions total so the analyzer has a live denominator for
++      // launch-level fail-fraction features. Statistics are EAGER on the
++      // Launch entity, so this costs no extra query. The early per-item route
++      // intentionally leaves the count absent: the launch is still running
++      // there and the analyzer treats the total as unknown by design.
++      if (!early && rq instanceof IndexLaunchNg rqNg) {
++        resolveLaunchItemsCount(launch).ifPresent(rqNg::setLaunchItemsCount);
++      }
        int amountToAnalyze = rq.getTestItems().size();
        previousLaunchId.ifPresent(rq::setPreviousLaunchId);
 -      Map<String, List<AnalyzedItemRs>> analyzedMap = analyzerServicesClient.analyze(rq);
@@ -139,6 +220,53 @@ index 5a1ccd5..bda6f53 100644
  
        if (!MapUtils.isEmpty(analyzedMap)) {
          analyzedMap.forEach(
+@@ -269,6 +304,24 @@ public class AnalyzerServiceImpl implements AnalyzerService {
+     return AnalyzerUtils.TO_RELEVANT_ITEM_INFO.apply(relevantItem);
+   }
+ 
++  /**
++   * Resolves the total number of executed test items in the launch from its
++   * statistics (the "statistics$executions$total" counter, the same number the
++   * launch view shows as the executions total). The statistics collection is
++   * eagerly fetched on the Launch entity, so this is safe on detached
++   * instances and requires no repository call.
++   *
++   * @param launch Analyzed launch
++   * @return executions total when present and positive, empty otherwise
++   */
++  private Optional<Long> resolveLaunchItemsCount(Launch launch) {
++    return ofNullable(launch.getStatistics())
++        .map(statistics -> StatisticsHelper.extractStatisticsCount(
++            "statistics$executions$total", statistics))
++        .filter(total -> total > 0)
++        .map(Integer::longValue);
++  }
++
+   /**
+    * @param launch         Analyzed launch
+    * @param analyzerConfig Current analyzer config
+diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/LaunchPreparerServiceImpl.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/LaunchPreparerServiceImpl.java
+index 7a9c39a..80777a5 100644
+--- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/LaunchPreparerServiceImpl.java
++++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/LaunchPreparerServiceImpl.java
+@@ -18,6 +18,7 @@ package com.epam.ta.reportportal.core.analyzer.auto.impl.preparer;
+ 
+ import static com.epam.ta.reportportal.util.Predicates.LAUNCH_CAN_BE_INDEXED;
+ 
++import com.epam.ta.reportportal.core.analyzer.auto.client.model.IndexLaunchNg;
+ import com.epam.ta.reportportal.dao.ClusterRepository;
+ import com.epam.ta.reportportal.dao.LaunchRepository;
+ import com.epam.ta.reportportal.entity.cluster.Cluster;
+@@ -80,7 +81,8 @@ public class LaunchPreparerServiceImpl implements LaunchPreparerService {
+   private IndexLaunch createIndexLaunch(Long projectId, Long launchId, String name,
+       Instant startLaunchTime, AnalyzerConfig analyzerConfig,
+       List<IndexTestItem> rqTestItems, Long launchNumber) {
+-    IndexLaunch rqLaunch = new IndexLaunch();
++    // analyzer-ng: build the subclass so callers can attach launchItemsCount.
++    IndexLaunch rqLaunch = new IndexLaunchNg();
+     rqLaunch.setLaunchId(launchId);
+     rqLaunch.setLaunchName(name);
+     rqLaunch.setLaunchStartTime(LocalDateTime.ofInstant(startLaunchTime, ZoneId.systemDefault()));
 diff --git a/src/main/java/com/epam/ta/reportportal/core/events/handler/item/TestItemAutoAnalysisRunner.java b/src/main/java/com/epam/ta/reportportal/core/events/handler/item/TestItemAutoAnalysisRunner.java
 index 2013b6c..3222af9 100644
 --- a/src/main/java/com/epam/ta/reportportal/core/events/handler/item/TestItemAutoAnalysisRunner.java

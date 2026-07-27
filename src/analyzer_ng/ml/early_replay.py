@@ -26,8 +26,11 @@ from analyzer_ng.core.decision import TAU_AUTO, TAU_SUGGEST
 #   group_dominance       = group_size / launch_failures = 1/1
 #   co_failure_group_size = log1p(1) / log1p(200)   (the size-1 point)
 #   launch_fail_fraction  = 0.0  (mid-launch the total item count does not
-#                                 exist; finish snapshots carry a real value
-#                                 once the sender fills Launch.launchItemsCount)
+#                                 exist, so the early route sends no count and
+#                                 the fraction stays 0 by design; launch-finish
+#                                 snapshots carry a live value now that the
+#                                 patched service-api fills
+#                                 Launch.launchItemsCount on the analyze route)
 #   si_prior              = 0.0                      (burst needs >= 5 members)
 SINGLETON_OVERRIDES: dict[str, float] = {
     "group_dominance": 1.0,

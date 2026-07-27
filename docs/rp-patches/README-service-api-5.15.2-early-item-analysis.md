@@ -5,6 +5,11 @@ in this repo). With this patch, a test item that finishes as FAILED while its
 launch is still running is auto-analyzed a few seconds later, whenever auto
 analysis is enabled on the project.
 
+The patch also makes the launch-finish analyze request carry
+`launchItemsCount` (analyzer-ng issue #4), so the analyzer's
+`launch_fail_fraction` feature gets a live denominator. See
+"launchItemsCount on the analyze route" below.
+
 - Patch: [`service-api-5.15.2-early-item-analysis.patch`](./service-api-5.15.2-early-item-analysis.patch)
 - Applies to: `reportportal/service-api`, tag `5.15.2` (init the `api-registry`
   submodule before building)
@@ -55,9 +60,44 @@ The patch makes four changes, all inside that existing shape:
    event can be processed after the launch already finished).
 
 Files touched: `TestItemAutoAnalysisRunner`, `AnalyzerService(+Impl)`,
-`AnalyzerServiceClient(+Impl)`. No schema or API changes; replies reuse the
+`AnalyzerServiceClient(+Impl)`, `LaunchPreparerServiceImpl`, and the new
+`IndexLaunchNg` model class. No schema or API changes; replies reuse the
 stock apply-label path, so early labels look exactly like normal auto-analysis
 labels (`autoAnalyzed=true`) and can be revised by the launch-finish pass.
+
+## launchItemsCount on the analyze route
+
+Analyzer-ng's GBM feature `launch_fail_fraction` divides the number of
+To Investigate items in the analyze payload by the total number of executed
+test items in the launch. Stock service-api never sends that total, so the
+analyzer treated it as unknown and the feature stayed 0. This patch adds it:
+
+- **Definition.** `launchItemsCount` is the launch's executions total (the
+  `statistics$executions$total` counter, the same number the launch view
+  shows as the executions count). At launch finish this equals the number of
+  executed leaf test items (steps with statistics), retries collapsed, which
+  is exactly the denominator the analyzer expects.
+- **Wire shape.** The `IndexLaunch` model class lives in the
+  `com.github.reportportal:commons` dependency jar, so the field cannot be
+  added to it directly. Instead `LaunchPreparerServiceImpl` builds a
+  service-api-local subclass, `IndexLaunchNg`, with a
+  `@JsonProperty("launchItemsCount") @JsonInclude(NON_NULL) Long` field. The
+  analyzer messages are serialized by Jackson from the runtime type, so the
+  field reaches the wire naturally; when unset, the payload is byte-identical
+  to stock, and legacy analyzers ignore the extra key when present.
+- **Where filled.** `AnalyzerServiceImpl.analyzeItemsPartition` sets the
+  count on the launch-finish / on-demand `analyze` route only, reading it
+  from the launch entity's statistics. The statistics collection is eagerly
+  fetched on the Launch entity (`FetchType.EAGER`), so this costs no extra
+  repository query and is safe on detached instances. The count is set only
+  when positive.
+- **Early route.** The early per-item `analyze_item_early` route leaves the
+  count absent on purpose: mid-launch the executions total is still growing,
+  so any value would be a wrong denominator, and the analyzer intentionally
+  treats the early route's total as unknown (`launch_fail_fraction` stays 0
+  there by design).
+- No dependency source was changed; the whole addition lives in the
+  service-api tree and is part of this single patch file.
 
 Note: the stock unit test `TestItemAutoAnalysisRunnerTest` is not updated for
 the new constructor and trigger split; the build below skips tests
@@ -82,8 +122,8 @@ cat > /tmp/service-api-ng-ctx/Dockerfile.ng <<'EOF'
 FROM reportportal/service-api:5.15.2
 COPY service-api-5.15.2-exec.jar /usr/app/
 EOF
-minikube image build -f Dockerfile.ng -t reportportal/service-api:5.15.2-ng2 /tmp/service-api-ng-ctx
-kubectl set image deployment/reportportal-api api=reportportal/service-api:5.15.2-ng2
+minikube image build -f Dockerfile.ng -t reportportal/service-api:5.15.2-ng3 /tmp/service-api-ng-ctx
+kubectl set image deployment/reportportal-api api=reportportal/service-api:5.15.2-ng3
 ```
 
 Note: the stock image starts `java -jar /usr/app/service-api-*exec.jar`; the
