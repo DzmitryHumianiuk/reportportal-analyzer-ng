@@ -592,6 +592,29 @@ def analyzer_label_events(pg_exec: str, item_ids: list[int]) -> int:
     return total
 
 
+def filter_by_name(launches: list[dict], name: str | None) -> list[dict]:
+    """Keep only launches whose name exactly equals ``name`` (``--name``).
+
+    Exact match, client-side, so it is independent of an RP build's eq/contains
+    semantics for name filters. A falsy ``name`` is a no-op (returns as given)."""
+    if not name:
+        return launches
+    return [la for la in launches if (la.get("name") or "") == name]
+
+
+def resolve_skip_defects(launches: list[dict], explicit: str, skip_last: int) -> set[int]:
+    """Source launch ids whose defect-type replay must be skipped.
+
+    Union of the explicit ``--skip-defects-launches`` ids and, when
+    ``--skip-defects-last N`` > 0, the ids of the last ``N`` launches in the
+    (already name-filtered, already ``--limit``-ed) selection. Selection order is
+    oldest-first for ``--from/--to``, so the last N are the newest N."""
+    ids = {int(x) for x in explicit.split(",") if x.strip()}
+    if skip_last > 0:
+        ids.update(int(la["id"]) for la in launches[-skip_last:])
+    return ids
+
+
 # --------------------------------------------------------------------------- #
 # main
 # --------------------------------------------------------------------------- #
@@ -609,9 +632,23 @@ def main() -> None:
     sel.add_argument("--from", dest="date_from", help="ISO date/datetime lower bound")
     ap.add_argument("--to", dest="date_to", help="ISO upper bound (default: now)")
     ap.add_argument(
+        "--name",
+        help="only migrate SOURCE launches whose name exactly equals NAME "
+        "(applied after --from/--to or --launch-ids selection, before --limit)",
+    )
+    ap.add_argument(
         "--skip-defects-launches",
         default="",
         help="source launch ids whose analysis results must NOT be transferred",
+    )
+    ap.add_argument(
+        "--skip-defects-last",
+        type=int,
+        default=0,
+        metavar="N",
+        help="skip analysis-result (defect-type) replay for the last N launches "
+        "of the final selection — the NEWEST N, since selection is oldest-first "
+        "for --from/--to; composes with --skip-defects-launches",
     )
     ap.add_argument(
         "--skip-all-defects", action="store_true", help="transfer no analysis results at all"
@@ -677,18 +714,27 @@ def main() -> None:
         ts_to = parse_date(args.date_to) if args.date_to else int(time.time() * 1000)
         launches = list(src.launches_between(ts_from, ts_to))
     print(f"{len(launches)} source launch(es) selected")
+    if args.name:
+        before = len(launches)
+        launches = filter_by_name(launches, args.name)
+        print(f"name filter '{args.name}': {len(launches)} of {before} launch(es) match")
     # Apply --limit at SELECTION time, before any per-launch fetch (pre-scan /
     # defect-type sync / migration), so only the kept launches are ever fetched.
     if args.limit is not None:
         total_selected = len(launches)
         launches = launches[: args.limit]
         print(f"limited to first {len(launches)} of {total_selected} selected launch(es)")
+    skip_defects = resolve_skip_defects(
+        launches, args.skip_defects_launches, args.skip_defects_last
+    )
+    if args.skip_defects_last > 0:
+        skipped_last = [la["id"] for la in launches[-args.skip_defects_last :]]
+        print(f"--skip-defects-last {args.skip_defects_last}: no defect replay for {skipped_last}")
     if args.dry_run:
         for la in launches:
-            print(f"  [{la['id']}] {la['name']} #{la.get('number')} @ {la.get('startTime')}")
+            tag = "  (defects skipped)" if la["id"] in skip_defects else ""
+            print(f"  [{la['id']}] {la['name']} #{la.get('number')} @ {la.get('startTime')}{tag}")
         return
-
-    skip_defects = {int(x) for x in args.skip_defects_launches.split(",") if x.strip()}
 
     # Pre-scan needed defect locators (only for launches whose defects transfer).
     needed: set[str] = set()

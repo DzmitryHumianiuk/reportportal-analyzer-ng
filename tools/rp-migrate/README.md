@@ -52,11 +52,18 @@ python3 migrate.py --launch-ids 1201,1202,1305
 # by date range
 python3 migrate.py --from 2026-06-01 --to 2026-07-01
 
+# by date range, only launches with an exact name
+python3 migrate.py --from 2026-06-01 --name pytest-docs-demo
+
 # see what would be migrated, change nothing
 python3 migrate.py --from 2026-06-01 --dry-run
 
 # transfer structure+logs, but keep items To-Investigate for two launches
 python3 migrate.py --launch-ids 1201,1202,1305 --skip-defects-launches 1202,1305
+
+# same, but "the last two of the selection" without listing ids — migrate a
+# named set from the last 3 days, skip analysis (defect replay) for the newest 2
+python3 migrate.py --from 2026-07-25 --name pytest-docs-demo --skip-defects-last 2
 
 # transfer no analysis results at all
 python3 migrate.py --from 2026-06-01 --skip-all-defects

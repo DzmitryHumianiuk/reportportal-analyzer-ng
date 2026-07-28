@@ -93,5 +93,42 @@ class ApiKeyLoginTest(unittest.TestCase):
         self.assertEqual(client.s.headers["Authorization"], "Bearer secret")
 
 
+def _launches(*specs: tuple[int, str]) -> list[dict]:
+    # oldest-first, as launches_between (startTime,ASC) yields them
+    return [{"id": i, "name": n} for i, n in specs]
+
+
+class NameFilterTest(unittest.TestCase):
+    def test_exact_name_match_only(self) -> None:
+        launches = _launches((1, "other"), (2, "pytsst-docs-demo"), (3, "pytsst-docs-demo-2"))
+        kept = migrate.filter_by_name(launches, "pytsst-docs-demo")
+        self.assertEqual([la["id"] for la in kept], [2])  # substring 'demo-2' excluded
+
+    def test_none_or_empty_is_noop(self) -> None:
+        launches = _launches((1, "a"), (2, "b"))
+        self.assertEqual(migrate.filter_by_name(launches, None), launches)
+        self.assertEqual(migrate.filter_by_name(launches, ""), launches)
+
+
+class SkipDefectsTest(unittest.TestCase):
+    def test_skip_last_takes_newest_n(self) -> None:
+        launches = _launches((10, "d"), (11, "d"), (12, "d"), (13, "d"))
+        # oldest-first, so the last 2 (12, 13) are the newest two
+        self.assertEqual(migrate.resolve_skip_defects(launches, "", 2), {12, 13})
+
+    def test_explicit_and_last_union(self) -> None:
+        launches = _launches((10, "d"), (11, "d"), (12, "d"))
+        self.assertEqual(migrate.resolve_skip_defects(launches, "10", 1), {10, 12})
+
+    def test_zero_last_is_explicit_only(self) -> None:
+        launches = _launches((10, "d"), (11, "d"))
+        self.assertEqual(migrate.resolve_skip_defects(launches, "11", 0), {11})
+        self.assertEqual(migrate.resolve_skip_defects(launches, "", 0), set())
+
+    def test_skip_last_ge_selection_covers_all(self) -> None:
+        launches = _launches((10, "d"), (11, "d"))
+        self.assertEqual(migrate.resolve_skip_defects(launches, "", 5), {10, 11})
+
+
 if __name__ == "__main__":
     unittest.main()
