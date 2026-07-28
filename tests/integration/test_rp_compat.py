@@ -55,6 +55,7 @@ from analyzer_ng.amqp.models import (
 )
 from analyzer_ng.api.http import HttpServer
 from analyzer_ng.config import AppConfig
+from analyzer_ng.db.migrate import discover_migrations
 from analyzer_ng.db.pool import open_pool
 from analyzer_ng.db.startup import bootstrap_and_migrate, bootstrap_and_migrate_or_exit
 from analyzer_ng.service import AnalyzerService
@@ -439,7 +440,7 @@ def test_bootstrap_and_migrate_on_cold_db_applies_initial_schema(
     fresh_dsn = _dsn_for_db(base_dsn, dbname)
     try:
         applied = bootstrap_and_migrate(fresh_dsn, create_db=True, attempts=5, delay=0.2)
-        assert applied == [1, 2, 3, 4, 5, 6, 7, 8]
+        assert applied == [m.version for m in discover_migrations()]
         # Idempotent restart applies nothing further.
         assert bootstrap_and_migrate(fresh_dsn, create_db=True, attempts=5, delay=0.2) == []
     finally:
