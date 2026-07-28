@@ -4389,10 +4389,10 @@ index 000000000..56cab385d
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 000000000..1a7ee2288
+index 000000000..b41d437bd
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2202 @@
+@@ -0,0 +1,2208 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -5426,6 +5426,12 @@ index 000000000..1a7ee2288
 +      display: flex;
 +      align-items: center;
 +      gap: 6px;
++      // The "why?" link is pinned to the card corner and is out of flow, so this
++      // row has to keep clear of it on its own. Reserving its width stops a chip
++      // from sliding under the link, and wrapping lets a second chip drop to its
++      // own line instead of being pushed into it.
++      flex-wrap: wrap;
++      padding-right: 62px;
 +      font-size: 13.5px;
 +      font-weight: 700;
 +      color: var(--rp-almost-black);
@@ -6711,7 +6717,7 @@ index d4d861b56..3cf9bc481 100644
 +  benchMode: false,
  };
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
-index f3ff2925b..58f9aa09b 100644
+index f3ff2925b..a9ff0487f 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
 @@ -14,8 +14,9 @@
@@ -6915,7 +6921,7 @@ index f3ff2925b..58f9aa09b 100644
    }, []);
  
    const prepareDataToSend = ({ isIssueAction } = {}) => {
-@@ -181,16 +304,30 @@ const MakeDecision = ({ data }) => {
+@@ -181,16 +304,48 @@ const MakeDecision = ({ data }) => {
        );
      }
  
@@ -6932,6 +6938,24 @@ index f3ff2925b..58f9aa09b 100644
 -      },
 -    }));
 +      };
++      // Every item in this payload needs a defect type; the server rejects the
++      // WHOLE request when one is missing. Two things conspire to drop it: on the
++      // manual tab newIssue is only the fields that DIFFER from the current item's
++      // issue, and a group member joins selectedItems carrying an empty issue. So
++      // applying the type the current item already has left every group member
++      // with no type at all and the request failed as a unit. The armed verdict is
++      // the authority for the whole payload, with the item's own type as fallback.
++      if (!merged.issueType) {
++        merged.issueType = issue.issueType || (item.issue && item.issue.issueType);
++      }
++      // The comment is dropped by the same delta for the same reason, and the
++      // modal promises to save it on every test the decision covers. A member
++      // with no comment key at all never had one of its own, so nothing is being
++      // overwritten here; an empty string is a real value the human chose and is
++      // left alone.
++      if (merged.comment === undefined && issue.comment) {
++        merged.comment = issue.comment;
++      }
 +      // Group-override members (verdict 9.2): keep KB provenance honest by
 +      // appending a short trailing note to the outgoing comment so a later reader
 +      // can tell a fanned-out decision from an individually triaged one. The full
@@ -6953,7 +6977,7 @@ index f3ff2925b..58f9aa09b 100644
    };
    const sendSuggestResponse = () => {
      const dataToSend = modalState.suggestedItems.map((item) => {
-@@ -357,7 +494,8 @@ const MakeDecision = ({ data }) => {
+@@ -357,7 +512,8 @@ const MakeDecision = ({ data }) => {
          saveDefect();
      } else {
        modalHasChanges &&
@@ -6963,7 +6987,7 @@ index f3ff2925b..58f9aa09b 100644
          saveDefect();
      }
      trackEvent(getOnApplyEvent());
-@@ -389,6 +527,22 @@ const MakeDecision = ({ data }) => {
+@@ -389,6 +545,22 @@ const MakeDecision = ({ data }) => {
      ),
    });
  
@@ -6986,7 +7010,7 @@ index f3ff2925b..58f9aa09b 100644
    const getMakeDecisionTabs = () => {
      const preparedHistoryLineItems = historyItems.filter(
        (item) =>
-@@ -420,14 +574,20 @@ const MakeDecision = ({ data }) => {
+@@ -420,14 +592,20 @@ const MakeDecision = ({ data }) => {
          isOpen: activeTab === MACHINE_LEARNING_SUGGESTIONS,
          title:
            modalState.suggestChoice.suggestRs &&
@@ -7010,7 +7034,7 @@ index f3ff2925b..58f9aa09b 100644
            />
          ),
        },
-@@ -458,43 +618,98 @@ const MakeDecision = ({ data }) => {
+@@ -458,43 +636,98 @@ const MakeDecision = ({ data }) => {
      ctrlEnter: applyChanges,
    };
  

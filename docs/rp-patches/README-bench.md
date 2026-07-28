@@ -10,7 +10,12 @@ parsing intact. This is an **RP-side** change (the user owns the stand).
 > the public repo; only the patch and its evidence ship here.
 
 - Patch: [`service-ui-5.15.3-bench.patch`](./service-ui-5.15.3-bench.patch)
-- Built image: `reportportal/service-ui:5.15.3-ng64`
+- Built image: `reportportal/service-ui:5.15.3-ng65`
+
+**ng65 — the card heading keeps clear of the corner why? link.** The link is
+positioned against the card corner and takes no width in the heading row, so the
+second chip added below slid underneath it. The heading now reserves the link's
+width and wraps.
 
 **ng56 to ng64 — the modal stops claiming support the model never gave.** All of
 it found by walking a fresh project (`live-check-01`) through the two-run live

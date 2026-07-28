@@ -35,6 +35,7 @@ import argparse
 import dataclasses
 import os
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -107,6 +108,101 @@ def stage_second(client, plan, args):
     print("each item finishes. Run --stage report once the launches are finished.")
 
 
+def stage_slow(client, plan, args):
+    """Upload one launch the way a real suite runs it, so the early pass can act.
+
+    The fast path finishes a launch in about a tenth of a second and posts every
+    log in one batch at the end. Per-item analysis cannot show itself there: it
+    waits out a debounce so queued logs can land, and by then the launch is over,
+    so it steps aside for the launch-finish pass. Nothing is wrong, there is
+    simply no window.
+
+    This walks one launch at human speed instead: start the item, post ITS logs,
+    finish it, wait, then move to the next, and hold the launch open at the end.
+    Each item is therefore complete, with logs, while the launch is still
+    running, which is exactly the state the early route exists for.
+    """
+    client.set_analyzer(args.project, enabled=True)
+    print(f"project {args.project}: auto analysis ON")
+
+    launches = _launches_for(plan, args.source_project, args.day_two, args.project)
+    if args.launch_name:
+        launches = [la for la in launches if la.name == args.launch_name]
+    if not launches:
+        print("no launch matched", file=sys.stderr)
+        return
+    la = launches[0]
+    failed = [pi for pi in la.items if pi.item.status != "passed"]
+    print(f"\n{la.name}: {len(la.items)} items ({len(failed)} failed)")
+    print(f"pace {args.pace_s}s between items, hold {args.hold_s}s before finishing\n")
+
+    # Stamped with the wall clock, not the simulated day: a nightly keeps its name
+    # and gets a new run every time it runs, so calling this again with the same
+    # name is simply run #N+1 of that series. The day only picks WHICH failures to
+    # replay. Back-dated stamps would instead collide with the run already stored
+    # under that name and date.
+    lstart = int(time.time() * 1000)
+    body = {
+        "name": la.name,
+        "startTime": lstart,
+        "mode": "DEFAULT",
+        "attributes": [*la.attributes, {"key": "demo", "value": "analyzer-ng"}],
+        "description": f"paced run ({la.date} failures) for the early per-item pass",
+    }
+    luuid = client._send("POST", f"{client.api}/api/v2/{la.project}/launch", json=body).json()["id"]
+    lid = client.numeric_launch(la.project, luuid)
+    print(f"launch started: id {lid}", flush=True)
+
+    sec = 1
+    for n, pi in enumerate(la.items, start=1):
+        it = pi.item
+        istart = int(time.time() * 1000)
+        ib = {
+            "name": it.test_name,
+            "startTime": istart,
+            "type": "STEP",
+            "launchUuid": luuid,
+            "attributes": client._item_attrs(it),
+        }
+        iuuid = client._send("POST", f"{client.api}/api/v2/{la.project}/item", json=ib).json()["id"]
+        # Logs BEFORE the finish, so the item is whole the moment it is reported
+        # done. The batch-at-the-end order of the fast path is what leaves the
+        # early pass nothing to read.
+        lt = istart + 1
+        for lg in it.logs:
+            client._send(
+                "POST",
+                f"{client.api}/api/v2/{la.project}/log",
+                json={
+                    "itemUuid": iuuid,
+                    "launchUuid": luuid,
+                    "time": lt,
+                    "level": lg.level.upper(),
+                    "message": lg.message,
+                },
+            )
+            lt += 500
+        status = "PASSED" if it.status == "passed" else "FAILED"
+        fin = {"launchUuid": luuid, "endTime": int(time.time() * 1000), "status": status}
+        if status == "FAILED":
+            fin["issue"] = {"issueType": "ti001", "autoAnalyzed": False}
+        client._send("PUT", f"{client.api}/api/v2/{la.project}/item/{iuuid}", json=fin)
+        print(f"  [{n}/{len(la.items)}] {status:6s} {it.test_name[:50]}", flush=True)
+        sec += 2
+        if n < len(la.items):
+            time.sleep(args.pace_s)
+
+    print(f"\nall items done, launch still open for {args.hold_s}s", flush=True)
+    time.sleep(args.hold_s)
+    client._send(
+        "PUT",
+        f"{client.api}/api/v2/{la.project}/launch/{luuid}/finish",
+        json={"endTime": int(time.time() * 1000)},
+    )
+    print(f"launch {lid} finished.")
+    print("Early results carry source='early'; run --stage report to see them.")
+
+
 REPORT_SQL = """
 SELECT s.item_id,
        s.method,
@@ -128,9 +224,7 @@ def stage_report(args, project_id):
     import psycopg
 
     with psycopg.connect(args.dsn) as conn:
-        rows = conn.execute(
-            REPORT_SQL, {"project_id": project_id, "limit": args.limit}
-        ).fetchall()
+        rows = conn.execute(REPORT_SQL, {"project_id": project_id, "limit": args.limit}).fetchall()
 
     print(f"analyzer project_id={project_id}, last {len(rows)} decisions (newest first)\n")
     head = (
@@ -149,7 +243,7 @@ def stage_report(args, project_id):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--stage", required=True, choices=["first", "second", "report", "plan"])
+    ap.add_argument("--stage", required=True, choices=["first", "second", "slow", "report", "plan"])
     ap.add_argument("--project", required=True, help="target RP project (created if missing)")
     ap.add_argument("--source-project", default=SOURCE_PROJECT)
     ap.add_argument("--day-one", default=DAY_ONE)
@@ -159,6 +253,11 @@ def main():
     ap.add_argument("--log-workers", type=int, default=4)
     ap.add_argument("--dsn", default="postgresql://analyzer:analyzer@127.0.0.1:15432/analyzer")
     ap.add_argument("--limit", type=int, default=40)
+    ap.add_argument("--launch-name", default=None, help="slow: which launch of the day to run")
+    ap.add_argument("--pace-s", type=float, default=6.0, help="slow: seconds between items")
+    ap.add_argument(
+        "--hold-s", type=float, default=25.0, help="slow: hold the launch open at the end"
+    )
     args = ap.parse_args()
 
     if args.stage != "plan":
@@ -186,6 +285,8 @@ def main():
 
     if args.stage == "first":
         stage_first(client, plan, args)
+    elif args.stage == "slow":
+        stage_slow(client, plan, args)
     else:
         stage_second(client, plan, args)
     return 0
