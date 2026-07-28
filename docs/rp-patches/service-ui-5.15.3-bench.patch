@@ -1,20 +1,9 @@
-diff --git a/app/Dockerfile.ng b/app/Dockerfile.ng
-new file mode 100644
-index 000000000..278a8689a
---- /dev/null
-+++ b/app/Dockerfile.ng
-@@ -0,0 +1,5 @@
-+# Thin overlay: analyzer-ng Make Decision suggestion-card patch on top of the
-+# stock service-ui 5.15.3 image. The host-built `build/` dir is copied over the
-+# nginx docroot; buildInfo.json is preserved from the base (footer stays 5.15.3).
-+FROM reportportal/service-ui:5.15.3
-+COPY build/ /usr/share/nginx/html/
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
 new file mode 100644
-index 000000000..0c1705464
+index 000000000..6a0f85f43
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
-@@ -0,0 +1,696 @@
+@@ -0,0 +1,1003 @@
 +/*
 + * Copyright 2021 EPAM Systems
 + *
@@ -615,6 +604,7 @@ index 000000000..0c1705464
 +  B5: 'benchBannerB5',
 +  B6u: 'benchBannerB6u',
 +  B6: 'benchBannerB6',
++  B6s: 'benchBannerB6s',
 +  B6n: 'benchBannerB6n',
 +  BF: 'benchBannerBF',
 +};
@@ -686,6 +676,14 @@ index 000000000..0c1705464
 +    return _banner('B5', {});
 +  }
 +
++  // The leading offer carries a confirmed label, but the model did not stand behind
++  // it and nothing beyond the log text matched. Applies to every non-auto decision:
++  // naming the side the offers lean would lend that side a backing the reply does
++  // not support, and the lean is the only side a single neighbour can have.
++  if (off.similarityOnly) {
++    return _banner('B6s', {});
++  }
++
 +  // Endorsed suggest.
 +  if (band === BANDS.SUGGEST) {
 +    if (off.split) {
@@ -711,12 +709,310 @@ index 000000000..0c1705464
 +// this row on the CONFIDENCE scale ("confidence {p}, under the 0.45 suggest line"),
 +// never "alike" (verdict MS7 / migration item 5). Plain below-line rows keep "alike".
 +export const isDeclineRow = (suggestRs) => parseExplKind(suggestRs) === 'decline';
++
++/*
++ * Ground one already-normalised quote against the item's already-normalised log
++ * lines. Returns the index of the line the quote starts in, or -1.
++ *
++ * A quote can legitimately cover several log lines: the explainer quotes the
++ * analyzer's signature, which joins the lines, while the modal holds them split.
++ * Checking line by line could never match such a quote, so the gate closed and
++ * hid the explanation on every failure whose message spans more than one line,
++ * which is most stack traces.
++ *
++ * The second pass compares against the joined log rather than accepting a quote
++ * that merely CONTAINS a log line. That distinction is the whole safety story:
++ * joined still requires every character of the quote to appear in the real log,
++ * in order, so an invented quote fails exactly as before. The looser "quote
++ * contains line" test would pass any hallucination that happened to embed one
++ * short real line.
++ */
++export const groundQuote = (normQuote, normLogLines) => {
++  const lines = normLogLines || [];
++  if (!normQuote) {
++    return -1;
++  }
++  const direct = lines.findIndex((nl) => nl === normQuote || nl.includes(normQuote));
++  if (direct >= 0) {
++    return direct;
++  }
++  if (!lines.join(' ').includes(normQuote)) {
++    return -1;
++  }
++  // Matched across the split: point at the first line the quote covers, so the
++  // highlight still lands somewhere real.
++  const start = lines.findIndex((nl) => nl.length > 0 && normQuote.includes(nl));
++  return start >= 0 ? start : 0;
++};
++
++// True when the explanation on the decision record was written by the cold-start
++// rubric rather than by the explainer. The explainer's quotes describe its OWN
++// text, so judging a rubric explanation with them is judging one answer by
++// another answer's evidence.
++export const explanationIsRubric = (journeyDecision) => {
++  if (!journeyDecision || typeof journeyDecision !== 'object') {
++    return false;
++  }
++  const modelVer = typeof journeyDecision.model_ver === 'string' ? journeyDecision.model_ver : '';
++  const method = typeof journeyDecision.method === 'string' ? journeyDecision.method : '';
++  return modelVer.startsWith('rubric+') || method === 'coldstart' || method === 'rule_cold';
++};
++
++/*
++ * The explanation Act 1 shows, plus the row it belongs to.
++ *
++ * "What the analyzer did" is an account of the analyzer's own decision, so the
++ * text under it has to be the one written about that decision. The record on the
++ * journey is simply the newest row, and that can be the cold-start guess, whose
++ * explanation answers a different question: why this test failed, not why the
++ * analyzer acted as it did. Printing it there put the guess in the story, put it
++ * again in the comment when the guess is adopted, and left the account of the
++ * decision visible only in the Inspector.
++ *
++ * There is already a rule for this: outcome O8 drops a cold-start explanation
++ * from Act 1 because it belongs to the AI guess card. It is keyed on the
++ * confidence band, so a guess that lands in the suggest band slips past it. This
++ * keys on what the row IS instead.
++ *
++ * Returns the classical row's explanation when the record is a guess, the
++ * record's own when it is not, and an empty string when neither exists. `row` is
++ * the record that text was written about, so the freshness gate judges the text
++ * it is actually showing.
++ */
++export const actOneExplanation = (journeyDecision) => {
++  const empty = { text: '', row: null };
++  if (!journeyDecision || typeof journeyDecision !== 'object') {
++    return empty;
++  }
++  const own = typeof journeyDecision.explanation === 'string' ? journeyDecision.explanation.trim() : '';
++  if (!explanationIsRubric(journeyDecision)) {
++    return own ? { text: own, row: journeyDecision } : empty;
++  }
++  const classical = journeyDecision.classical;
++  const text =
++    classical && typeof classical.explanation === 'string' ? classical.explanation.trim() : '';
++  return text ? { text, row: classical } : empty;
++};
++
++/*
++ * The AI card has two sources before this one, and both go missing in the same
++ * common situation. The live reply carries a rubric row only while nothing
++ * vouched outranks it, so the first human label in a project removes it. The
++ * journey fills `rubric_hypothesis` only when a CLASSICAL row displaced the
++ * guess, so it stays empty while the guess is itself the decision on record.
++ * The result was a modal printing the guess in its story and denying it in its
++ * card. This reads the third case: the record is the guess.
++ *
++ * Returns the same shape the card renders from, or null when the record is a
++ * classical decision (which must never be dressed up as an AI guess) or when
++ * one of the two earlier sources already has it.
++ */
++export const deriveJourneyOwnGuess = (journeyDecision, journeyRubric) => {
++  if (!journeyDecision || typeof journeyDecision !== 'object' || journeyRubric) {
++    return null;
++  }
++  const method = typeof journeyDecision.method === 'string' ? journeyDecision.method : '';
++  const isGuess =
++    method === 'coldstart' ||
++    method === 'rule_cold' ||
++    journeyDecision.coldstart_provisional === true;
++  if (!isGuess || !journeyDecision.predicted_label) {
++    return null;
++  }
++  return {
++    issueType: journeyDecision.predicted_label,
++    explanation: journeyDecision.explanation,
++    confidence: typeof journeyDecision.confidence === 'number' ? journeyDecision.confidence : null,
++  };
++};
++
++// ---------------------------------------------------------------------------
++// Does the model stand behind this offer?
++//
++// matchScore is a log similarity, not a belief that the label transfers. Dense
++// e5 cosines sit near 0.9 for any two stack traces out of one suite, so a lone
++// neighbour can lead the offers while the model that scored it refused to move.
++// Everything below reads facts the reply and the journey already carry, decides
++// which of them are safe to state, and leaves the card as it ships today when
++// the analyzer is one whose reply we cannot read.
++// ---------------------------------------------------------------------------
++
++// The row's feature vector as { name: number }. The reply carries the names and
++// the values as two ';'-separated strings of equal length; anything else (stock
++// analyzer, truncated payload, mismatched lengths) yields an empty object, and
++// every reader below then adds nothing to the card.
++export const parseFeatures = (suggestRs) => {
++  const names = suggestRs && suggestRs.modelFeatureNames;
++  const values = suggestRs && suggestRs.modelFeatureValues;
++  if (typeof names !== 'string' || typeof values !== 'string' || !names || !values) {
++    return {};
++  }
++  const nameParts = names.split(';');
++  const valueParts = values.split(';');
++  if (nameParts.length !== valueParts.length) {
++    return {};
++  }
++  const out = {};
++  for (let i = 0; i < nameParts.length; i += 1) {
++    const key = nameParts[i].trim();
++    const n = Number.parseFloat(valueParts[i]);
++    if (key && Number.isFinite(n)) {
++      out[key] = n;
++    }
++  }
++  return out;
++};
++
++// The journey is not consistent about how it names a defect: the nested classical
++// row carries the short code ('ti'), while the decision on record carries the RP
++// locator ('pb001'). _decisionGroup only understands the short form, so strip a
++// locator down to its prefix before asking it.
++const _groupFromLocator = (value) => {
++  if (typeof value !== 'string') {
++    return null;
++  }
++  const match = value.trim().toLowerCase().match(/^([a-z]+)\d+$/);
++  return match ? DECISION_LABEL_TO_GROUP[match[1]] || null : null;
++};
++
++// The classical (retrieval + model) verdict for this item, from the journey.
++// The decision on record can be the cold-start guess, which keeps the classical
++// row it did not displace in a nested `classical` block; when the record is the
++// classical answer itself, it is its own verdict. Returns null when neither
++// resolves, and the caller then states nothing about backing.
++export const classicalVerdict = (journeyDecision) => {
++  if (!journeyDecision || typeof journeyDecision !== 'object') {
++    return null;
++  }
++  const nested = journeyDecision.classical;
++  const row = nested && typeof nested === 'object' ? nested : journeyDecision;
++  if (row === journeyDecision) {
++    const method = typeof row.method === 'string' ? row.method : '';
++    if (method === 'coldstart' || method === 'rule_cold') {
++      return null;
++    }
++  }
++  const group =
++    _decisionGroup(row) || _groupFromLocator(row.predicted_label) || _groupFromLocator(row.predicted_group);
++  const confidence = typeof row.confidence === 'number' ? row.confidence : null;
++  const band = typeof row.band === 'string' ? row.band : null;
++  if (!group && confidence === null && !band) {
++    return null;
++  }
++  return { group, confidence, band };
++};
++
++export const BACKING = {
++  // The model chose this same defect group. The card may lead.
++  BACKED: 'backed',
++  // The model made no call at all on this failure.
++  NOT_BACKED: 'notBacked',
++  // The model made a call, for a different defect group than this offer.
++  DIFFERS: 'differs',
++  // Not an analyzer-ng v1 reply, or no classical verdict to read. Say nothing
++  // new: the card renders exactly as it shipped before this change.
++  UNKNOWN: 'unknown',
++};
++
++const ABSTAIN_BANDS = ['abstain', BANDS.BELOW_SUGGEST];
++
++/*
++ * Backing state for one offer row.
++ *
++ * ng1        - parseNgVersion(suggestRs). False for a stock/legacy analyzer.
++ * offerGroup - defect group typeRef of the offered label.
++ * classical  - classicalVerdict(journeyDecision).
++ *
++ * Returns { state, confidence, otherGroup }. `confidence` is the model's own
++ * number, which belongs to ITS answer and never to the offer: for NOT_BACKED it
++ * is the confidence of the call it declined to make. Null when unresolvable, and
++ * the caller then drops the number rather than inventing one.
++ */
++export const deriveOfferBacking = ({ ng1, offerGroup, classical } = {}) => {
++  if (!ng1 || !classical) {
++    return { state: BACKING.UNKNOWN, confidence: null, otherGroup: null };
++  }
++  const { group, confidence, band } = classical;
++  const belowLine = !!band && ABSTAIN_BANDS.indexOf(band) !== -1;
++  // To Investigate is not a defect the model picked, it is the model declining to
++  // pick one. It can hold that answer confidently and land in the suggest band,
++  // which is why the band alone cannot be trusted to spot an abstain. The number
++  // is only worth printing when the model fell under the line, where it explains
++  // the silence; above the line it is confidence in "no call" and reads as the
++  // opposite of what it means, so it is dropped.
++  if (group === 'TO_INVESTIGATE') {
++    return { state: BACKING.NOT_BACKED, confidence: belowLine ? confidence : null, otherGroup: null };
++  }
++  if (belowLine) {
++    return { state: BACKING.NOT_BACKED, confidence, otherGroup: null };
++  }
++  if (!group || !offerGroup) {
++    return { state: BACKING.UNKNOWN, confidence: null, otherGroup: null };
++  }
++  if (group === offerGroup) {
++    return { state: BACKING.BACKED, confidence, otherGroup: null };
++  }
++  return { state: BACKING.DIFFERS, confidence, otherGroup: group };
++};
++
++// Clause ids for "what does not match", most concrete first.
++export const MISMATCH = {
++  IDENTIFIERS: 'identifiers',
++  STATUS_CODES: 'statusCodes',
++  TEMPLATES: 'templates',
++};
++
++// At most two clauses, and only ones the features can honestly support. The
++// `*_present` companions exist precisely because a zero overlap means "nothing
++// to compare" as often as it means "compared and different"; without the
++// companion at 1 the clause is not stated. The exception fingerprint is left
++// out on purpose: a suggest-band match differs there by construction, so naming
++// it would be noise on every card.
++export const deriveMismatchClauses = (features) => {
++  const f = features || {};
++  const out = [];
++  if (f.identifiers_present === 1 && f.identifier_jaccard_top1 === 0) {
++    out.push(MISMATCH.IDENTIFIERS);
++  }
++  if (f.status_codes_present === 1 && f.status_codes_match_top1 === 0) {
++    out.push(MISMATCH.STATUS_CODES);
++  }
++  if (out.length < 2 && f.top1_jaccard === 0) {
++    out.push(MISMATCH.TEMPLATES);
++  }
++  return out.slice(0, 2);
++};
++
++// How many earlier failures the retrieval had to compare against. n_candidates
++// is stored as len(candidates)/20, so it saturates at 20; the count is only
++// worth saying when it is small enough to explain a thin answer, which is why
++// anything above the threshold returns null and the card stays quiet.
++export const THIN_EVIDENCE_MAX = 5;
++
++export const evidenceBaseCount = (features) => {
++  const raw = features && features.n_candidates;
++  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) {
++    return null;
++  }
++  const n = Math.round(raw * 20);
++  if (n < 1 || n > THIN_EVIDENCE_MAX) {
++    return null;
++  }
++  return n;
++};
++
++// True when the offers the banner is about rest on similarity alone: the model
++// made no call and the top offer has nothing beyond the log text agreeing with
++// it. The banner then names that state instead of picking the side the offers
++// happen to lean, which is the only side it has.
++export const offersRestOnSimilarityAlone = ({ backingState, mismatchClauses } = {}) =>
++  backingState === BACKING.NOT_BACKED && (mismatchClauses || []).length > 0;
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.test.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.test.js
 new file mode 100644
-index 000000000..d25b3758f
+index 000000000..53a350ff6
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.test.js
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,538 @@
 +/*
 + *  Copyright 2026 EPAM Systems
 + *
@@ -734,12 +1030,25 @@ index 000000000..d25b3758f
 + */
 +
 +import {
++  BACKING,
 +  EMPTY_REPLY_NO_HISTORY,
 +  EMPTY_REPLY_NO_LOGS,
 +  EMPTY_REPLY_WORKING,
++  MISMATCH,
++  actOneExplanation,
++  classicalVerdict,
++  deriveBanner,
++  deriveJourneyOwnGuess,
++  deriveMismatchClauses,
++  deriveOfferBacking,
 +  emptyReplyVariant,
++  evidenceBaseCount,
++  explanationIsRubric,
++  groundQuote,
 +  isDecisionFresh,
 +  normalizeLine,
++  offersRestOnSimilarityAlone,
++  parseFeatures,
 +} from './analyzerSuggestionMeta';
 +
 +// The explainer quotes the analyzer's MASKED signature, while the item's log
@@ -840,12 +1149,414 @@ index 000000000..d25b3758f
 +    ).toBe(EMPTY_REPLY_NO_LOGS);
 +  });
 +});
++
++// The live reply that started this: project live-check-01, item 6239. One test
++// was labelled by hand, so retrieval had exactly one neighbour and offered it at
++// 0.91 while the model that scored it stayed out at 0.32.
++const LIVE_NAMES =
++  'top1_cosine;top1_jaccard;n_candidates;status_codes_present;status_codes_match_top1;' +
++  'identifiers_present;identifier_jaccard_top1';
++const LIVE_VALUES = '0.906802;0.000000;0.050000;1.000000;0.000000;1.000000;0.000000';
++
++describe('parseFeatures', () => {
++  it('reads the row feature vector off the reply', () => {
++    const f = parseFeatures({ modelFeatureNames: LIVE_NAMES, modelFeatureValues: LIVE_VALUES });
++    expect(f.top1_cosine).toBeCloseTo(0.9068, 4);
++    expect(f.identifier_jaccard_top1).toBe(0);
++    expect(f.n_candidates).toBeCloseTo(0.05, 4);
++  });
++
++  it('returns nothing when names and values disagree in length', () => {
++    expect(parseFeatures({ modelFeatureNames: 'a;b', modelFeatureValues: '1' })).toEqual({});
++  });
++
++  it('returns nothing for a stock reply that carries no vector', () => {
++    expect(parseFeatures({ modelInfo: 'legacy' })).toEqual({});
++  });
++});
++
++describe('classicalVerdict', () => {
++  it('reads the nested classical row when the decision on record is the guess', () => {
++    expect(
++      classicalVerdict({
++        method: 'coldstart',
++        predicted_label: 'pb001',
++        confidence: 0.65,
++        classical: { predicted_label: 'ti', confidence: 0.321, band: 'abstain' },
++      }),
++    ).toEqual({ group: 'TO_INVESTIGATE', confidence: 0.321, band: 'abstain' });
++  });
++
++  it('uses the record itself when it is the classical answer', () => {
++    expect(classicalVerdict({ method: 'gbm', predicted_label: 'pb001', confidence: 0.8, band: 'auto' })).toEqual(
++      { group: 'PRODUCT_BUG', confidence: 0.8, band: 'auto' },
++    );
++  });
++
++  it('has no verdict when the only record is a guess with nothing nested', () => {
++    expect(classicalVerdict({ method: 'coldstart', predicted_label: 'pb001', confidence: 0.65 })).toBeNull();
++  });
++});
++
++describe('deriveOfferBacking', () => {
++  const abstained = { group: 'TO_INVESTIGATE', confidence: 0.321, band: 'abstain' };
++
++  it('says not backed when the model made no call, and keeps its number', () => {
++    expect(
++      deriveOfferBacking({ ng1: true, offerGroup: 'SYSTEM_ISSUE', classical: abstained }),
++    ).toEqual({ state: BACKING.NOT_BACKED, confidence: 0.321, otherGroup: null });
++  });
++
++  it('says backed when the model chose the same defect group', () => {
++    expect(
++      deriveOfferBacking({
++        ng1: true,
++        offerGroup: 'PRODUCT_BUG',
++        classical: { group: 'PRODUCT_BUG', confidence: 0.71, band: 'suggest' },
++      }).state,
++    ).toBe(BACKING.BACKED);
++  });
++
++  it('names the other group when the model chose a different one', () => {
++    expect(
++      deriveOfferBacking({
++        ng1: true,
++        offerGroup: 'SYSTEM_ISSUE',
++        classical: { group: 'PRODUCT_BUG', confidence: 0.71, band: 'suggest' },
++      }),
++    ).toEqual({ state: BACKING.DIFFERS, confidence: 0.71, otherGroup: 'PRODUCT_BUG' });
++  });
++
++  it('stays silent for a stock analyzer whose reply cannot be read', () => {
++    expect(deriveOfferBacking({ ng1: false, offerGroup: 'SYSTEM_ISSUE', classical: abstained }).state).toBe(
++      BACKING.UNKNOWN,
++    );
++  });
++
++  it('stays silent when there is no classical verdict at all', () => {
++    expect(deriveOfferBacking({ ng1: true, offerGroup: 'SYSTEM_ISSUE', classical: null }).state).toBe(
++      BACKING.UNKNOWN,
++    );
++  });
++});
++
++describe('deriveMismatchClauses', () => {
++  it('names both mismatches on the live reply', () => {
++    const f = parseFeatures({ modelFeatureNames: LIVE_NAMES, modelFeatureValues: LIVE_VALUES });
++    expect(deriveMismatchClauses(f)).toEqual([MISMATCH.IDENTIFIERS, MISMATCH.STATUS_CODES]);
++  });
++
++  it('never claims a mismatch when there was nothing to compare', () => {
++    expect(
++      deriveMismatchClauses({
++        identifiers_present: 0,
++        identifier_jaccard_top1: 0,
++        status_codes_present: 0,
++        status_codes_match_top1: 0,
++        top1_jaccard: 0.4,
++      }),
++    ).toEqual([]);
++  });
++
++  it('falls back to log lines when identifiers and status codes agree', () => {
++    expect(
++      deriveMismatchClauses({
++        identifiers_present: 1,
++        identifier_jaccard_top1: 0.8,
++        status_codes_present: 1,
++        status_codes_match_top1: 1,
++        top1_jaccard: 0,
++      }),
++    ).toEqual([MISMATCH.TEMPLATES]);
++  });
++
++  it('says nothing when everything that could be compared matched', () => {
++    expect(
++      deriveMismatchClauses({
++        identifiers_present: 1,
++        identifier_jaccard_top1: 0.9,
++        status_codes_present: 1,
++        status_codes_match_top1: 1,
++        top1_jaccard: 0.6,
++      }),
++    ).toEqual([]);
++  });
++
++  it('shows at most two clauses', () => {
++    expect(
++      deriveMismatchClauses({
++        identifiers_present: 1,
++        identifier_jaccard_top1: 0,
++        status_codes_present: 1,
++        status_codes_match_top1: 0,
++        top1_jaccard: 0,
++      }),
++    ).toHaveLength(2);
++  });
++});
++
++describe('evidenceBaseCount', () => {
++  it('turns the stored fraction back into a count', () => {
++    expect(evidenceBaseCount({ n_candidates: 0.05 })).toBe(1);
++  });
++
++  it('stays quiet once the pool is big enough to speak for itself', () => {
++    expect(evidenceBaseCount({ n_candidates: 0.5 })).toBeNull();
++    expect(evidenceBaseCount({ n_candidates: 1 })).toBeNull();
++  });
++
++  it('says nothing when the feature is missing or empty', () => {
++    expect(evidenceBaseCount({})).toBeNull();
++    expect(evidenceBaseCount({ n_candidates: 0 })).toBeNull();
++  });
++});
++
++describe('offersRestOnSimilarityAlone', () => {
++  it('is true only when the model made no call and nothing else matched', () => {
++    expect(
++      offersRestOnSimilarityAlone({
++        backingState: BACKING.NOT_BACKED,
++        mismatchClauses: [MISMATCH.IDENTIFIERS],
++      }),
++    ).toBe(true);
++  });
++
++  it('is false when the model made no call but the evidence lines up', () => {
++    expect(
++      offersRestOnSimilarityAlone({ backingState: BACKING.NOT_BACKED, mismatchClauses: [] }),
++    ).toBe(false);
++  });
++
++  it('is false whenever the model did back the offer', () => {
++    expect(
++      offersRestOnSimilarityAlone({
++        backingState: BACKING.BACKED,
++        mismatchClauses: [MISMATCH.IDENTIFIERS],
++      }),
++    ).toBe(false);
++  });
++});
++
++// Caught on the stand: the model can hold "To Investigate" confidently enough to
++// land in the suggest band. That is still no defect call, and reading the band
++// alone rendered it as "the model called this To Investigate instead (0.63)".
++describe('deriveOfferBacking treats To Investigate as no call, not a rival answer', () => {
++  it('says no call for a confident To Investigate in the suggest band', () => {
++    expect(
++      deriveOfferBacking({
++        ng1: true,
++        offerGroup: 'SYSTEM_ISSUE',
++        classical: { group: 'TO_INVESTIGATE', confidence: 0.6315789, band: 'suggest' },
++      }),
++    ).toEqual({ state: BACKING.NOT_BACKED, confidence: null, otherGroup: null });
++  });
++
++  it('keeps the number when To Investigate sat under the suggest line', () => {
++    expect(
++      deriveOfferBacking({
++        ng1: true,
++        offerGroup: 'SYSTEM_ISSUE',
++        classical: { group: 'TO_INVESTIGATE', confidence: 0.321, band: 'abstain' },
++      }),
++    ).toEqual({ state: BACKING.NOT_BACKED, confidence: 0.321, otherGroup: null });
++  });
++
++  it('still reports a real rival defect as a difference', () => {
++    expect(
++      deriveOfferBacking({
++        ng1: true,
++        offerGroup: 'SYSTEM_ISSUE',
++        classical: { group: 'AUTOMATION_BUG', confidence: 0.7, band: 'suggest' },
++      }).state,
++    ).toBe(BACKING.DIFFERS);
++  });
++});
++
++// The banner must not name the side a lone unbacked neighbour leans, in either
++// the suggest or the abstain family. On the stand the decision on record was the
++// cold-start guess in the suggest band, so the abstain branch alone was not enough.
++describe('deriveBanner with an offer the model did not back', () => {
++  const offers = {
++    hasVouched: true,
++    similarityOnly: true,
++    leanDefect: 'System Issue',
++    leanGroup: 'SYSTEM_ISSUE',
++  };
++
++  it('names the state, not the lean, when the decision sits in the suggest band', () => {
++    expect(
++      deriveBanner({
++        decisionOutcome: { id: 'O4', band: 'suggest', defect: 'Product Bug', group: 'PRODUCT_BUG' },
++        offers,
++      }).id,
++    ).toBe('B6s');
++  });
++
++  it('names the state, not the lean, when the decision abstained', () => {
++    expect(
++      deriveBanner({ decisionOutcome: { id: 'O5', band: 'abstain' }, offers }).id,
++    ).toBe('B6s');
++  });
++
++  it('still names the lean when the evidence behind the offer holds up', () => {
++    expect(
++      deriveBanner({
++        decisionOutcome: { id: 'O5', band: 'abstain' },
++        offers: { ...offers, similarityOnly: false },
++      }).id,
++    ).toBe('B3');
++  });
++
++  it('never touches an auto decision', () => {
++    expect(
++      deriveBanner({
++        decisionOutcome: { id: 'O1', band: 'auto', defect: 'Product Bug', group: 'PRODUCT_BUG' },
++        offers: { ...offers, topGroup: 'PRODUCT_BUG' },
++      }).id,
++    ).toBe('B1');
++  });
++});
++
++// The modal printed the guess in its story and denied it in its card: the live
++// reply loses the rubric row once a human labels a neighbour, and the journey
++// only fills rubric_hypothesis when a classical row displaced the guess.
++describe('deriveJourneyOwnGuess', () => {
++  const record = {
++    method: 'coldstart',
++    predicted_label: 'pb001',
++    confidence: 0.65,
++    explanation: 'Assertion failure in test code with expected vs actual mismatch.',
++    coldstart_provisional: true,
++  };
++
++  it('reads the guess off the record when nothing else carries it', () => {
++    expect(deriveJourneyOwnGuess(record, null)).toEqual({
++      issueType: 'pb001',
++      explanation: record.explanation,
++      confidence: 0.65,
++    });
++  });
++
++  it('defers to the remembered hypothesis when that source has it', () => {
++    expect(deriveJourneyOwnGuess(record, { predicted_label: 'si001' })).toBeNull();
++  });
++
++  it('never dresses a classical decision up as an AI guess', () => {
++    expect(
++      deriveJourneyOwnGuess({ method: 'gbm', predicted_label: 'pb001', confidence: 0.8 }, null),
++    ).toBeNull();
++  });
++
++  it('accepts the older rule_cold method name', () => {
++    expect(
++      deriveJourneyOwnGuess({ method: 'rule_cold', predicted_label: 'si001', confidence: 0.6 }, null)
++        .issueType,
++    ).toBe('si001');
++  });
++
++  it('has nothing to show without a record or without a label', () => {
++    expect(deriveJourneyOwnGuess(null, null)).toBeNull();
++    expect(deriveJourneyOwnGuess({ method: 'coldstart' }, null)).toBeNull();
++  });
++});
++
++// The real item 6239 case: the explainer quotes the analyzer's signature, which
++// joins the log lines, while the modal holds them split. Line-by-line matching
++// could never succeed, the gate failed closed, and the explanation vanished.
++describe('groundQuote', () => {
++  const log = [
++    'Xunit.Sdk.EqualException: Assert.Equal() Failure: Values differ',
++    'Expected: <NUM>',
++    'Actual: <NUM>',
++  ];
++
++  it('matches a quote that covers several log lines, and points at the first', () => {
++    const quote =
++      'Xunit.Sdk.EqualException: Assert.Equal() Failure: Values differ Expected: <NUM> Actual: <NUM>';
++    expect(groundQuote(quote, log)).toBe(0);
++  });
++
++  it('still matches a quote that sits inside one line', () => {
++    expect(groundQuote('Expected: <NUM>', log)).toBe(1);
++  });
++
++  it('rejects an invented quote outright', () => {
++    expect(groundQuote('NullReferenceException at Checkout.Pay', log)).toBe(-1);
++  });
++
++  it('rejects a quote that embeds a real line inside invented text', () => {
++    // This is what a plain two-way containment check would have let through.
++    expect(groundQuote('Expected: <NUM> and the database was dropped', log)).toBe(-1);
++  });
++
++  it('has nothing to ground when the quote is empty', () => {
++    expect(groundQuote('', log)).toBe(-1);
++  });
++});
++
++describe('explanationIsRubric', () => {
++  it('spots the rubric by its model version', () => {
++    expect(explanationIsRubric({ model_ver: 'rubric+qwen3:4b-q4_K_M' })).toBe(true);
++  });
++
++  it('spots it by method for a record without a model version', () => {
++    expect(explanationIsRubric({ method: 'coldstart' })).toBe(true);
++    expect(explanationIsRubric({ method: 'rule_cold' })).toBe(true);
++  });
++
++  it('leaves a classical explanation to the explainer quotes', () => {
++    expect(explanationIsRubric({ method: 'gbm', model_ver: 'gbm-20260721T175504Z' })).toBe(false);
++    expect(explanationIsRubric(null)).toBe(false);
++  });
++});
++
++// "What the analyzer did" showed the cold-start guess's reason, which answers a
++// different question and was already destined for the comment when that guess is
++// adopted. The O8 rule meant to prevent it is keyed on the confidence band, and
++// a guess at 0.65 lands in the suggest band and slips past.
++describe('actOneExplanation', () => {
++  const classical = {
++    model_ver: 'gbm-20260721T175504Z',
++    explanation: 'The analyzer declined to classify the failure due to a blocking gate.',
++  };
++
++  it('takes the classical account when the record is the guess', () => {
++    const out = actOneExplanation({
++      method: 'coldstart',
++      model_ver: 'rubric+qwen3:4b-q4_K_M',
++      band: 'suggest',
++      explanation: 'Assertion failure in test code with expected vs actual mismatch.',
++      classical,
++    });
++    expect(out.text).toBe(classical.explanation);
++    expect(out.row).toBe(classical);
++  });
++
++  it('keeps a classical record explaining itself', () => {
++    const rec = { method: 'gbm', explanation: 'Matched an earlier decision.' };
++    expect(actOneExplanation(rec)).toEqual({ text: 'Matched an earlier decision.', row: rec });
++  });
++
++  it('shows nothing rather than the guess when no classical account exists', () => {
++    expect(
++      actOneExplanation({
++        method: 'coldstart',
++        explanation: 'Assertion failure in test code.',
++      }),
++    ).toEqual({ text: '', row: null });
++  });
++
++  it('has nothing to show without a record', () => {
++    expect(actOneExplanation(null)).toEqual({ text: '', row: null });
++    expect(actOneExplanation({ method: 'gbm' })).toEqual({ text: '', row: null });
++  });
++});
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
 new file mode 100644
-index 000000000..4b584275c
+index 000000000..56cab385d
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
-@@ -0,0 +1,2607 @@
+@@ -0,0 +1,2830 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -897,11 +1608,22 @@ index 000000000..4b584275c
 +  SELECT_DEFECT_MANUALLY,
 +} from '../constants';
 +import {
++  BACKING,
 +  BANDS,
++  MISMATCH,
 +  PROVENANCE,
 +  canLlmStillAnswer,
++  classicalVerdict,
 +  deriveBanner,
++  deriveJourneyOwnGuess,
++  deriveMismatchClauses,
++  deriveOfferBacking,
 +  emptyReplyVariant,
++  evidenceBaseCount,
++  actOneExplanation,
++  groundQuote,
++  offersRestOnSimilarityAlone,
++  parseFeatures,
 +  getAnalyzerHealthApiUrl,
 +  deriveDecisionStory,
 +  getInspectorJourneyApiUrl,
@@ -1242,6 +1964,11 @@ index 000000000..4b584275c
 +  };
 +
 +  const adoptClassical = (row) => {
++    // The open log comparison belongs to the card it was opened from. Selecting a
++    // different card leaves it on screen next to a verdict it says nothing about,
++    // where it reads as evidence for that verdict. Selecting the same card again
++    // keeps it, since there it is still the comparison being talked about.
++    dropStaleCompare(row);
 +    const issue = {
 +      ...(row.res.issue || {}),
 +      issueType: row.issueType,
@@ -1286,6 +2013,9 @@ index 000000000..4b584275c
 +  };
 +
 +  const adoptRubric = (row) => {
++    // The AI guess never owns a comparison, so any open one belongs to another
++    // card and has to go.
++    dropStaleCompare(row);
 +    // Dirty rule (verdict 6.1): pristine takes the rubric why with the "written by
 +    // AI, edit before applying" note; once edited, keep the human's comment.
 +    const keepEdited = commentDirty;
@@ -1381,6 +2111,13 @@ index 000000000..4b584275c
 +    setCompare(row);
 +  };
 +  const closeCompare = () => setCompare(null);
++  // Close a comparison that was opened from a different card than the one now
++  // being selected. Same card: keep it, it is still the one under discussion.
++  const dropStaleCompare = (row) => {
++    if (compare && compare !== row) {
++      closeCompare();
++    }
++  };
 +  // "Compare logs" toggles: a second click on the same card's button closes the
 +  // compare view; clicking another card's button switches to it.
 +  const toggleCompare = (row) => (compare === row ? closeCompare() : openCompare(row));
@@ -1532,6 +2269,14 @@ index 000000000..4b584275c
 +  // guess feature is off), while the journey still remembers the guess; this is
 +  // the only source for the AI card in that case.
 +  const journeyRubric = journeyDecision?.rubric_hypothesis || null;
++  // Third source for the AI card: the decision on record IS the guess. Neither
++  // source above carries it then, because the live reply drops its rubric row as
++  // soon as a labelled neighbour outranks it, and rubric_hypothesis is only
++  // filled when a classical row displaced the guess. Without this the modal
++  // printed the guess in the story at the top ("Best answer: Product Bug at
++  // confidence 0.65") and denied it in the card below ("No AI guess for this
++  // failure").
++  const journeyOwnGuess = deriveJourneyOwnGuess(journeyDecision, journeyRubric);
 +  const decisionHasExplanation = !!(
 +    journeyDecision &&
 +    typeof journeyDecision.explanation === 'string' &&
@@ -1612,13 +2357,14 @@ index 000000000..4b584275c
 +  const normLog = useMemo(() => errorLines.map((l) => normalizeLine(l.text)), [
 +    currentItem?.logs,
 +  ]);
-+  const quoteInfos = quotedLines.map((q) => {
-+    const nq = normalizeLine(q);
-+    const idx = normLog.findIndex((nl) => nl === nq || (nq.length > 0 && nl.includes(nq)));
-+    return { text: q, idx };
-+  });
++  const quoteInfos = quotedLines.map((q) => ({
++    text: q,
++    idx: groundQuote(normalizeLine(q), normLog),
++  }));
 +  // Quote grounding for the freshness gate: true = a quote matched this item's own
 +  // log, false = quotes exist and none matched (fail closed), null = no quotes.
++  // Act 1 now shows the explainer's own text (see actOneExplanation), so the
++  // explainer's quotes are evidence for exactly the paragraph on screen.
 +  const quoteMatched = quoteInfos.length ? quoteInfos.some((q) => q.idx >= 0) : null;
 +
 +  // Group typeRef -> its display name (the {defect} in the story/banner). The base
@@ -1646,18 +2392,22 @@ index 000000000..4b584275c
 +  const liveTopRow = autoRow || topSuggest || belowRows[0] || null;
 +  const liveTopGroupRef = liveTopRow ? groupRef(liveTopRow.issueType) : null;
 +
-+  // AI paragraph gate (rows 1-3 always render): story present, carries an
-+  // explanation, and passes the reoriented freshness check. O8 is excluded upstream
-+  // (deriveDecisionStory sets hasAi false, its explanation is the rubric card's why).
++  // The paragraph under "What the analyzer did" is the analyzer's account of its
++  // OWN decision, so it comes from the row that decision was written about, not
++  // from whichever row happens to be newest. A cold-start guess explains why the
++  // test failed, which belongs to the AI guess card and to the comment when that
++  // guess is adopted; putting it here told the wrong story and told it twice.
++  const actOne = actOneExplanation(journeyDecision);
++
++  // AI paragraph gate (rows 1-3 always render): text present and it passes the
++  // reoriented freshness check, judged against the row that text belongs to.
 +  const aiFresh =
-+    !!decisionStory &&
-+    decisionStory.hasAi &&
-+    isDecisionFresh(journeyDecision, liveTopGroupRef, quoteMatched);
++    !!decisionStory && !!actOne.text && isDecisionFresh(actOne.row, liveTopGroupRef, quoteMatched);
 +
 +  // Measure the clamped AI paragraph so "Show more" appears only when the text
 +  // truly overflows the 3-line clamp. Measure only while collapsed (open unclamps,
 +  // so scrollHeight == clientHeight there); keep the last measured value when open.
-+  const aiText = decisionStory && decisionStory.aiText;
++  const aiText = actOne.text;
 +  useEffect(() => {
 +    if (!aiFresh || storyAiOpen) {
 +      return;
@@ -1680,8 +2430,26 @@ index 000000000..4b584275c
 +  const vouchedGroups = new Set(vouchedRows.map((r) => groupRef(r.issueType)).filter(Boolean));
 +  const leanRow = vouchedRows[0] || autoRow || topSuggest || null;
 +
++  // Does the model stand behind the offer the cards lead with? matchScore is a log
++  // similarity, so a single neighbour can lead on text alone while the model that
++  // scored it refused to move. Read once here and reused by the card and the banner
++  // so the two can never say different things about the same offer.
++  const classicalCall = classicalVerdict(journeyDecision);
++  const topSuggestFeatures = topSuggest ? parseFeatures(topSuggest.suggestRs) : {};
++  const topSuggestBacking = deriveOfferBacking({
++    ng1: topSuggest ? parseNgVersion(topSuggest.suggestRs) : false,
++    offerGroup: topSuggest ? groupRef(topSuggest.issueType) : null,
++    classical: classicalCall,
++  });
++  const topSuggestMismatch = deriveMismatchClauses(topSuggestFeatures);
++  const topSuggestEvidence = evidenceBaseCount(topSuggestFeatures);
++
 +  const offers = {
 +    empty: parsed.length === 0,
++    similarityOnly: offersRestOnSimilarityAlone({
++      backingState: topSuggestBacking.state,
++      mismatchClauses: topSuggestMismatch,
++    }),
 +    hasVouched: vouchedRows.length > 0,
 +    converge: vouchedRows.length > 0 && vouchedGroups.size === 1,
 +    split: vouchedGroups.size > 1,
@@ -1701,15 +2469,28 @@ index 000000000..4b584275c
 +  // bare Enter never guesses. The row is armed through the same adoptClassical
 +  // path a click uses, so feedback and provenance stay identical.
 +  const storyOutcomeId = decisionStory ? decisionStory.outcomeId : null;
++  // A row may only lead when the model agrees with it. The lead is what a bare
++  // Enter arms, so ranking it by log similarity handed the default to whatever
++  // neighbour happened to sit on top, including one the model had refused to
++  // move on. O1-O3 are auto decisions the analyzer applied itself, so agreement
++  // is not in question there. Everywhere else, no agreement means no lead: the
++  // modal pre-selects nothing and the banner already says the call is human.
++  const backingOf = (row) =>
++    deriveOfferBacking({
++      ng1: row ? parseNgVersion(row.suggestRs) : false,
++      offerGroup: row ? groupRef(row.issueType) : null,
++      classical: classicalCall,
++    }).state;
++  const mayLead = (row) => !!row && backingOf(row) !== BACKING.NOT_BACKED && backingOf(row) !== BACKING.DIFFERS;
 +  let enterLeanRow = null;
 +  if (['O1', 'O2', 'O3'].includes(storyOutcomeId) && precedentRow) {
 +    enterLeanRow = precedentRow;
-+  } else if (storyOutcomeId === 'O4' && topSuggest) {
++  } else if (storyOutcomeId === 'O4' && mayLead(topSuggest)) {
 +    enterLeanRow = topSuggest;
 +  } else if (
 +    ['O5', 'O6', 'O7'].includes(storyOutcomeId) &&
 +    offers.converge &&
-+    vouchedRows[0]
++    mayLead(vouchedRows[0])
 +  ) {
 +    enterLeanRow = vouchedRows[0];
 +  }
@@ -1984,11 +2765,130 @@ index 000000000..4b584275c
 +      {formatMessage(messages.benchLeadingChip)}
 +    </span>
 +  );
-+  const armedNote = (locator) => (
-+    <div className={cx('armed-note')}>
++
++  // ---- Similar failures card: what the model says about the offer -----------
++  // Four states, and only one of them adds anything. UNKNOWN covers a stock or
++  // legacy analyzer whose reply we cannot read, and there the card renders
++  // exactly as it did before this change.
++  const backingChip =
++    topSuggestBacking.state === BACKING.BACKED ? (
++      <span className={cx('lean-chip', 'backed')}>
++        {formatMessage(messages.benchTagModelAgrees)}
++      </span>
++    ) : topSuggestBacking.state === BACKING.UNKNOWN ? null : (
++      <span className={cx('lean-chip', 'unbacked')}>
++        {formatMessage(messages.benchTagNotBacked)}
++      </span>
++    );
++
++  const similarRoleMessage =
++    topSuggestBacking.state === BACKING.BACKED
++      ? messages.benchSimilarRoleBacked
++      : topSuggestBacking.state === BACKING.UNKNOWN
++        ? messages.benchCheckSimilarRole
++        : messages.benchSimilarRoleUnbacked;
++
++  const MISMATCH_MESSAGE = {
++    [MISMATCH.IDENTIFIERS]: messages.benchMismatchIdentifiers,
++    [MISMATCH.STATUS_CODES]: messages.benchMismatchStatusCodes,
++    [MISMATCH.TEMPLATES]: messages.benchMismatchTemplates,
++  };
++  // "Logs 0.91 alike" on its own reads as evidence. When the model did not back
++  // the offer, the same line carries what failed to match, which is the fact that
++  // decides whether the number means anything.
++  const mismatchText = (() => {
++    if (topSuggestBacking.state === BACKING.BACKED || !topSuggestMismatch.length) {
++      return '';
++    }
++    const parts = topSuggestMismatch.map((id) => formatMessage(MISMATCH_MESSAGE[id]));
++    return parts.length === 1
++      ? parts[0]
++      : formatMessage(messages.benchMismatchJoin, { first: parts[0], second: parts[1] });
++  })();
++  const alikeLine = topSuggest
++    ? mismatchText
++      ? formatMessage(messages.benchLogsAlikeBut, {
++          score: scoreToAlike(topSuggest.score),
++          what: mismatchText,
++        })
++      : (
++          <>
++            <b>
++              {formatMessage(messages.benchLogsAlike, { score: scoreToAlike(topSuggest.score) })}
++            </b>{' '}
++            {formatMessage(messages.benchBandSuggest)}
++          </>
++        )
++    : null;
++
++  // The model's own number belongs to the model's own answer. For NOT_BACKED that
++  // answer was "no call", so the number is never printed beside the defect pill
++  // where it would read as belief in that defect.
++  const modelVerdictLine = (() => {
++    const { state, confidence, otherGroup } = topSuggestBacking;
++    const p = typeof confidence === 'number' ? confidence.toFixed(2) : null;
++    const tau =
++      typeof journeyDecision?.tau_suggest === 'number'
++        ? journeyDecision.tau_suggest.toFixed(2)
++        : null;
++    if (state === BACKING.BACKED) {
++      return p ? (
++        <div className={cx('model-verdict', 'good')}>
++          {formatMessage(messages.benchModelBacks, { p })}
++        </div>
++      ) : null;
++    }
++    if (state === BACKING.NOT_BACKED) {
++      return (
++        <div className={cx('model-verdict')}>
++          {p && tau
++            ? formatMessage(messages.benchModelNoCall, { p, tau })
++            : formatMessage(messages.benchModelNoCallPlain)}
++        </div>
++      );
++    }
++    if (state === BACKING.DIFFERS) {
++      const other = groupDisplayName(otherGroup);
++      if (!other) {
++        return null;
++      }
++      return (
++        <div className={cx('model-verdict')}>
++          {p
++            ? formatMessage(messages.benchModelDiffers, { other, p })
++            : formatMessage(messages.benchModelDiffersPlain, { other })}
++        </div>
++      );
++    }
++    return null;
++  })();
++
++  // Only said when the pool is small enough to explain a thin answer. A mature
++  // project never sees this line.
++  const thinEvidenceLine =
++    topSuggestBacking.state !== BACKING.UNKNOWN && topSuggestEvidence ? (
++      <div className={cx('evidence-base')}>
++        {formatMessage(messages.benchThinEvidence, { n: topSuggestEvidence })}
++      </div>
++    ) : null;
++  // The armed note is the last thing between a reader and a committed label, and
++  // for an offer the model refused it has to say so there, not only higher up the
++  // card where nobody re-reads at the moment of pressing Enter. No looping blink:
++  // in a project that is still filling up this state is the norm rather than the
++  // exception, and a warning that never stops moving is read once and ignored
++  // after. A single beat when it arms, then a stable amber resting state.
++  const armedNote = (locator, unbacked) => (
++    <div className={cx('armed-note', { warn: unbacked })}>
 +      {formatMessage(messages.benchArmedNote, { defect: defectName(locator) })}
++      {unbacked && (
++        <span className={cx('armed-warn')}>
++          <span aria-hidden>⚠</span> {formatMessage(messages.benchArmedNotBacked)}
++        </span>
++      )}
 +    </div>
 +  );
++  const similarUnbacked =
++    topSuggestBacking.state === BACKING.NOT_BACKED || topSuggestBacking.state === BACKING.DIFFERS;
 +
 +  const renderCheck = ({ kind }) => {
 +    if (kind === 'past') {
@@ -2030,7 +2930,7 @@ index 000000000..4b584275c
 +                {formatMessage(messages.benchCompareLogs)}
 +              </button>
 +            </div>
-+            {armedCard === 'past' && armedNote(precedentRow.issueType)}
++            {armedCard === 'past' && armedNote(precedentRow.issueType, false)}
 +          </div>
 +        );
 +      }
@@ -2052,6 +2952,7 @@ index 000000000..4b584275c
 +            className={cx('check', 'suggest', 'actionable', {
 +              focus: compare && compare === topSuggest,
 +              armed: armedCard === 'similar',
++              'armed-unbacked': armedCard === 'similar' && similarUnbacked,
 +            })}
 +            role="button"
 +            tabIndex={0}
@@ -2065,16 +2966,16 @@ index 000000000..4b584275c
 +            />
 +            <div className={cx('method')}>
 +              <span className={cx('gl')}>≈</span> {formatMessage(messages.benchCheckSimilar)}
++              {backingChip}
 +              {enterLeanRow === topSuggest && leadChip}
 +            </div>
-+            <div className={cx('role')}>{formatMessage(messages.benchCheckSimilarRole)}</div>
++            <div className={cx('role')}>{formatMessage(similarRoleMessage)}</div>
 +            <div className={cx('verd-pill')}>
 +              {renderPill(topSuggest.issueType)}
 +            </div>
-+            <div className={cx('strength')}>
-+              <b>{formatMessage(messages.benchLogsAlike, { score: scoreToAlike(topSuggest.score) })}</b>{' '}
-+              {formatMessage(messages.benchBandSuggest)}
-+            </div>
++            <div className={cx('strength')}>{alikeLine}</div>
++            {modelVerdictLine}
++            {thinEvidenceLine}
 +            {renderDecidedBy(topSuggest)}
 +            <div className={cx('card-actions')}>
 +              <button
@@ -2085,7 +2986,7 @@ index 000000000..4b584275c
 +                {formatMessage(messages.benchCompareLogs)}
 +              </button>
 +            </div>
-+            {armedCard === 'similar' && armedNote(topSuggest.issueType)}
++            {armedCard === 'similar' && armedNote(topSuggest.issueType, similarUnbacked)}
 +          </div>
 +        );
 +      }
@@ -2144,7 +3045,7 @@ index 000000000..4b584275c
 +            {renderPill(rubricRow.issueType)}
 +          </div>
 +          <div className={cx('strength')}>{formatMessage(messages.benchAiGuessPct, { pct })}</div>
-+          {armedCard === 'ai' && armedNote(rubricRow.issueType)}
++          {armedCard === 'ai' && armedNote(rubricRow.issueType, false)}
 +        </div>
 +      );
 +    }
@@ -2181,7 +3082,40 @@ index 000000000..4b584275c
 +          {journeyRubric.source_role_enabled === false && (
 +            <div className={cx('role')}>{formatMessage(messages.benchHypothesisRoleOff)}</div>
 +          )}
-+          {armedCard === 'ai' && armedNote(journeyRubric.predicted_label)}
++          {armedCard === 'ai' && armedNote(journeyRubric.predicted_label, false)}
++        </div>
++      );
++    }
++    // The record itself is the guess. Same card as a live rubric row, because
++    // that is what it is: the analyzer's current answer for this failure, just
++    // not carried on the live reply.
++    if (journeyOwnGuess) {
++      const pct = Math.round((journeyOwnGuess.confidence || 0) * 100);
++      return (
++        <div
++          className={cx('check', 'rubric', 'actionable', { armed: armedCard === 'ai' })}
++          role="button"
++          tabIndex={0}
++          onClick={armOnCardClick(() => adoptRubric(journeyOwnGuess))}
++        >
++          <span className={cx('edge')} />
++          <InspectorLink
++            corner
++            href={getInspectorJourneyUrlForItem(projectId, currentItem)}
++            label={formatMessage(messages.benchWhy)}
++          />
++          <div className={cx('method')}>
++            <span className={cx('gl')}>✦</span> {formatMessage(messages.benchCheckAi)}
++            <span className={cx('tag-nc')}>{formatMessage(messages.benchNotConfirmed)}</span>
++          </div>
++          <div className={cx('role')}>{formatMessage(messages.benchCheckAiRole)}</div>
++          <div className={cx('verd-pill')}>{renderPill(journeyOwnGuess.issueType)}</div>
++          {pct > 0 && (
++            <div className={cx('strength')}>
++              {formatMessage(messages.benchAiGuessPct, { pct })}
++            </div>
++          )}
++          {armedCard === 'ai' && armedNote(journeyOwnGuess.issueType, false)}
 +        </div>
 +      );
 +    }
@@ -3092,7 +4026,7 @@ index 000000000..4b584275c
 +                  </span>
 +                </div>
 +                <div className={cx('ai-body')} ref={aiBodyRef}>
-+                  {renderRichText(decisionStory.aiText)}
++                  {renderRichText(aiText)}
 +                </div>
 +                {/* Show more only when the clamped text actually overflows 3 lines
 +                    (a short explanation must not carry a dead toggle). */}
@@ -3455,10 +4389,10 @@ index 000000000..4b584275c
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 000000000..778b2d777
+index 000000000..1a7ee2288
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2122 @@
+@@ -0,0 +1,2202 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -4342,6 +5276,42 @@ index 000000000..778b2d777
 +      box-shadow: 0 0 0 2px var(--rp-topaz-focused), var(--rp-shadow);
 +    }
 +
++    // Arming an offer the model refused must not look like arming one it backs.
++    // The ring turns amber and beats ONCE. A looping blink was considered and
++    // dropped: in a project still filling up this is the ordinary state, and a
++    // warning that never stops moving is furniture by the third item, harder to
++    // read while it moves, and a problem for anyone sensitive to motion. One beat
++    // at the moment of arming, then a stable warning colour that stays.
++    &.armed.armed-unbacked,
++    &.armed.armed-unbacked.focus,
++    &.actionable.armed.armed-unbacked:hover {
++      border-color: #d9a441;
++      box-shadow: 0 0 0 2px rgba(217, 164, 65, 0.55), var(--rp-shadow);
++      animation: bench-armed-warn 460ms ease-out 1;
++    }
++
++    @keyframes bench-armed-warn {
++      0% {
++        box-shadow: 0 0 0 2px rgba(217, 164, 65, 0.55), var(--rp-shadow);
++      }
++      45% {
++        box-shadow: 0 0 0 7px rgba(217, 164, 65, 0.28), var(--rp-shadow);
++      }
++      100% {
++        box-shadow: 0 0 0 2px rgba(217, 164, 65, 0.55), var(--rp-shadow);
++      }
++    }
++
++    // The colour carries the warning on its own; the beat only draws the eye at
++    // the moment of arming, so dropping it costs nothing.
++    @media (prefers-reduced-motion: reduce) {
++      &.armed.armed-unbacked,
++      &.armed.armed-unbacked.focus,
++      &.actionable.armed.armed-unbacked:hover {
++        animation: none;
++      }
++    }
++
 +    // The "leading" chip in the method header (mockup .lean-chip): marks the card
 +    // a bare Enter arms first.
 +    .lean-chip {
@@ -4358,8 +5328,52 @@ index 000000000..778b2d777
 +      letter-spacing: 0.4px;
 +      text-transform: uppercase;
 +      cursor: help;
++
++      // Whether the model stands behind the offer. "Not backed" replaces the
++      // leading chip rather than sitting next to it: a card the model declined
++      // must not also wear the badge that says it leads.
++      &.unbacked {
++        border-color: #d9b382;
++        background: #fdf4e6;
++        color: #8a5a00;
++      }
++
++      &.backed {
++        border-color: #a9d3ba;
++        background: #eef7f1;
++        color: #2b6b47;
++      }
++    }
++    // The model's own verdict on the offer above it. Reads as a caption, not as
++    // a second headline: the defect pill stays the loudest thing on the card.
++    .model-verdict {
++      margin-top: 4px;
++      font-size: 12px;
++      line-height: 1.45;
++      color: #8a5a00;
++
++      &.good {
++        color: #2b6b47;
++      }
++    }
++    // How thin the comparison pool is. Only rendered for a small pool, so it is
++    // absent from every card in a project that has history.
++    .evidence-base {
++      margin-top: 2px;
++      font-size: 11px;
++      line-height: 1.45;
++      color: var(--rp-gray-secondary, #8b94a3);
 +    }
 +    // The armed note at the card foot (mockup .armed-note).
++    .armed-note.warn {
++      color: #8a5a00;
++
++      .armed-warn {
++        display: block;
++        margin-top: 3px;
++        font-weight: 700;
++      }
++    }
 +    .armed-note {
 +      margin-top: 8px;
 +      font-size: 11px;
@@ -6293,10 +7307,10 @@ index 9c6b6dafa..1f85b26ca 100644
      display: flex;
    }
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-index 34cfec56e..d1987992a 100644
+index 34cfec56e..00040514e 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-@@ -266,4 +266,983 @@ export const messages = defineMessages({
+@@ -266,4 +266,1056 @@ export const messages = defineMessages({
      id: 'MakeDecisionModal.defectReplaceWith',
      defaultMessage: 'The defect type will be changed to',
    },
@@ -6670,6 +7684,14 @@ index 34cfec56e..d1987992a 100644
 +    id: 'MakeDecisionModal.benchBannerB6Help',
 +    defaultMessage: 'Everything it found is below the line, in the dock. You decide.',
 +  },
++  benchBannerB6s: {
++    id: 'MakeDecisionModal.benchBannerB6s',
++    defaultMessage: 'No auto decision, and no offer the model stands behind.',
++  },
++  benchBannerB6sHelp: {
++    id: 'MakeDecisionModal.benchBannerB6sHelp',
++    defaultMessage: 'The offer below matches on log text only. This one is your call.',
++  },
 +  benchBannerB6n: {
 +    id: 'MakeDecisionModal.benchBannerB6n',
 +    defaultMessage: 'No auto decision, and nothing to offer.',
@@ -6790,6 +7812,10 @@ index 34cfec56e..d1987992a 100644
 +    id: 'MakeDecisionModal.benchArmedNote',
 +    defaultMessage: 'Armed. Apply commits {defect}.',
 +  },
++  benchArmedNotBacked: {
++    id: 'MakeDecisionModal.benchArmedNotBacked',
++    defaultMessage: 'The model did not back this offer. You are deciding on your own.',
++  },
 +  // Band phrases (next to any number)
 +  benchBandAuto: {
 +    id: 'MakeDecisionModal.benchBandAuto',
@@ -6816,6 +7842,67 @@ index 34cfec56e..d1987992a 100644
 +  benchLogsAlike: {
 +    id: 'MakeDecisionModal.benchLogsAlike',
 +    defaultMessage: 'Logs {score} alike.',
++  },
++  benchLogsAlikeBut: {
++    id: 'MakeDecisionModal.benchLogsAlikeBut',
++    defaultMessage: 'Logs {score} alike, but {what}.',
++  },
++  benchMismatchIdentifiers: {
++    id: 'MakeDecisionModal.benchMismatchIdentifiers',
++    defaultMessage: 'no shared identifiers',
++  },
++  benchMismatchStatusCodes: {
++    id: 'MakeDecisionModal.benchMismatchStatusCodes',
++    defaultMessage: 'different status codes',
++  },
++  benchMismatchTemplates: {
++    id: 'MakeDecisionModal.benchMismatchTemplates',
++    defaultMessage: 'no shared log lines',
++  },
++  benchMismatchJoin: {
++    id: 'MakeDecisionModal.benchMismatchJoin',
++    defaultMessage: '{first} and {second}',
++  },
++  benchTagNotBacked: {
++    id: 'MakeDecisionModal.benchTagNotBacked',
++    defaultMessage: 'Not backed',
++  },
++  benchTagModelAgrees: {
++    id: 'MakeDecisionModal.benchTagModelAgrees',
++    defaultMessage: 'Model agrees',
++  },
++  benchSimilarRoleUnbacked: {
++    id: 'MakeDecisionModal.benchSimilarRoleUnbacked',
++    defaultMessage: 'Found by log search. The model did not confirm it.',
++  },
++  benchSimilarRoleBacked: {
++    id: 'MakeDecisionModal.benchSimilarRoleBacked',
++    defaultMessage: 'Failures that look like this one, confirmed by the model.',
++  },
++  benchModelNoCall: {
++    id: 'MakeDecisionModal.benchModelNoCall',
++    defaultMessage: 'The model made no call here ({p}, needs {tau}).',
++  },
++  benchModelNoCallPlain: {
++    id: 'MakeDecisionModal.benchModelNoCallPlain',
++    defaultMessage: 'The model made no call on this failure.',
++  },
++  benchModelDiffers: {
++    id: 'MakeDecisionModal.benchModelDiffers',
++    defaultMessage: 'The model called this {other} instead ({p}).',
++  },
++  benchModelDiffersPlain: {
++    id: 'MakeDecisionModal.benchModelDiffersPlain',
++    defaultMessage: 'The model called this {other} instead.',
++  },
++  benchModelBacks: {
++    id: 'MakeDecisionModal.benchModelBacks',
++    defaultMessage: 'The model backs this at {p}.',
++  },
++  benchThinEvidence: {
++    id: 'MakeDecisionModal.benchThinEvidence',
++    defaultMessage:
++      'Only {n} earlier {n, plural, one {failure} other {failures}} to compare against.',
 +  },
 +  benchScopeGroupToggle: {
 +    id: 'MakeDecisionModal.benchScopeGroupToggle',

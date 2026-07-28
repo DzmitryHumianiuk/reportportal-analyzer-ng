@@ -10,7 +10,48 @@ parsing intact. This is an **RP-side** change (the user owns the stand).
 > the public repo; only the patch and its evidence ship here.
 
 - Patch: [`service-ui-5.15.3-bench.patch`](./service-ui-5.15.3-bench.patch)
-- Built image: `reportportal/service-ui:5.15.3-ng55`
+- Built image: `reportportal/service-ui:5.15.3-ng64`
+
+**ng56 to ng64 — the modal stops claiming support the model never gave.** All of
+it found by walking a fresh project (`live-check-01`) through the two-run live
+check, and all of it reads data the reply and the journey already carry.
+
+- *The Similar failures card advertised a similarity as if it were a verdict.*
+  `matchScore` is a log cosine, and dense cosines sit near 0.9 for any two stack
+  traces out of one suite, so a lone neighbour led the offers wearing a LEADING
+  badge and the subtitle "from a trained model" while the model that scored it
+  had refused to move (calibrated 0.32, band abstain). The card now carries the
+  model's own verdict, the discriminants that did NOT match ("no shared
+  identifiers, different status codes", stated only when the `*_present`
+  companion says there was something to compare), and how thin the pool is
+  ("Only 1 earlier failure to compare against", shown only at 5 or fewer). The
+  banner stops naming the side the offers lean when nothing but text supports it.
+  A stock analyzer whose reply cannot be read renders exactly as before.
+- *"No AI guess for this failure" while the guess was printed above it.* The card
+  had two sources and both go missing together: the live reply drops its rubric
+  row once a human labels a neighbour, and the journey fills `rubric_hypothesis`
+  only when a classical row displaced the guess. A third source reads the case
+  where the record IS the guess.
+- *A bare Enter armed whatever sat on top.* The lead was ranked by similarity, so
+  in a cold project the default landed on the card marked "Not backed". A row may
+  now lead only where the model agrees; auto decisions are untouched, everywhere
+  else no agreement means no lead at all.
+- *Arming an unbacked offer looked like arming a backed one.* The armed ring turns
+  amber and the note says "The model did not back this offer. You are deciding on
+  your own." One 460ms beat on arming, dropped under `prefers-reduced-motion`; no
+  looping blink, because in a project still filling up this state is the norm and
+  a warning that never stops moving is furniture by the third item.
+- *The explanation paragraph was hidden, then wrong.* The quote gate matched line
+  by line while the explainer quotes the analyzer's signature, which JOINS the
+  lines, so a multi-line quote could never match and the gate failed closed on
+  most stack traces. Grounding falls back to the joined log, which still requires
+  every character of the quote to appear in the real log in order (a two-way
+  containment test would have passed any hallucination embedding one short real
+  line). Then Act 1 was showing the newest row's explanation, which is often the
+  cold-start guess answering a different question; it now takes the classical
+  row's account, keyed on what the row IS rather than on its confidence band.
+- *A log comparison outlived the card it belonged to.* Selecting another card
+  closes it, so it can never sit under a verdict it says nothing about.
 
 **ng55 — an empty answer says why, and stops being final.** Found on a fresh
 project during the two-run live check (`demo-data/live_check.py`):
