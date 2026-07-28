@@ -409,3 +409,42 @@ def test_abstain_role_content_key_distinct_from_match_explainer() -> None:
     )
     assert abstain != match
     assert abstain.startswith("abstain|")
+
+
+# Found on the stand, item 5937 of the migrated project: the excerpt the model is
+# shown is a clipped rendering whose message ends in an ellipsis, so a faithful
+# quote carried a marker the real log never had, and every consumer grounding
+# against the real log threw the explanation away.
+class TestExplainerQuoteClipMarker:
+    def _validate(self, quoted: list[str], corpus_log: str) -> dict:
+        role = ExplainerRole()
+        out = {"explanation": "why it failed", "quoted_log_lines": list(quoted)}
+        inp = {"_corpus": [corpus_log], "_corpus_log": [corpus_log], "_corpus_facts": []}
+        assert role.post_validate(out, inp) is True
+        return out
+
+    def test_trailing_ellipsis_is_trimmed_not_rejected(self) -> None:
+        corpus = "NoHttpResponseException: host:<NUM> failed to respond ...\nnext.frame.here"
+        out = self._validate(["host:<NUM> failed to respond ..."], corpus)
+        assert out["quoted_log_lines"] == ["host:<NUM> failed to respond"]
+
+    def test_unicode_ellipsis_is_trimmed_too(self) -> None:
+        corpus = "connection reset by peer …"
+        out = self._validate(["connection reset by peer …"], corpus)
+        assert out["quoted_log_lines"] == ["connection reset by peer"]
+
+    def test_a_clean_quote_is_left_exactly_as_it_was(self) -> None:
+        corpus = "assert 1 == 2 in module.py"
+        out = self._validate(["assert 1 == 2"], corpus)
+        assert out["quoted_log_lines"] == ["assert 1 == 2"]
+
+    def test_an_invented_quote_still_fails(self) -> None:
+        role = ExplainerRole()
+        out = {"explanation": "x", "quoted_log_lines": ["database was dropped ..."]}
+        inp = {"_corpus": ["real log"], "_corpus_log": ["real log"], "_corpus_facts": []}
+        assert role.post_validate(out, inp) is False
+
+    def test_a_dot_inside_the_line_is_untouched(self) -> None:
+        corpus = "org.apache.http.NoHttpResponseException: boom"
+        out = self._validate(["org.apache.http.NoHttpResponseException: boom"], corpus)
+        assert out["quoted_log_lines"] == ["org.apache.http.NoHttpResponseException: boom"]

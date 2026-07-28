@@ -14,6 +14,22 @@ from analyzer_ng.llm.roles.base import (
 _TAMPER_RE = re.compile(r"(?i)ignore (previous|all)|as an ai")
 _QUOTED_RE = re.compile(r'"([^"]*)"')
 
+# A quote is only useful to a reader if it can be found in the log the reader is
+# looking at. The excerpt handed to the model is not that log: it is a masked,
+# clipped rendering, and where the clip happened it carries a trailing ellipsis
+# (``failure_signature.msg_text``, ~12% of rows on the live stand). A model that
+# quotes the excerpt faithfully therefore returns a line ending in an ellipsis
+# the real log never contained, and every consumer grounding against the real
+# log rejects it. That is not a hallucination and must not be treated as one, so
+# the marker is trimmed off the quote before it is grounded and stored: what we
+# validate is then exactly what we persist, and it is quotable on both sides.
+_QUOTE_CLIP_RE = re.compile(r"(?:\s*(?:\.\.\.|…))+\s*$")
+
+
+def _trim_clip_marker(line: str) -> str:
+    return _QUOTE_CLIP_RE.sub("", line).rstrip()
+
+
 _SYSTEM = (
     "You are a test-failure triage assistant inside ReportPortal. You write one "
     "short\nfactual explanation of why a failed test matched a known failure mode. "
@@ -81,7 +97,14 @@ class ExplainerRole(Role):
         explanation = output.get("explanation", "")
         if _TAMPER_RE.search(explanation):
             return False
-        # Each split field must be verbatim in its own source (F1b).
+        # Each split field must be verbatim in its own source (F1b). The clip
+        # marker is trimmed IN PLACE first, so the stored quote is the one that
+        # was grounded and a reader can find it in the log itself.
+        log_lines = output.get("quoted_log_lines")
+        if isinstance(log_lines, list):
+            output["quoted_log_lines"] = [
+                _trim_clip_marker(line) if isinstance(line, str) else line for line in log_lines
+            ]
         for line in output.get("quoted_log_lines", []):
             if not _in_corpus(line, corpus_log):
                 return False
@@ -90,6 +113,11 @@ class ExplainerRole(Role):
                 return False
         # Legacy single-field shape from pre-split cache rows: the old contract
         # grounded every quote against the combined corpus. Never tagged.
+        legacy_lines = output.get("quoted_lines")
+        if isinstance(legacy_lines, list):
+            output["quoted_lines"] = [
+                _trim_clip_marker(line) if isinstance(line, str) else line for line in legacy_lines
+            ]
         for line in output.get("quoted_lines", []):
             if not _in_corpus(line, corpus):
                 return False
