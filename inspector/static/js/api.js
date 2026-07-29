@@ -20,6 +20,7 @@ export const api = {
   launches: (project) => get(`api/launches?${qs({ project })}`),
   items: (project, launch) => get(`api/items?${qs({ project, launch })}`),
   journey: (project, itemId) => get(`api/item/${project}/${itemId}/journey`),
+  rubric: () => get('api/rubric'),
   templates: (project, q) => get(`api/templates?${qs({ project, q })}`),
   modes3d: (project) => get(`api/modes3d?${qs({ project })}`),
   groups: (project, launch) => get(`api/groups?${qs({ project, launch })}`),

@@ -654,3 +654,50 @@ pre.out-json { margin: 8px 0 2px; padding: 10px 12px; background: var(--rp-bg-10
   padding: 0 6px; border: 1px solid var(--rp-e-200); border-radius: 100px; background: var(--rp-bg-000);
   font-size: 0.92em; line-height: 1.35; white-space: nowrap; }
 .defect-inline .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+/* ---- Cold-start rules ---------------------------------------------------- */
+/* A reference table, so it reads like one: the rule's name leads, the pattern
+   it looks for sits beside it, and the verdict it always produces closes the
+   row. Order is a column of its own because the first match wins. */
+.rubric-intro {
+  margin: 0 0 14px;
+  max-width: 72ch;
+  color: var(--muted);
+}
+.rubric-scroll { overflow-x: auto; }
+.rubric-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.rubric-table th {
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 700;
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.rubric-table td {
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.rubric-order { color: var(--muted); font-variant-numeric: tabular-nums; width: 1%; }
+.rubric-name { width: 22%; }
+.rubric-name-main { font-weight: 600; }
+.rubric-id {
+  display: inline-block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.rubric-when { color: var(--muted); }
+.rubric-verdict { width: 22%; white-space: nowrap; }
+.rubric-conf { margin-top: 5px; font-size: 12px; color: var(--muted); }
+.rubric-conf-gloss { font-style: italic; }
+/* Arrived from a guess via #view=rubric&rule=R6. */
+.rubric-row-focus { background: var(--focus-bg, rgba(0, 130, 155, 0.08)); }

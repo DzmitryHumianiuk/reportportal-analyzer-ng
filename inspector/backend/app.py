@@ -23,6 +23,7 @@ from . import payloads
 from .config import Config
 from .db import Database
 from .rp_names import RPNameResolver
+from .rubric_loader import rubric_rows
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -110,6 +111,16 @@ def _build_inner(cfg: Config) -> FastAPI:
         if data is None:
             raise HTTPException(status_code=404, detail="item not found")
         return data
+
+    # ---- Rubric reference ----
+    @app.get("/api/rubric")
+    def api_rubric() -> dict[str, Any]:
+        """The cold-start rules, read from the analyzer's own table.
+
+        A reader shown "Could not reach the service" on a guess can come here to
+        see the rule behind it, what it looks for, and what it always produces.
+        """
+        return {"rules": rubric_rows()}
 
     # ---- Explorers ----
     @app.get("/api/templates")

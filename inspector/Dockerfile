@@ -22,6 +22,7 @@ COPY inspector/static /app/static
 # Vendor the analyzer's *versioned* hybrid-retrieval SQL, byte-for-byte. It only
 # imports the stdlib, so the loader executes it standalone (no analyzer_ng deps).
 COPY src/analyzer_ng/db/repositories/queries.py /app/analyzer_sql/queries.py
+COPY --chown=inspector:inspector src/analyzer_ng/llm/rubric.py /app/analyzer_sql/rubric.py
 
 # Non-root.
 RUN useradd --system --uid 10001 inspector \

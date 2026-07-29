@@ -20,3 +20,6 @@ FROM ${BASE}
 COPY --chown=inspector:inspector inspector/backend /app/backend
 COPY --chown=inspector:inspector inspector/static /app/static
 COPY --chown=inspector:inspector src/analyzer_ng/db/repositories/queries.py /app/analyzer_sql/queries.py
+# The cold-start rubric, so the Inspector shows the same rules the analyzer
+# applied instead of keeping a copy that could drift.
+COPY --chown=inspector:inspector src/analyzer_ng/llm/rubric.py /app/analyzer_sql/rubric.py

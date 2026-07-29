@@ -10,10 +10,12 @@ import { renderGroups, setGroupsState } from './views/groups.js';
 import { renderLoop } from './views/loop.js';
 import { renderSignatures, setSignaturesState } from './views/signatures.js';
 import { renderLlm, setLlmState } from './views/llm.js';
+import { renderRubric, setRubricState } from './views/rubric.js';
 
 const VIEWS = {
   journey: renderJourney, drain: renderDrain, modes: renderModes,
   groups: renderGroups, loop: renderLoop, signatures: renderSignatures, llm: renderLlm,
+  rubric: renderRubric,
 };
 
 export const state = {
@@ -53,6 +55,7 @@ function serializeHash() {
   else if (state.view === 'signatures') { p.q = linkState.q || null; p.conflicts = linkState.conflicts ? '1' : null; p.hash = linkState.hash; }
   else if (state.view === 'groups') { p.launch = linkState.glaunch; }
   else if (state.view === 'llm') { p.lrole = linkState.lrole; p.loutcome = linkState.loutcome; }
+  else if (state.view === 'rubric') { p.rule = linkState.rule; }
   writeHashParams(p);
 }
 
@@ -117,10 +120,12 @@ async function applyHashState(hp, opts) {
   linkState.glaunch = view === 'groups' ? (hp.launch || null) : null;
   linkState.lrole = hp.lrole || null;
   linkState.loutcome = hp.loutcome || null;
+  linkState.rule = view === 'rubric' ? (hp.rule || null) : null;
   setJourneyState({ launch: linkState.launch, item: linkState.item });
   setSignaturesState({ q: linkState.q, conflicts: linkState.conflicts, expanded: linkState.hash });
   setGroupsState({ launch: linkState.glaunch });
   setLlmState({ role: linkState.lrole, outcome: linkState.loutcome });
+  setRubricState({ rule: linkState.rule });
 
   if (projectChanged || opts.initial) await loadRp();
   state.view = view;
