@@ -1,9 +1,20 @@
+diff --git a/app/Dockerfile.ng b/app/Dockerfile.ng
+new file mode 100644
+index 000000000..278a8689a
+--- /dev/null
++++ b/app/Dockerfile.ng
+@@ -0,0 +1,5 @@
++# Thin overlay: analyzer-ng Make Decision suggestion-card patch on top of the
++# stock service-ui 5.15.3 image. The host-built `build/` dir is copied over the
++# nginx docroot; buildInfo.json is preserved from the base (footer stays 5.15.3).
++FROM reportportal/service-ui:5.15.3
++COPY build/ /usr/share/nginx/html/
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
 new file mode 100644
-index 000000000..6a0f85f43
+index 000000000..9b03a5df2
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.js
-@@ -0,0 +1,1003 @@
+@@ -0,0 +1,1111 @@
 +/*
 + * Copyright 2021 EPAM Systems
 + *
@@ -116,6 +127,29 @@ index 000000000..6a0f85f43
 +  }
 +  const value = Number.parseFloat(match[1]);
 +  return Number.isFinite(value) ? value : null;
++};
++
++// How much the model believes THIS row's own defect type (`plabel=` token, 0..1).
++// A different question from parseConfidence: `conf=` is the model's belief in its OWN
++// answer, whatever defect type that answer named, so on a row offering another type it
++// says nothing about the offer. The analyzer omits `plabel=` whenever it does not know
++// the number (a hash or knowledge-base match, a cold-start row, a legacy analyzer), and
++// a missing, unreadable or out-of-range token returns null here so the UI can show
++// nothing. Never invent a number for a defect type the model did not score.
++export const parseOfferedLabelProbability = (suggestRs) => {
++  const modelInfo = suggestRs && suggestRs.modelInfo;
++  if (typeof modelInfo !== 'string') {
++    return null;
++  }
++  const match = modelInfo.match(/(?:^|;)plabel=([0-9.]+)(?:;|$)/);
++  if (!match) {
++    return null;
++  }
++  const value = Number.parseFloat(match[1]);
++  if (!Number.isFinite(value) || value < 0 || value > 1) {
++    return null;
++  }
++  return value;
 +};
 +
 +// Explanation kind: match | decline | rubric (`ek=` token). Drives the tone of the
@@ -477,6 +511,49 @@ index 000000000..6a0f85f43
 +  O9b: { headKey: 'benchStoryHeadO9b', reasonKey: 'benchStoryReasonO9b' },
 +};
 +
++// The reason line used when the record on the journey is the cold-start guess and
++// a classical row exists. The headline then comes from that classical row, so the
++// reason line has one job left: send the reader to the card that owns the guess.
++const GUESS_REASON_KEY = 'benchStoryReasonGuess';
++
++/*
++ * True when this journey record is the cold-start rubric's GUESS rather than a
++ * decision the analyzer made. Keyed on what the row IS (its method, its model
++ * version, its own provisional flag), never on the confidence band it happened
++ * to land in: the rubric writes a pseudo-confidence that can sit anywhere,
++ * including above the 0.45 suggest line.
++ */
++export const isColdStartGuess = (journeyDecision) => {
++  if (!journeyDecision || typeof journeyDecision !== 'object') {
++    return false;
++  }
++  const modelVer = typeof journeyDecision.model_ver === 'string' ? journeyDecision.model_ver : '';
++  const method = typeof journeyDecision.method === 'string' ? journeyDecision.method : '';
++  return (
++    modelVer.startsWith('rubric+') ||
++    method === 'coldstart' ||
++    method === 'rule_cold' ||
++    journeyDecision.coldstart_provisional === true
++  );
++};
++
++// Which member of the abstain family a row belongs to, from its own abstain
++// reason and its own confidence. Shared so the guess branch below can ask the
++// same question about the CLASSICAL row that the main path asks about the record.
++const _abstainOutcome = (reason, p) => {
++  if (reason === 'gbm_boilerplate_only_neighbor') {
++    return 'O6';
++  }
++  if (reason === 'no_confident_rule') {
++    return 'O7';
++  }
++  if (reason === 'gbm_below_suggest') {
++    return 'O5';
++  }
++  // A generic abstain with a resolvable top-candidate confidence: O5 can cite it honestly.
++  return p != null ? 'O5' : 'O7';
++};
++
 +/*
 + * Act 1 decision story (verdict 4.1 / 4.2). Deterministic, decision-fields only.
 + * Returns the outcome id (O1..O9b), the message keys for its headline and reason
@@ -486,6 +563,8 @@ index 000000000..6a0f85f43
 + *   - null / non-object            -> O9  (never analyzed, no record)
 + *   - marker { fetchError: true }  -> O9b (the journey fetch itself failed; the hub
 + *     passes this shape so O9 and O9b are distinguishable, per contract D step 1)
++ *   - a cold-start guess           -> the abstain family read off its `classical`
++ *     row (O5..O7), or O8 when there is no classical row to read
 + *   - a real decision block        -> O1..O8 from band / method / abstain_reason
 + *
 + * O10 (silent, zero ERROR logs) is NOT produced here: it is a layout-level branch
@@ -533,9 +612,61 @@ index 000000000..6a0f85f43
 +  const band = typeof decision.band === 'string' ? decision.band : null;
 +  const method = typeof decision.method === 'string' ? decision.method : null;
 +  const reason = typeof decision.abstain_reason === 'string' ? decision.abstain_reason : null;
-+  const hasProvisional = !!decision.coldstart;
 +  const defectGroup = _decisionGroup(decision);
 +  const p = _fmtConfidence(decision.confidence);
++
++  /*
++   * The record on the journey is the newest row, and that row can be the
++   * cold-start guess. A guess is never applied, so the headline has to describe
++   * the classical row's account: on the stand a guess at 0.65 landed in the
++   * suggest band and the headline announced "Found a likely answer" for a defect
++   * type the analyzer never chose, while the paragraph under it said the
++   * analyzer abstained. The Explanation already reads the classical row for the
++   * same reason (see actOneExplanation); this keys the headline the same way.
++   *
++   * The family is always the abstain one, whatever band the classical row sits
++   * in, because nothing was applied. With no classical row there is no account
++   * to borrow, so this returns O8 rather than inventing one, and O8 already
++   * names the cold start.
++   */
++  if (isColdStartGuess(decision)) {
++    const classical =
++      decision.classical && typeof decision.classical === 'object' ? decision.classical : null;
++    if (!classical) {
++      return {
++        outcomeId: 'O8',
++        headKey: _STORY_KEYS.O8.headKey,
++        reasonKey: _STORY_KEYS.O8.reasonKey,
++        params: {},
++        timeRel: relativeTimeFrom(decision.created_at),
++        hasAi: false,
++        aiText: '',
++        quotes: [],
++      };
++    }
++    const classicalReason =
++      typeof classical.abstain_reason === 'string' ? classical.abstain_reason : null;
++    const classicalP = _fmtConfidence(classical.confidence);
++    const guessOutcomeId = _abstainOutcome(classicalReason, classicalP);
++    // The classical row's own number, carried for the bridge line, which is the
++    // one sentence that states this number sat under the 0.45 suggest line. The
++    // reason line does not print it: it points at the AI guess card instead.
++    const guessParams = classicalP != null ? { p: classicalP } : {};
++    const classicalText =
++      typeof classical.explanation === 'string' ? classical.explanation.trim() : '';
++    return {
++      outcomeId: guessOutcomeId,
++      headKey: _STORY_KEYS[guessOutcomeId].headKey,
++      reasonKey: GUESS_REASON_KEY,
++      params: guessParams,
++      timeRel: relativeTimeFrom(classical.created_at || decision.created_at),
++      hasAi: !!classicalText,
++      aiText: classicalText,
++      quotes: Array.isArray(classical.quotes)
++        ? classical.quotes.filter((q) => typeof q === 'string' && q.trim().length)
++        : [],
++    };
++  }
 +
 +  let outcomeId;
 +  if (band === BANDS.AUTO) {
@@ -549,28 +680,21 @@ index 000000000..6a0f85f43
 +  } else if (band === BANDS.SUGGEST) {
 +    outcomeId = 'O4';
 +  } else {
-+    // abstain (payload band 'abstain', or a defensive 'below_suggest')
-+    if ((method === 'rule_cold' || method === 'coldstart') && hasProvisional) {
-+      outcomeId = 'O8';
-+    } else if (reason === 'gbm_boilerplate_only_neighbor') {
-+      outcomeId = 'O6';
-+    } else if (reason === 'no_confident_rule') {
-+      outcomeId = 'O7';
-+    } else if (reason === 'gbm_below_suggest') {
-+      outcomeId = 'O5';
-+    } else if (p != null) {
-+      // generic abstain with a resolvable top-candidate confidence: O5 can cite it honestly
-+      outcomeId = 'O5';
-+    } else {
-+      outcomeId = 'O7';
-+    }
++    // abstain (payload band 'abstain', or a defensive 'below_suggest'). O8 is no
++    // longer decided here: the guess branch above owns every cold-start record,
++    // in every band, which is the whole point of keying on the row type. What is
++    // left is the classical abstain family.
++    outcomeId = _abstainOutcome(reason, p);
 +  }
 +
 +  const params = {};
 +  if (defectGroup && (outcomeId === 'O1' || outcomeId === 'O2' || outcomeId === 'O3' || outcomeId === 'O4')) {
 +    params.defectGroup = defectGroup;
 +  }
-+  if (p != null && ['O1', 'O2', 'O3', 'O4', 'O5'].indexOf(outcomeId) !== -1) {
++  // The confidence of the row the story is about. Only O1-O5 print it, but the
++  // bridge line reads it for the whole abstain family, and reading it here rather
++  // than off the record keeps that sentence about the same row as the headline.
++  if (p != null && ['O1', 'O2', 'O3', 'O4', 'O5', 'O6', 'O7'].indexOf(outcomeId) !== -1) {
 +    params.p = p;
 +  }
 +
@@ -749,14 +873,9 @@ index 000000000..6a0f85f43
 +// rubric rather than by the explainer. The explainer's quotes describe its OWN
 +// text, so judging a rubric explanation with them is judging one answer by
 +// another answer's evidence.
-+export const explanationIsRubric = (journeyDecision) => {
-+  if (!journeyDecision || typeof journeyDecision !== 'object') {
-+    return false;
-+  }
-+  const modelVer = typeof journeyDecision.model_ver === 'string' ? journeyDecision.model_ver : '';
-+  const method = typeof journeyDecision.method === 'string' ? journeyDecision.method : '';
-+  return modelVer.startsWith('rubric+') || method === 'coldstart' || method === 'rule_cold';
-+};
++// Same test as the headline uses, so the two halves of Act 1 can never disagree
++// about which row they are describing.
++export const explanationIsRubric = (journeyDecision) => isColdStartGuess(journeyDecision);
 +
 +/*
 + * The explanation Act 1 shows, plus the row it belongs to.
@@ -1009,10 +1128,10 @@ index 000000000..6a0f85f43
 +  backingState === BACKING.NOT_BACKED && (mismatchClauses || []).length > 0;
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.test.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.test.js
 new file mode 100644
-index 000000000..53a350ff6
+index 000000000..f8c196db5
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/analyzerSuggestionMeta.test.js
-@@ -0,0 +1,538 @@
+@@ -0,0 +1,753 @@
 +/*
 + *  Copyright 2026 EPAM Systems
 + *
@@ -1038,6 +1157,7 @@ index 000000000..53a350ff6
 +  actOneExplanation,
 +  classicalVerdict,
 +  deriveBanner,
++  deriveDecisionStory,
 +  deriveJourneyOwnGuess,
 +  deriveMismatchClauses,
 +  deriveOfferBacking,
@@ -1048,7 +1168,9 @@ index 000000000..53a350ff6
 +  isDecisionFresh,
 +  normalizeLine,
 +  offersRestOnSimilarityAlone,
++  parseConfidence,
 +  parseFeatures,
++  parseOfferedLabelProbability,
 +} from './analyzerSuggestionMeta';
 +
 +// The explainer quotes the analyzer's MASKED signature, while the item's log
@@ -1551,12 +1673,224 @@ index 000000000..53a350ff6
 +    expect(actOneExplanation({ method: 'gbm' })).toEqual({ text: '', row: null });
 +  });
 +});
++
++// Measured on the stand (live-check-01 item 6239, migrated-project item 5937):
++// the headline read "Found a likely answer, did not apply it." over "Best answer:
++// Product Bug at confidence 0.65", but the analyzer abstained. The 0.65 Product
++// Bug is the cold-start rubric's guess. The O8 rule meant to catch this lives in
++// the abstain branch, and 0.65 clears tau_suggest 0.45, so the guess came out O4.
++describe('deriveDecisionStory with a cold-start guess on record', () => {
++  // The live shape: the guess is the newest row and keeps the classical row it
++  // never displaced, which is the row that says what the analyzer actually did.
++  const guessWithClassical = {
++    method: 'coldstart',
++    model_ver: 'rubric+qwen3:4b-q4_K_M',
++    band: 'suggest',
++    predicted_label: 'pb001',
++    confidence: 0.65,
++    explanation: 'Assertion failure in test code with expected vs actual mismatch.',
++    coldstart_provisional: true,
++    classical: {
++      method: 'gbm',
++      band: 'abstain',
++      predicted_label: 'ti',
++      confidence: 0.321,
++      abstain_reason: 'gbm_below_suggest',
++      explanation: 'The analyzer declined to classify the failure.',
++    },
++  };
++
++  it('tells the abstain story from the classical row, not the guess', () => {
++    const story = deriveDecisionStory(guessWithClassical);
++    expect(story.outcomeId).toBe('O5');
++    expect(story.headKey).toBe('benchStoryHeadO5');
++  });
++
++  it('never announces the guessed defect type in the headline', () => {
++    expect(deriveDecisionStory(guessWithClassical).params.defectGroup).toBeUndefined();
++  });
++
++  it('sends the reader to the card that owns the guess', () => {
++    expect(deriveDecisionStory(guessWithClassical).reasonKey).toBe('benchStoryReasonGuess');
++  });
++
++  it("carries the classical row's number, never the guess's", () => {
++    expect(deriveDecisionStory(guessWithClassical).params.p).toBe('0.32');
++  });
++
++  it('reads the abstain reason off the classical row', () => {
++    const story = deriveDecisionStory({
++      ...guessWithClassical,
++      classical: {
++        ...guessWithClassical.classical,
++        abstain_reason: 'gbm_boilerplate_only_neighbor',
++      },
++    });
++    expect(story.outcomeId).toBe('O6');
++    expect(story.headKey).toBe('benchStoryHeadO5');
++    expect(story.reasonKey).toBe('benchStoryReasonGuess');
++  });
++
++  it('takes the same route for the older rule_cold method name', () => {
++    expect(
++      deriveDecisionStory({ ...guessWithClassical, method: 'rule_cold', model_ver: '' }).outcomeId,
++    ).toBe('O5');
++  });
++
++  it('spots the guess by its model version alone', () => {
++    expect(deriveDecisionStory({ ...guessWithClassical, method: '' }).outcomeId).toBe('O5');
++  });
++
++  it('does not fabricate a classical row when there is none', () => {
++    const story = deriveDecisionStory({
++      method: 'coldstart',
++      band: 'suggest',
++      predicted_label: 'pb001',
++      confidence: 0.65,
++      explanation: 'Assertion failure in test code.',
++    });
++    expect(story.outcomeId).toBe('O8');
++    expect(story.headKey).toBe('benchStoryHeadO8');
++    expect(story.reasonKey).toBe('benchStoryReasonO8');
++    expect(story.params).toEqual({});
++    expect(story.aiText).toBe('');
++  });
++});
++
++// Every outcome that does not sit on a guess record has to come out exactly as
++// it did before the headline was rekeyed.
++describe('deriveDecisionStory keeps the classical outcomes', () => {
++  it('leaves an auto decision applied by an exact match at O1', () => {
++    const story = deriveDecisionStory({
++      band: 'auto',
++      method: 'hash',
++      predicted_label: 'pb001',
++      predicted_group: 'PRODUCT_BUG',
++      confidence: 0.92,
++    });
++    expect(story.outcomeId).toBe('O1');
++    expect(story.headKey).toBe('benchStoryHeadO1');
++    expect(story.reasonKey).toBe('benchStoryReasonO1');
++    expect(story.params).toEqual({ defectGroup: 'PRODUCT_BUG', p: '0.92' });
++  });
++
++  it('leaves a real suggest endorsement at O4', () => {
++    const story = deriveDecisionStory({
++      band: 'suggest',
++      method: 'gbm',
++      model_ver: 'gbm-20260721T175504Z',
++      predicted_label: 'ab001',
++      predicted_group: 'AUTOMATION_BUG',
++      confidence: 0.61,
++    });
++    expect(story.outcomeId).toBe('O4');
++    expect(story.headKey).toBe('benchStoryHeadO4');
++    expect(story.reasonKey).toBe('benchStoryReasonO4');
++    expect(story.params).toEqual({ defectGroup: 'AUTOMATION_BUG', p: '0.61' });
++  });
++
++  it('leaves a classical abstain in its own family', () => {
++    const story = deriveDecisionStory({
++      band: 'abstain',
++      method: 'gbm',
++      predicted_label: 'ti',
++      confidence: 0.321,
++      abstain_reason: 'gbm_below_suggest',
++    });
++    expect(story.outcomeId).toBe('O5');
++    expect(story.headKey).toBe('benchStoryHeadO5');
++    expect(story.reasonKey).toBe('benchStoryReasonO5');
++    expect(story.params.p).toBe('0.32');
++  });
++
++  it('leaves an abstain with no reason and no number at O7', () => {
++    const story = deriveDecisionStory({ band: 'abstain', method: 'gbm' });
++    expect(story.outcomeId).toBe('O7');
++    expect(story.reasonKey).toBe('benchStoryReasonO7');
++  });
++
++  it('leaves the no-record state at O9', () => {
++    const story = deriveDecisionStory(null);
++    expect(story.outcomeId).toBe('O9');
++    expect(story.headKey).toBe('benchStoryHeadO9');
++    expect(story.reasonKey).toBe('benchStoryReasonO9');
++  });
++
++  it('leaves the failed journey fetch at O9b', () => {
++    expect(deriveDecisionStory({ fetchError: true }).outcomeId).toBe('O9b');
++  });
++});
++
++// The model's own answer and the label a row offers are two different things.
++// On the stand the model held To Investigate at 0.63 while the row offered System
++// Issue, so the only number the card had was about a defect type it was not
++// showing. `plabel=` carries the number for the offered type, and is absent
++// whenever the analyzer does not know it.
++describe('parseOfferedLabelProbability', () => {
++  const row = (modelInfo) => ({ modelInfo });
++
++  it('reads the offered label probability off a full v1 row', () => {
++    expect(
++      parseOfferedLabelProbability(
++        row('analyzer-ng;gbm=2026.07;emb=e5;kb_mode=none;ng=1;band=suggest;src=human-confirmed;plabel=0.1850'),
++      ),
++    ).toBeCloseTo(0.185, 6);
++  });
++
++  it('is not the model confidence: both tokens are read on their own', () => {
++    const both = row('ng=1;band=suggest;src=human-confirmed;conf=0.6300;plabel=0.1850');
++    expect(parseOfferedLabelProbability(both)).toBeCloseTo(0.185, 6);
++    expect(parseConfidence(both)).toBeCloseTo(0.63, 6);
++  });
++
++  it('reads the token when it is last, and when the decline text follows it', () => {
++    expect(parseOfferedLabelProbability(row('ng=1;band=suggest;plabel=0.4000'))).toBeCloseTo(
++      0.4,
++      6,
++    );
++    expect(
++      parseOfferedLabelProbability(
++        row('ng=1;band=below_suggest;plabel=0.4000;ek=decline;why=too weak; below the line'),
++      ),
++    ).toBeCloseTo(0.4, 6);
++  });
++
++  it('keeps a stated zero, which means the model gives this type nothing', () => {
++    expect(parseOfferedLabelProbability(row('ng=1;band=suggest;plabel=0.0000'))).toBe(0);
++  });
++
++  it('says nothing when the analyzer did not state a number', () => {
++    expect(
++      parseOfferedLabelProbability(row('ng=1;band=suggest;src=human-confirmed;conf=0.9500')),
++    ).toBeNull();
++    expect(parseOfferedLabelProbability(row('analyzer-ng;gbm=none;emb=e5;kb_mode=none'))).toBeNull();
++    expect(parseOfferedLabelProbability(row(''))).toBeNull();
++  });
++
++  it('says nothing for a row it cannot read at all', () => {
++    expect(parseOfferedLabelProbability(null)).toBeNull();
++    expect(parseOfferedLabelProbability(undefined)).toBeNull();
++    expect(parseOfferedLabelProbability({})).toBeNull();
++    expect(parseOfferedLabelProbability(row(0.19))).toBeNull();
++  });
++
++  it('never invents a number from a broken or out-of-range token', () => {
++    expect(parseOfferedLabelProbability(row('ng=1;plabel=;band=suggest'))).toBeNull();
++    expect(parseOfferedLabelProbability(row('ng=1;plabel=abc;band=suggest'))).toBeNull();
++    expect(parseOfferedLabelProbability(row('ng=1;plabel=1.5;band=suggest'))).toBeNull();
++    expect(parseOfferedLabelProbability(row('ng=1;plabel=..;band=suggest'))).toBeNull();
++  });
++
++  it('does not match a token that only ends in plabel', () => {
++    expect(parseOfferedLabelProbability(row('ng=1;xplabel=0.9;band=suggest'))).toBeNull();
++  });
++});
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
 new file mode 100644
-index 000000000..7d54be2ba
+index 000000000..80b38dd53
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
-@@ -0,0 +1,2859 @@
+@@ -0,0 +1,2905 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -1639,6 +1973,7 @@ index 000000000..7d54be2ba
 +  parseExplanation,
 +  parseExplKind,
 +  parseNgVersion,
++  parseOfferedLabelProbability,
 +  parseProvenance,
 +} from '../analyzerSuggestionMeta';
 +import styles from './bench.scss';
@@ -2593,12 +2928,11 @@ index 000000000..7d54be2ba
 +    offerRows.length > 0;
 +  const topAboveRow = vouchedRows[0] || unlabeledRows[0] || offerRows[0] || null;
 +  const bridgeX = topAboveRow ? scoreToAlike(topAboveRow.score) : '';
-+  const bridgeP =
-+    journeyDecision &&
-+    typeof journeyDecision.confidence === 'number' &&
-+    journeyDecision.confidence > 0
-+      ? journeyDecision.confidence.toFixed(2)
-+      : (decisionStory && decisionStory.params.p) || '';
++  // The story's own number, which belongs to the row the story is about. It used
++  // to be read off the record, and when the record is the cold-start guess that
++  // is the guess's number: the sentence would then state that 0.65 sat under the
++  // 0.45 suggest line. For every other outcome the two are the same number.
++  const bridgeP = (decisionStory && decisionStory.params.p) || '';
 +  let bridgeText = null;
 +  if (abstainWithOffers && bridgeX && bridgeP) {
 +    const bridgeBase = formatMessage(messages.benchStoryBridge, { x: bridgeX, p: bridgeP });
@@ -2784,16 +3118,35 @@ index 000000000..7d54be2ba
 +  // Four states, and only one of them adds anything. UNKNOWN covers a stock or
 +  // legacy analyzer whose reply we cannot read, and there the card renders
 +  // exactly as it did before this change.
++  // One chip, never two. A row may only lead where the model agrees, so a
++  // "leading" badge beside "Model agrees" restated the same fact, and the pair
++  // pushed the heading onto a second line where it ran under the corner why?
++  // link. Which card a bare Enter arms is still visible without a badge: the
++  // card keeps its accent edge and the banner names the key. When the card leads,
++  // that hint moves into this chip's tooltip.
++  const similarLeads = enterLeanRow === topSuggest;
 +  const backingChip =
-+    topSuggestBacking.state === BACKING.BACKED ? (
-+      <span className={cx('lean-chip', 'backed')}>
-+        {formatMessage(messages.benchTagModelAgrees)}
-+      </span>
-+    ) : topSuggestBacking.state === BACKING.UNKNOWN ? null : (
-+      <span className={cx('lean-chip', 'unbacked')}>
-+        {formatMessage(messages.benchTagNotBacked)}
-+      </span>
-+    );
++    topSuggestBacking.state === BACKING.UNKNOWN
++      ? null
++      : {
++          [BACKING.BACKED]: {
++            cls: 'backed',
++            text: formatMessage(messages.benchTagModelAgrees),
++          },
++        }[topSuggestBacking.state] || {
++          cls: 'unbacked',
++          text: formatMessage(messages.benchTagNotBacked),
++        };
++  const similarChip = backingChip ? (
++    <span
++      className={cx('lean-chip', backingChip.cls)}
++      title={similarLeads ? formatMessage(messages.benchLeadingChipTitle) : undefined}
++    >
++      {backingChip.text}
++    </span>
++  ) : similarLeads ? (
++    leadChip
++  ) : null;
 +
 +  const similarRoleMessage =
 +    topSuggestBacking.state === BACKING.BACKED
@@ -2875,6 +3228,33 @@ index 000000000..7d54be2ba
 +      );
 +    }
 +    return null;
++  })();
++
++  // How much weight the model puts on the defect type this card offers. The verdict line
++  // above answers a different question: what the model decided about the FAILURE.
++  // Rendered on the pill's own line, so it costs no extra line, and only when the
++  // analyzer stated the number (an older analyzer sends none and nothing shows).
++  // Skipped when the model backed the offer and the verdict line already prints
++  // that same number for that same defect type, so the card never says it twice.
++  const offeredLabelP = (() => {
++    const p = topSuggest ? parseOfferedLabelProbability(topSuggest.suggestRs) : null;
++    if (p === null) {
++      return null;
++    }
++    if (
++      topSuggestBacking.state === BACKING.BACKED &&
++      typeof topSuggestBacking.confidence === 'number'
++    ) {
++      return null;
++    }
++    return (
++      <span
++        className={cx('label-p')}
++        title={formatMessage(messages.benchOfferedLabelPTitle)}
++      >
++        {formatMessage(messages.benchOfferedLabelP, { p: p.toFixed(2) })}
++      </span>
++    );
 +  })();
 +
 +  // Only said when the pool is small enough to explain a thin answer. A mature
@@ -2980,12 +3360,12 @@ index 000000000..7d54be2ba
 +            />
 +            <div className={cx('method')}>
 +              <span className={cx('gl')}>≈</span> {formatMessage(messages.benchCheckSimilar)}
-+              {backingChip}
-+              {enterLeanRow === topSuggest && leadChip}
++              {similarChip}
 +            </div>
 +            <div className={cx('role')}>{formatMessage(similarRoleMessage)}</div>
 +            <div className={cx('verd-pill')}>
 +              {renderPill(topSuggest.issueType)}
++              {offeredLabelP}
 +            </div>
 +            <div className={cx('strength')}>{alikeLine}</div>
 +            {modelVerdictLine}
@@ -4418,10 +4798,10 @@ index 000000000..7d54be2ba
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 000000000..052964c6d
+index 000000000..8dc0614e5
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2212 @@
+@@ -0,0 +1,2221 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -5491,6 +5871,15 @@ index 000000000..052964c6d
 +    }
 +    .verd-pill {
 +      margin-top: 9px;
++    }
++    // The model's belief in the defect type on the pill beside it. Muted and on
++    // the pill's own line: it is a footnote to the pill, not a second verdict.
++    .label-p {
++      margin-left: 8px;
++      font-size: 11.5px;
++      color: var(--rp-gray-secondary, #8b94a3);
++      white-space: nowrap;
++      vertical-align: middle;
 +    }
 +    .strength {
 +      margin-top: 9px;
@@ -7364,10 +7753,10 @@ index 9c6b6dafa..1f85b26ca 100644
      display: flex;
    }
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-index 34cfec56e..f92405bdf 100644
+index 34cfec56e..43f2c8a36 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-@@ -266,4 +266,1064 @@ export const messages = defineMessages({
+@@ -266,4 +266,1086 @@ export const messages = defineMessages({
      id: 'MakeDecisionModal.defectReplaceWith',
      defaultMessage: 'The defect type will be changed to',
    },
@@ -7620,6 +8009,12 @@ index 34cfec56e..f92405bdf 100644
 +  benchStoryReasonO8: {
 +    id: 'MakeDecisionModal.benchStoryReasonO8',
 +    defaultMessage: 'The AI wrote a first guess instead. It is on offer below, not applied.',
++  },
++  // The record on the journey is the cold-start guess. The headline comes from the
++  // classical row, so this line only sends the reader to the card that owns the guess.
++  benchStoryReasonGuess: {
++    id: 'MakeDecisionModal.benchStoryReasonGuess',
++    defaultMessage: 'The AI wrote a first guess instead. It is on the AI guess card below.',
 +  },
 +  benchStoryReasonO9: {
 +    id: 'MakeDecisionModal.benchStoryReasonO9',
@@ -7963,6 +8358,22 @@ index 34cfec56e..f92405bdf 100644
 +  benchModelBacks: {
 +    id: 'MakeDecisionModal.benchModelBacks',
 +    defaultMessage: 'The model backs this at {p}.',
++  },
++  // Sits on the defect pill's own line, so it costs no extra line on the card.
++  // The verdict line above says what the model decided about the failure; this
++  // says how much the model believes the defect type on the pill next to it.
++  benchOfferedLabelP: {
++    id: 'MakeDecisionModal.benchOfferedLabelP',
++    defaultMessage: 'model {p}',
++  },
++  // Deliberately does not call this a measured belief. Only the model's top pick
++  // is checked against past results; the weight on every other defect type is the
++  // model's raw preference, rescaled to fit. Saying otherwise would claim an
++  // accuracy nobody has measured, which is the one thing this card must not do.
++  benchOfferedLabelPTitle: {
++    id: 'MakeDecisionModal.benchOfferedLabelPTitle',
++    defaultMessage:
++      'How much weight the model puts on this defect type, from 0 to 1. It is not how well the logs match. Only the model top pick is checked against past results, so read the rest as a rough weight.',
 +  },
 +  benchThinEvidence: {
 +    id: 'MakeDecisionModal.benchThinEvidence',

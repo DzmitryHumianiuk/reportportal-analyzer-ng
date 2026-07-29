@@ -8,11 +8,20 @@
 #
 # Build context is the REPO ROOT:
 #
-#   minikube image build -f Dockerfile.analyzer-overlay -t analyzer-ng:<tag> .
+#   docker build -f Dockerfile.analyzer-overlay \
+#     --build-arg BASE=analyzer-ng:mk31 -t analyzer-ng:<tag> .
 #   kubectl set image statefulset/reportportal-analyzer analyzer=analyzer-ng:<tag>
 #
-# Bump FROM when the deployed base moves. Use the full Dockerfile instead when
-# dependencies, the model, or the entrypoint changed.
-FROM analyzer-ng:mk26
+# Pass the image the cluster runs today as BASE. The default is only a fallback:
+# it goes stale every time a new tag is deployed, and building on a stale base
+# silently drops everything that landed after it. Read the running tag with
+#   kubectl get statefulset reportportal-analyzer \
+#     -o jsonpath='{.spec.template.spec.containers[0].image}'
+#
+# Use the full Dockerfile instead when dependencies, the model, or the entrypoint
+# changed. Note `minikube image build` rejects --build-arg, so build through
+# `eval $(minikube docker-env)` + plain `docker build`.
+ARG BASE=analyzer-ng:mk31
+FROM ${BASE}
 
 COPY src/analyzer_ng /opt/venv/lib/python3.12/site-packages/analyzer_ng
