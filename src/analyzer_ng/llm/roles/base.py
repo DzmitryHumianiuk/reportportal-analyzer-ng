@@ -104,6 +104,14 @@ class Role(ABC):
     ttl_days: int
     num_predict: int
     schema: dict[str, Any]
+    # Negative caching (issue #7). ``None`` = never cache a failure for this role:
+    # the engine only writes a negative entry when a role sets a TTL here, so a new
+    # role opts in without the engine knowing its name. Deliberately much shorter
+    # than ``ttl_days``: a failure is a statement about today's model and prompt,
+    # not about the input, so a hopeless input must be retried soon after either
+    # one improves. Only deterministic failures qualify (the engine decides which);
+    # transport failures are never cached.
+    negative_ttl_days: int | None = None
     # Free-text (narrative) output fields whose mid-sentence truncation is *masked*
     # by constrained decoding — schema validation passes because the grammar closes
     # the open string and emits the remaining fields. The engine screens these for

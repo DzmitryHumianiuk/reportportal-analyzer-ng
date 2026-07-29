@@ -32,7 +32,7 @@ from analyzer_ng.llm.apply import (
     apply_explainer,
     apply_judge,
 )
-from analyzer_ng.llm.engine import RoleResult
+from analyzer_ng.llm.engine import RoleResult, is_negative
 from analyzer_ng.llm.manager import LlmSidecar
 from analyzer_ng.llm.roles.extractor import extractor_template_hash
 
@@ -309,7 +309,11 @@ def build_extractor_feature_lookup(
         except Exception:  # noqa: BLE001 — a feature lookup must never fail a decision
             logger.exception("extractor feature lookup failed for project %s", project_id)
             return None
-        if not out:
+        if not out or is_negative(out):
+            # A negative cache row (issue #7) records that the extractor could not
+            # ground an answer. It is stored with template_hash NULL so this query
+            # cannot return it; the check is here so the rule holds even if a row
+            # ever arrives by another path. A miss keeps the unknown sentinel.
             return None
         return (out.get("failing_layer") or LLM_UNKNOWN, out.get("error_class") or LLM_UNKNOWN)
 

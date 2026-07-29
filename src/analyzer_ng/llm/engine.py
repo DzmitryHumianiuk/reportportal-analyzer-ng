@@ -62,6 +62,46 @@ class RoleResult:
 
 
 # --------------------------------------------------------------------------- #
+# Negative cache (issue #7).
+#
+# Some inputs cannot be answered at all: project 7 has template sets whose whole
+# log is "expected false to deeply equal true", with no exception identifier for
+# the extractor to ground on, so post_validate rejects both seeds every single
+# time. Caching only ok results meant paying a full generation for that certain
+# failure on every open, forever.
+#
+# A negative entry is a marker row in the SAME llm_cache table (no schema change),
+# holding the outcome that produced it and nothing else. It is NOT an extraction:
+# it carries no role fields, so it can never be mistaken for a real answer, and it
+# is written with template_hash NULL so the feature-time lookup by template set
+# (§4.2) cannot see it — the GBM one-hot columns keep their ``unknown`` sentinel,
+# exactly as if the role had never run.
+#
+# Only DETERMINISTIC failures are cached, and only for roles that opt in with
+# ``Role.negative_ttl_days``. A timeout or an open breaker is a transport problem:
+# retrying it is the whole point of the circuit breaker, so caching one would turn
+# a five-minute sidecar outage into days of fake failures.
+# --------------------------------------------------------------------------- #
+_NEGATIVE_MARKER = "negative"
+
+# validation_fail only. It is a property of the input: the log holds nothing that
+# can be grounded, so every seed fails the same way. A schema_fail is not — a body
+# that failed to parse is a decoding accident that a later call may well get right,
+# so it stays uncached and keeps retrying.
+_CACHEABLE_FAILURES = ("validation_fail",)
+
+
+def negative_payload(outcome: str) -> dict[str, Any]:
+    """The cache body stored for a deterministic failure."""
+    return {_NEGATIVE_MARKER: True, "outcome": outcome}
+
+
+def is_negative(output: dict[str, Any] | None) -> bool:
+    """True if a cached body is a negative marker rather than a role answer."""
+    return output is not None and output.get(_NEGATIVE_MARKER) is True
+
+
+# --------------------------------------------------------------------------- #
 # Masked-truncation screen (§3.0 step 6b).
 #
 # Constrained decoding hides a token-budget cut: when num_predict runs out mid
@@ -180,7 +220,16 @@ class LlmEngine:
         cache_key = sha256_hex(f"{self._model}|{role.name}|{prompt_hash}")
 
         cached = self._cache.get_fresh(project_id, cache_key, role.ttl_days)
-        if cached is not None:
+        if is_negative(cached):
+            # A negative row lives under its own, shorter window, so re-ask the
+            # store with the negative TTL (freshness stays one thing, computed in
+            # SQL on created_at). Fresh → report the cached failure and make no
+            # call. Expired → fall through and generate again, which is the point
+            # of the short window.
+            outcome = self._fresh_negative_outcome(role, project_id, cache_key)
+            if outcome is not None:
+                return self._finish(role, project_id, item_id, prompt_hash, outcome, None, True, 0)
+        elif cached is not None:
             return self._finish(role, project_id, item_id, prompt_hash, "ok", cached, True, 0)
 
         if not self._breaker.allow():
@@ -207,7 +256,31 @@ class LlmEngine:
                 output,
                 role.template_hash(inp),
             )
+        elif outcome in _CACHEABLE_FAILURES and role.negative_ttl_days is not None:
+            # Both seeds failed the same deterministic check: remember that, so a
+            # repeat inside the short window costs nothing. template_hash stays
+            # NULL — this is not an extraction for a template set and must never be
+            # served as one at feature time.
+            self._cache.put(
+                project_id, cache_key, role.name, self._model, negative_payload(outcome), None
+            )
         return self._finish(role, project_id, item_id, prompt_hash, outcome, output, False, latency)
+
+    def _fresh_negative_outcome(self, role: Role, project_id: int, cache_key: str) -> str | None:
+        """Outcome of a negative cache row still inside the role's negative TTL.
+
+        ``None`` means "treat as a miss": the row aged out of the short window, or
+        the role no longer opts into negative caching (then an old marker row must
+        not keep suppressing calls).
+        """
+        if role.negative_ttl_days is None:
+            return None
+        row = self._cache.get_fresh(project_id, cache_key, role.negative_ttl_days)
+        if row is None or not is_negative(row):
+            return None
+        outcome = str(row.get("outcome"))
+        # Never report a stored value we do not recognise as an outcome.
+        return outcome if outcome in _CACHEABLE_FAILURES else "validation_fail"
 
     @staticmethod
     def _schema_for(role: Role, inp: dict[str, Any]) -> dict[str, Any]:
