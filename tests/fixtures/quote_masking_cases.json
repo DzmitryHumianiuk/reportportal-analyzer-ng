@@ -1,0 +1,84 @@
+{
+  "_readme": [
+    "Shared cases for the one property the quote panel depends on: whatever the",
+    "analyzer stores as a quote, the modal must be able to locate in the log the",
+    "reader opens.",
+    "",
+    "Two separate implementations stand between those two texts. The analyzer masks",
+    "the excerpt it stores (analyzer_ng/ml/drain.py MASKING_RULES). The modal masks",
+    "BOTH the stored quote and the real log line before comparing them",
+    "(analyzerSuggestionMeta.js normalizeLine). Neither knows about the other, and",
+    "nothing used to fail if they drifted apart.",
+    "",
+    "So each side pins the same cases:",
+    "  analyzer-ng  tests/unit/test_quote_masking_contract.py  guards the 'masked'",
+    "               column, i.e. what the analyzer actually stores.",
+    "  service-ui   analyzerSuggestionMeta.test.js              feeds that column in",
+    "               and asserts the quote still grounds against 'raw'.",
+    "",
+    "A change to either implementation breaks its own side's test. Keep the two",
+    "copies of this table identical; the fork's copy lives beside its test."
+  ],
+  "cases": [
+    {
+      "why": "a plain number, the ordinary case",
+      "raw": "at com.acme.Client.call(Client.java:42)",
+      "masked": "at com.acme.Client.call(Client.java:<NUM>)"
+    },
+    {
+      "why": "a signed number: the analyzer eats the sign, the modal does not",
+      "raw": "delta was -5 items",
+      "masked": "delta was <NUM> items"
+    },
+    {
+      "why": "a dotted version: the analyzer leaves it, the modal splits it",
+      "raw": "running build 5.15.3 now",
+      "masked": "running build 5.15.3 now"
+    },
+    {
+      "why": "digits glued to a word: the analyzer leaves them, the modal masks them",
+      "raw": "pod worker123 died",
+      "masked": "pod worker123 died"
+    },
+    {
+      "why": "a url",
+      "raw": "GET https://payments-gw.hawkins-lab.dev/actuator/health failed",
+      "masked": "GET <URL> failed"
+    },
+    {
+      "why": "a host and port",
+      "raw": "connect to 10.42.0.17:8080 refused",
+      "masked": "connect to <IP> refused"
+    },
+    {
+      "why": "a uuid",
+      "raw": "trace 3f2504e0-4f89-11d3-9a0c-0305e82c3301 aborted",
+      "masked": "trace <UUID> aborted"
+    },
+    {
+      "why": "a hex blob",
+      "raw": "digest 0xdeadbeefcafe mismatch",
+      "masked": "digest <HEX> mismatch"
+    },
+    {
+      "why": "a filesystem path",
+      "raw": "reading /var/lib/app/config.yml failed",
+      "masked": "reading <PATH> failed"
+    },
+    {
+      "why": "a status code inside an assertion",
+      "raw": "Assert.Equal() Failure Expected: 200 Actual: 500",
+      "masked": "Assert.Equal() Failure Expected: <NUM> Actual: <NUM>"
+    },
+    {
+      "why": "a timeout message, the shape the live stand actually carries",
+      "raw": "Healthcheck for upstream 'payments-gateway' did not return within 15000 ms",
+      "masked": "Healthcheck for upstream 'payments-gateway' did not return within <NUM> ms"
+    },
+    {
+      "why": "a role-line colon: masking leaves it, and the stored quote must keep it",
+      "raw": "System: boot failed after 3 tries",
+      "masked": "System: boot failed after <NUM> tries"
+    }
+  ]
+}

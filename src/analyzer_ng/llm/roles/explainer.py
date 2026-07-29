@@ -10,6 +10,7 @@ from analyzer_ng.llm.roles.base import (
     build_untrusted_excerpt,
     prepare_fact_block,
 )
+from analyzer_ng.llm.sanitizer import sanitized_line_pairs
 
 _TAMPER_RE = re.compile(r"(?i)ignore (previous|all)|as an ai")
 _QUOTED_RE = re.compile(r'"([^"]*)"')
@@ -28,6 +29,39 @@ _QUOTE_CLIP_RE = re.compile(r"(?:\s*(?:\.\.\.|…))+\s*$")
 
 def _trim_clip_marker(line: str) -> str:
     return _QUOTE_CLIP_RE.sub("", line).rstrip()
+
+
+def _displayable(quote: str, pairs: list[tuple[str, str]], unsanitized: str) -> str | None:
+    """The text to store for ``quote``, or ``None`` when nothing is left to show.
+
+    Generalises the clip-marker rule above to the other rewrite the analyzer does
+    to its own evidence. What the model is shown is ``sanitize()`` of the stored
+    excerpt, and sanitizing REWRITES lines: a role-line colon becomes U+2236, an
+    instruction marker becomes ``⟨stripped⟩``. Nothing downstream can undo that.
+    The masking the excerpt already carries (``<NUM>``, ``<PATH>``, …) is a
+    different matter — the modal applies the same masking to both sides, so those
+    tokens line up on their own. Sanitizing has no such counterpart, so a quote
+    carrying its marks is evidence pointing at text that exists nowhere but in the
+    prompt.
+
+    The quote arrives already grounded against the sanitized excerpt, so it was
+    not invented. Three answers:
+
+    * untouched by sanitizing — store it as it is (the common case);
+    * present only in a sanitized line — store that line's pre-sanitize text. Same
+      evidence: sanitizing changed the shape of the line, never its content;
+    * neither, so it spans a rewrite and cannot be reconstructed — store nothing.
+      A quote nobody can locate is worse than no quote, because it still reads as
+      evidence.
+    """
+    if not quote:
+        return None
+    if quote in unsanitized:
+        return quote
+    for sanitized, before in pairs:
+        if quote in sanitized:
+            return before.strip()
+    return None
 
 
 _SYSTEM = (
@@ -94,6 +128,13 @@ class ExplainerRole(Role):
         corpus: list[str] = inp.get("_corpus", [])
         corpus_log: list[str] = inp.get("_corpus_log", corpus)
         corpus_facts: list[str] = inp.get("_corpus_facts", corpus)
+        # The showability gate needs the excerpt as it was BEFORE sanitizing.
+        # ``build_prompt`` always records it, so in production the gate is always
+        # on; an input assembled without it skips the gate rather than dropping
+        # every quote for want of anything to compare against.
+        gate_showable = "_sanitize_pairs" in inp
+        unsanitized: str = inp.get("_unsanitized", "")
+        sanitize_pairs: list[tuple[str, str]] = inp.get("_sanitize_pairs", [])
         explanation = output.get("explanation", "")
         if _TAMPER_RE.search(explanation):
             return False
@@ -111,6 +152,14 @@ class ExplainerRole(Role):
         for value in output.get("quoted_fact_values", []):
             if not _in_corpus(value, corpus_facts):
                 return False
+        # Grounded, and now stripped of the analyzer's own sanitize marks. A quote
+        # that cannot be recovered is dropped rather than failing the whole call:
+        # the explanation is still true and still useful, and one lost quote is a
+        # far smaller loss than no explanation at all.
+        if gate_showable and "quoted_log_lines" in output:
+            output["quoted_log_lines"] = _showable_lines(
+                output["quoted_log_lines"], sanitize_pairs, unsanitized
+            )
         # Legacy single-field shape from pre-split cache rows: the old contract
         # grounded every quote against the combined corpus. Never tagged.
         legacy_lines = output.get("quoted_lines")
@@ -121,9 +170,22 @@ class ExplainerRole(Role):
         for line in output.get("quoted_lines", []):
             if not _in_corpus(line, corpus):
                 return False
+        # Only when the key is really there: creating it would make this row look
+        # like a legacy one and lose the schema tag written at the end.
+        if gate_showable and "quoted_lines" in output:
+            output["quoted_lines"] = _showable_lines(
+                output["quoted_lines"], sanitize_pairs, unsanitized, allow_facts=corpus_facts
+            )
         # Every double-quoted substring of the explanation must be verbatim too.
         for match in _QUOTED_RE.findall(explanation):
             if not _in_corpus(match, corpus):
+                return False
+            # A quote inside the prose cannot be swapped for the pre-sanitize line
+            # without rewriting the model's sentence, so this one fails closed:
+            # reject the answer and let the retry quote a line that survives
+            # sanitizing. Fact values are exempt — they never came from the log and
+            # are shown as values, not pointed at in it.
+            if gate_showable and not _in_corpus(match, corpus_facts) and match not in unsanitized:
                 return False
         if "quoted_lines" not in output:
             output["schema_ver"] = SCHEMA_VER  # tag new-shape cache writes
@@ -132,6 +194,35 @@ class ExplainerRole(Role):
 
 def _in_corpus(needle: str, corpus: list[str]) -> bool:
     return any(needle in hay for hay in corpus)
+
+
+def _showable_lines(
+    lines: Any,
+    pairs: list[tuple[str, str]],
+    unsanitized: str,
+    allow_facts: list[str] | None = None,
+) -> Any:
+    """Keep only quotes a reader can find, trading sanitized text for raw text.
+
+    ``allow_facts`` is for the legacy combined field, whose entries may be fact
+    values rather than log lines. A fact value is passed through untouched: it is
+    displayed as a value and never pointed at in the log, so the log is the wrong
+    place to look for it.
+    """
+    if not isinstance(lines, list):
+        return lines
+    kept: list[Any] = []
+    for line in lines:
+        if not isinstance(line, str):
+            kept.append(line)
+            continue
+        if allow_facts and _in_corpus(line, allow_facts):
+            kept.append(line)
+            continue
+        shown = _displayable(line, pairs, unsanitized)
+        if shown:
+            kept.append(shown)
+    return kept
 
 
 def _prepare_grounding(inp: dict[str, Any], nonce: str) -> tuple[str, str]:
@@ -143,10 +234,16 @@ def _prepare_grounding(inp: dict[str, Any], nonce: str) -> tuple[str, str]:
     explainer variants so neither can drift back to combined-only grounding.
     """
     fact_json, fact_leaves = prepare_fact_block(inp["fact_block"])
-    block, corpus_text = build_untrusted_excerpt(inp["log_excerpt"], nonce)
+    unsanitized = inp["log_excerpt"]
+    block, corpus_text = build_untrusted_excerpt(unsanitized, nonce)
     inp["_corpus"] = [corpus_text, *fact_leaves]
     inp["_corpus_log"] = [corpus_text]
     inp["_corpus_facts"] = list(fact_leaves)
+    # The log as the reader will see it, plus the line pairing that maps a
+    # sanitized quote back onto it. Grounding against the sanitized excerpt alone
+    # proves a quote was not invented; only these two prove it can be shown.
+    inp["_unsanitized"] = unsanitized
+    inp["_sanitize_pairs"] = sanitized_line_pairs(unsanitized)
     return fact_json, block
 
 

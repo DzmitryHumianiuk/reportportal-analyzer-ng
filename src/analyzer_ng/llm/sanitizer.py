@@ -61,6 +61,27 @@ def sanitize(text: str) -> str:
     return text
 
 
+def sanitized_line_pairs(raw_text: str) -> list[tuple[str, str]]:
+    """``(sanitized_line, raw_line)`` for every non-blank line of ``raw_text``.
+
+    The model is shown sanitized text, so a quote it copies is verbatim in the
+    sanitized excerpt — and may be absent from the log the reader opens, because
+    :func:`sanitize` rewrites lines (a role-line colon becomes U+2236, an
+    instruction marker becomes ``⟨stripped⟩``). A quote grounded only against the
+    sanitized side is unfindable in the real log, which is what the modal has to
+    point at. This pairing is what lets a caller trade such a quote back for the
+    line the reader can actually see.
+
+    Every rewrite above is line-local by construction: the control-token and
+    marker patterns contain no newline, the role-line and envelope patterns are
+    ``^``/``$`` anchored per line, and the C0 class excludes ``\\n``. The one
+    cross-line rule collapses runs of blank lines, and blank lines are dropped
+    here, so sanitizing line by line gives the same text as sanitizing the whole
+    excerpt. ``tests/unit/test_sanitizer.py`` pins that equivalence.
+    """
+    return [(sanitize(line), line) for line in raw_text.split("\n") if line.strip()]
+
+
 def new_nonce() -> str:
     """A fresh 8-hex-char envelope nonce (§5.1), unguessable per request."""
     return secrets.token_hex(4)
