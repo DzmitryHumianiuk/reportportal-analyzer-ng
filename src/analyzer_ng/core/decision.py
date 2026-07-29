@@ -127,6 +127,47 @@ class DecisionResult:
     # "auto-analyzed" in the suggest response's modelInfo.
     relevant_label_source: str | None = None
     relevant_is_auto_analyzed: bool = False
+    # Isotonic-calibrated probability of the RAW ARGMAX group (§6.5), set ONLY by the
+    # GBM path. ``confidence`` is not a substitute: the hash-floor promotion carries
+    # the policy floor there, and the abstain path carries it under label ``ti``.
+    # None means "no calibrated distribution behind this decision" — every rule /
+    # short-circuit path and any hand-built result leaves it unset, and readers must
+    # then say nothing rather than guess. See :func:`calibrated_label_prob`.
+    calibrated_max_prob: float | None = None
+
+
+def calibrated_label_prob(decision: DecisionResult, group: str) -> float | None:
+    """The model's calibrated probability for ONE base group, or ``None`` if unknown.
+
+    ``DecisionResult.probs`` holds the GBM's RAW softmax distribution, while the
+    per-project isotonic fit (§6.5) is fitted on ``raw max-prob → P(argmax correct)``
+    — so the argmax group is the only class whose calibrated value is measured. This
+    maps the raw distribution onto that calibrated scale: the argmax group takes its
+    calibrated value ``p*``, and the leftover calibrated mass ``1 - p*`` is split
+    among the other groups in their raw ratios. The result stays a distribution and
+    its argmax entry equals ``p*`` exactly, so a per-label number can never contradict
+    the confidence the same decision reports.
+
+    Returns ``None``, never a fallback number, when the answer is not known: the
+    non-GBM paths (Stage-A hash, KB short circuit, cold rule) store a placeholder
+    ``{label: confidence}`` in ``probs`` that says nothing about the other groups,
+    and a legacy or hand-built result carries no calibrated max-prob at all.
+    """
+    if decision.calibrated_max_prob is None:
+        return None
+    probs = decision.probs
+    if not probs or group not in probs:
+        return None
+    raw_max = max(probs.values())
+    if raw_max <= 0.0:
+        return None
+    p_star = max(0.0, min(1.0, decision.calibrated_max_prob))
+    if group == max(probs, key=lambda g: probs[g]):
+        return p_star
+    raw_rest = 1.0 - raw_max
+    if raw_rest <= 0.0:
+        return 0.0
+    return max(0.0, min(1.0, probs[group] * (1.0 - p_star) / raw_rest))
 
 
 def _base(issue_type: str | None) -> str:
@@ -384,6 +425,7 @@ def decide(
         model_version: str | None = None,
         relevant_label_source: str | None = None,
         relevant_is_auto_analyzed: bool = False,
+        calibrated_max_prob: float | None = None,
     ) -> DecisionResult:
         action = (
             ACTION_ABSTAIN if label == "ti" else _band_action(confidence, short_circuit, tau_auto)
@@ -404,6 +446,7 @@ def decide(
             stage_c=list(inputs.stage_c),
             relevant_label_source=relevant_label_source,
             relevant_is_auto_analyzed=relevant_is_auto_analyzed,
+            calibrated_max_prob=calibrated_max_prob,
         )
 
     # Stage A — exact error_hash inherit (discriminant-gated, 2026-07-18 errata).
@@ -592,6 +635,7 @@ def _gbm_result(
                 probs=probs,
                 model_version=version,
                 relevant_label_source=floor.label_source,
+                calibrated_max_prob=p,
             )
         return result_fn(
             "ti",
@@ -601,6 +645,7 @@ def _gbm_result(
             abstain_reason="gbm_below_suggest",
             probs=probs,
             model_version=version,
+            calibrated_max_prob=p,
         )
     if p < tau_auto and stage_c and _boilerplate_only_top1(stage_c[0], query_msg_tokens):
         return result_fn(
@@ -611,6 +656,7 @@ def _gbm_result(
             abstain_reason="gbm_boilerplate_only_neighbor",
             probs=probs,
             model_version=version,
+            calibrated_max_prob=p,
         )
     cand = _pick_relevant(stage_c, label)
     locator = cand.issue_type if cand is not None and cand.issue_type else default_locator(label)
@@ -624,6 +670,7 @@ def _gbm_result(
         probs=probs,
         model_version=version,
         relevant_label_source=cand.label_source if cand is not None else None,
+        calibrated_max_prob=p,
     )
 
 
