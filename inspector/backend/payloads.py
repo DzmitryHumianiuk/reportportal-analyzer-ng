@@ -945,8 +945,17 @@ def llm_cache(db: Database, project_id: int, role: str, limit: int) -> dict[str,
     rows = db.rows(
         """
         SELECT template_hash, cache_key, model, hits, output, created_at, last_hit_at,
+               (output ->> 'negative') = 'true' AS negative,
                (created_at >= now() - make_interval(days =>
-                   CASE %s WHEN 'judge' THEN 14 ELSE 90 END)) AS fresh
+                   CASE
+                       -- A remembered failure lives under its own, much shorter
+                       -- window (Role.negative_ttl_days). Judging it by the answer
+                       -- window would show a row as fresh for months after the
+                       -- analyzer had already gone back to calling the model.
+                       WHEN (output ->> 'negative') = 'true' THEN 7
+                       WHEN %s = 'judge' THEN 14
+                       ELSE 90
+                   END)) AS fresh
         FROM analyzer.llm_cache
         WHERE project_id = %s AND role = %s
         ORDER BY hits DESC, last_hit_at DESC NULLS LAST
@@ -973,6 +982,7 @@ def llm_cache(db: Database, project_id: int, role: str, limit: int) -> dict[str,
                 "created_at": _iso(r["created_at"]),
                 "last_hit_at": _iso(r["last_hit_at"]),
                 "fresh": r["fresh"],
+                "negative": bool(r["negative"]),
             }
             for r in rows
         ],

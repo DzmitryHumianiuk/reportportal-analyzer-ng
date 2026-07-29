@@ -304,15 +304,21 @@ function cacheCard(app) {
     clear(body);
     body.appendChild(h('p', { class: 'takeaway', style: { fontSize: '13px' } },
       h('b', {}, `${d.entries} cached extractor outputs`), ` · ${d.total_hits} hits`,
-      h('span', { class: 'muted' }, ' — hits count role-call reuse only; feature-time reads are not counted, so real reuse is higher.')));
+      h('span', { class: 'muted' }, ' — hits count role-call reuse only; feature-time reads are not counted, so real reuse is higher. Rows marked "no answer possible" hold a remembered failure, not an extraction, and are kept for 7 days.')));
     if (!d.rows.length) {
       body.appendChild(h('div', { class: 'note' }, 'No llm_cache rows for the extractor in this project.'));
       return;
     }
     const tbl = h('table', { class: 'data' },
       h('thead', {}, h('tr', {}, ...['template_hash', 'model', 'hits', 'fresh', 'created', 'last hit', 'output'].map((t) => h('th', {}, t)))),
-      h('tbody', {}, ...d.rows.map((r) => h('tr', {},
-        h('td', { class: 'mono' }, r.template_hash || '—'),
+      // A negative row remembers that this input cannot be answered, so the
+      // analyzer stops paying for a call that fails the same way every time. It
+      // holds no extraction and carries no template hash on purpose, so say what
+      // it is rather than leaving a row of dashes the reader has to decode.
+      h('tbody', {}, ...d.rows.map((r) => h('tr', { class: r.negative ? 'row-negative' : '' },
+        h('td', { class: 'mono' }, r.negative
+          ? h('span', { class: 'tag-negative' }, 'no answer possible')
+          : (r.template_hash || '—')),
         h('td', { class: 'mono' }, r.model || '—'),
         h('td', { class: 'num' }, String(r.hits)),
         h('td', { class: 'mono' }, r.fresh ? 'fresh' : 'expired'),

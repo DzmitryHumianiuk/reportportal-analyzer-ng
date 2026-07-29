@@ -555,6 +555,12 @@ details.eng .eng-body { margin-top: 10px; }
   color: var(--rp-topaz); border: 1px solid color-mix(in srgb, var(--rp-topaz) 45%, transparent);
   border-radius: 4px; padding: 1px 5px; }
 
+/* extractor cache: a remembered failure, not an extraction */
+.row-negative { background: color-mix(in srgb, var(--rp-e-100) 45%, transparent); }
+.tag-negative { font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+  color: var(--rp-e-400); border: 1px solid var(--rp-e-200); border-radius: 4px; padding: 1px 5px;
+  white-space: nowrap; }
+
 /* explainer attributed quote — left topaz border */
 .llm-quote { border: 1px solid var(--rp-e-100); border-left: 3px solid var(--rp-topaz); padding: 8px 12px;
   margin: 6px 0 0; background: #fff; border-radius: 0 var(--radius-s) var(--radius-s) 0;
