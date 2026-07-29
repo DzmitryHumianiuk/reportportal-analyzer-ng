@@ -196,6 +196,14 @@ def _carried_explanation(
     }
 
 
+def _coldstart_block(features: Any) -> dict[str, Any] | None:
+    """The rubric annotation on a suggestion row, or None when there is none."""
+    if not isinstance(features, dict):
+        return None
+    block = features.get("coldstart")
+    return block if isinstance(block, dict) else None
+
+
 def _is_below_band_abstain(row: dict[str, Any] | None) -> bool:
     """True when the classical decision produced no usable answer.
 
@@ -592,6 +600,11 @@ def item_journey(
                 "model_ver": rubric["model_ver"],
                 "explanation": rubric["explanation"],
                 "created_at": _iso(rubric["created_at"]),
+                # The rubric rule this hypothesis came from, with the name the
+                # analyzer stored alongside it, so a reader is shown "Could not
+                # reach the service" rather than "R6". Rows written before the
+                # name existed carry the id only.
+                "coldstart": _coldstart_block(rubric.get("features")),
                 # False when the analyzer turned the cold-start role off for this
                 # project (e.g. it scored worse than the classical path).
                 "source_role_enabled": bool(role["enabled"]) if role else True,

@@ -1553,10 +1553,10 @@ index 000000000..53a350ff6
 +});
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
 new file mode 100644
-index 000000000..56cab385d
+index 000000000..7d54be2ba
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
-@@ -0,0 +1,2830 @@
+@@ -0,0 +1,2859 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -2277,6 +2277,20 @@ index 000000000..56cab385d
 +  // confidence 0.65") and denied it in the card below ("No AI guess for this
 +  // failure").
 +  const journeyOwnGuess = deriveJourneyOwnGuess(journeyDecision, journeyRubric);
++  // The rubric rule behind the guess, by its reader-facing name. The analyzer
++  // stores the name next to the id so nothing here has to keep a copy of the
++  // rubric; rows written before the name existed carry the id only, and then the
++  // card keeps its generic line rather than showing "R6" at a reader.
++  const guessRuleName = (block) => {
++    const name = block && typeof block.rule_name === 'string' ? block.rule_name.trim() : '';
++    return name || '';
++  };
++  const decisionRuleName = guessRuleName(journeyDecision?.coldstart);
++  const hypothesisRuleName = guessRuleName(journeyRubric?.coldstart);
++  const aiRoleLine = (ruleName) =>
++    ruleName
++      ? formatMessage(messages.benchCheckAiRule, { rule: ruleName })
++      : formatMessage(messages.benchCheckAiRole);
 +  const decisionHasExplanation = !!(
 +    journeyDecision &&
 +    typeof journeyDecision.explanation === 'string' &&
@@ -3040,7 +3054,7 @@ index 000000000..56cab385d
 +            <span className={cx('gl')}>✦</span> {formatMessage(messages.benchCheckAi)}
 +            <span className={cx('tag-nc')}>{formatMessage(messages.benchNotConfirmed)}</span>
 +          </div>
-+          <div className={cx('role')}>{formatMessage(messages.benchCheckAiRole)}</div>
++          <div className={cx('role')}>{aiRoleLine(decisionRuleName)}</div>
 +          <div className={cx('verd-pill')}>
 +            {renderPill(rubricRow.issueType)}
 +          </div>
@@ -3077,6 +3091,9 @@ index 000000000..56cab385d
 +            <span className={cx('tag-nc')}>{formatMessage(messages.benchTagHypothesis)}</span>
 +          </div>
 +          <div className={cx('role')}>{formatMessage(messages.benchHypothesisNote)}</div>
++          {hypothesisRuleName && (
++            <div className={cx('role')}>{aiRoleLine(hypothesisRuleName)}</div>
++          )}
 +          <div className={cx('verd-pill')}>{renderPill(journeyRubric.predicted_label)}</div>
 +          <div className={cx('strength')}>{formatMessage(messages.benchAiGuessPct, { pct })}</div>
 +          {journeyRubric.source_role_enabled === false && (
@@ -3108,7 +3125,7 @@ index 000000000..56cab385d
 +            <span className={cx('gl')}>✦</span> {formatMessage(messages.benchCheckAi)}
 +            <span className={cx('tag-nc')}>{formatMessage(messages.benchNotConfirmed)}</span>
 +          </div>
-+          <div className={cx('role')}>{formatMessage(messages.benchCheckAiRole)}</div>
++          <div className={cx('role')}>{aiRoleLine(decisionRuleName)}</div>
 +          <div className={cx('verd-pill')}>{renderPill(journeyOwnGuess.issueType)}</div>
 +          {pct > 0 && (
 +            <div className={cx('strength')}>
@@ -3822,6 +3839,18 @@ index 000000000..56cab385d
 +        <div className={cx('sh-body')}>{formatMessage(emptyCopy.body)}</div>
 +        <div className={cx('sh-next')}>{formatMessage(emptyCopy.next)}</div>
 +        <div className={cx('sh-note')}>{formatMessage(emptyCopy.note)}</div>
++        {/* The empty state is the one place with nothing to read, and "still
++            working" is the hardest to sit through. The Inspector shows what the
++            analyzer is actually doing with this item, so offer the way in rather
++            than leaving the reader to guess or reopen the modal. */}
++        {itemInspector && (
++          <div className={cx('sh-link')}>
++            <InspectorLink
++              href={itemInspector}
++              label={formatMessage(messages.benchEmptyInspector)}
++            />
++          </div>
++        )}
 +      </div>
 +    </div>
 +  );
@@ -4389,10 +4418,10 @@ index 000000000..56cab385d
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 000000000..b41d437bd
+index 000000000..052964c6d
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2208 @@
+@@ -0,0 +1,2212 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -4705,6 +4734,10 @@ index 000000000..b41d437bd
 +      font-size: 12px;
 +      line-height: 18px;
 +      color: var(--rp-e-400);
++    }
++    // The way in to the Inspector, offered where there is nothing else to read.
++    .sh-link {
++      margin-top: 8px;
 +    }
 +  }
 +
@@ -7331,10 +7364,10 @@ index 9c6b6dafa..1f85b26ca 100644
      display: flex;
    }
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-index 34cfec56e..00040514e 100644
+index 34cfec56e..f92405bdf 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-@@ -266,4 +266,1056 @@ export const messages = defineMessages({
+@@ -266,4 +266,1064 @@ export const messages = defineMessages({
      id: 'MakeDecisionModal.defectReplaceWith',
      defaultMessage: 'The defect type will be changed to',
    },
@@ -7780,6 +7813,14 @@ index 34cfec56e..00040514e 100644
 +  benchCheckAiRole: {
 +    id: 'MakeDecisionModal.benchCheckAiRole',
 +    defaultMessage: 'With no earlier match, the AI reasons from a set of rules.',
++  },
++  benchEmptyInspector: {
++    id: 'MakeDecisionModal.benchEmptyInspector',
++    defaultMessage: 'See what the analyzer is doing with this test',
++  },
++  benchCheckAiRule: {
++    id: 'MakeDecisionModal.benchCheckAiRule',
++    defaultMessage: 'Rule matched: {rule}.',
 +  },
 +  benchCheckAiNone: {
 +    id: 'MakeDecisionModal.benchCheckAiNone',

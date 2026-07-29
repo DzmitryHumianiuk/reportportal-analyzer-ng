@@ -10,7 +10,15 @@ parsing intact. This is an **RP-side** change (the user owns the stand).
 > the public repo; only the patch and its evidence ship here.
 
 - Patch: [`service-ui-5.15.3-bench.patch`](./service-ui-5.15.3-bench.patch)
-- Built image: `reportportal/service-ui:5.15.3-ng65`
+- Built image: `reportportal/service-ui:5.15.3-ng67`
+
+**ng66 to ng67 — the AI card names its rule, and the empty state offers a way in.**
+The card said the AI "reasons from a set of rules" without saying which. The
+analyzer stores each rule's reader-facing name next to its id (analyzer `mk31`),
+so the card now states "Rule matched: Could not reach the service". Nothing on
+this side keeps a copy of the rubric, and a row written before the name existed
+keeps the generic line rather than showing a reader "R6". The empty state, the
+one place with nothing to read, gains a link to the Inspector for that item.
 
 **ng65 — the card heading keeps clear of the corner why? link.** The link is
 positioned against the card corner and takes no width in the heading row, so the
