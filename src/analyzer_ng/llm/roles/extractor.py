@@ -86,6 +86,22 @@ class ExtractorRole(Role):
     name = "extractor"
     ttl_days = 90
     num_predict = 300
+    # Negative caching (issue #7). Measured on the live stand, project 7: 36 of 60
+    # template sets carry no failure structure at all — a bare merged assertion
+    # message ("expected false to deeply equal true"), two log lines, no exception
+    # identifier anywhere — so post_validate correctly rejects the root_exception
+    # the model invents, on both seeds, every time. Only ok results were cached, so
+    # every suggest/analyze/Make Decision open on those sets paid a fresh 5-15s
+    # generation, forever. A cached validation_fail makes that cost one generation
+    # per window instead of one per open.
+    #
+    # Seven days, against 90 for a success: the failure says today's model and
+    # prompt cannot ground an answer in this log, which is exactly what a model
+    # swap or a prompt fix changes. A week is short enough that an improvement
+    # reaches these template sets quickly, and long enough to kill the repeated
+    # per-open cost. A success describes the log itself, which does not change, so
+    # it keeps the full 90 days.
+    negative_ttl_days = 7
     schema = _SCHEMA
 
     def content_key(self, inp: dict[str, Any]) -> str:

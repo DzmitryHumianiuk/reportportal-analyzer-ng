@@ -24,8 +24,12 @@ class FakeCacheStore:
         return row["output"] if row else None
 
     def get_fresh(self, project_id: int, cache_key: str, ttl_days: int) -> dict | None:
+        """Read-time freshness like the real store: a row older than ``ttl_days``
+        misses. Tests age a row by setting ``age_days`` on it (default 0)."""
         row = self.rows.get((project_id, cache_key))
         if row is None or row.get("stale"):
+            return None
+        if row.get("age_days", 0) > ttl_days:
             return None
         row["hits"] = row.get("hits", 0) + 1
         return row["output"]

@@ -329,3 +329,8 @@ def test_cache_freshness_ttl(pool: ConnectionPool) -> None:
     assert cache.get_fresh(1, "f" * 64, ttl_days=90) is None
     # A generous TTL still finds it.
     assert cache.get_fresh(1, "f" * 64, ttl_days=200) is not None
+    # Rewriting the entry restarts its freshness clock (issue #7): otherwise a
+    # regenerated row keeps the old created_at, misses on TTL forever and the role
+    # pays a full generation on every read — the exact cost the cache exists to stop.
+    cache.put(1, "f" * 64, "explainer", "m", {"explanation": "y", "quoted_lines": []})
+    assert cache.get_fresh(1, "f" * 64, ttl_days=90) == {"explanation": "y", "quoted_lines": []}
