@@ -27,6 +27,14 @@ from analyzer_ng.core.decision import (
 )
 from analyzer_ng.db.repositories.models import Candidate
 from analyzer_ng.llm.roles import AbstainExplainerRole, ExplainerRole
+from analyzer_ng.llm.roles.coldstart import (
+    _SYSTEM,
+    RUBRIC,
+    RUBRIC_LABEL,
+    ColdStartRole,
+    rubric_rule_name,
+    strip_rule_ids,
+)
 from analyzer_ng.llm.wiring import PgLlmApplier, PgLlmFactLoader
 
 
@@ -448,3 +456,69 @@ class TestExplainerQuoteClipMarker:
         corpus = "org.apache.http.NoHttpResponseException: boom"
         out = self._validate(["org.apache.http.NoHttpResponseException: boom"], corpus)
         assert out["quoted_log_lines"] == ["org.apache.http.NoHttpResponseException: boom"]
+
+
+# The rubric rule id is carried in its own field, where a reader can be shown the
+# rule's name. In the sentence it is jargon nobody can resolve, and that sentence
+# is copied onto the defect comment, which outlives the modal and its tooltips.
+# Measured before this existed: 352 of 774 stored reasons cited a rule id.
+class TestStripRuleIds:
+    def test_trailing_reference_and_its_connective_go(self) -> None:
+        assert (
+            strip_rule_ids("Assertion failure in test code, aligning with R1.")
+            == "Assertion failure in test code."
+        )
+
+    def test_leading_connective_goes_too(self) -> None:
+        assert (
+            strip_rule_ids("Matches R12, the failure passed on retry.")
+            == "The failure passed on retry."
+        )
+
+    def test_a_clause_that_only_cited_the_rule_is_dropped_whole(self) -> None:
+        assert (
+            strip_rule_ids("Element not found in the DOM. Rule R3 applies.")
+            == "Element not found in the DOM."
+        )
+
+    def test_a_bracketed_reference_goes(self) -> None:
+        assert (
+            strip_rule_ids("TimeoutException indicates infrastructure issue (R6).")
+            == "TimeoutException indicates infrastructure issue."
+        )
+
+    def test_a_sentence_without_a_reference_is_untouched(self) -> None:
+        text = "The service refused the connection and never answered."
+        assert strip_rule_ids(text) == text
+
+    def test_an_unrelated_capital_r_token_survives(self) -> None:
+        text = "The R2D2 fixture returned nothing."
+        assert strip_rule_ids(text) == text
+
+    def test_empty_input_is_empty_output(self) -> None:
+        assert strip_rule_ids(None) == ""
+        assert strip_rule_ids("") == ""
+
+
+class TestRubricTableIsOneSource:
+    def test_every_rule_has_a_reader_facing_name(self) -> None:
+        for rule_id, rule in RUBRIC.items():
+            assert rule.name and rule.name[0].isupper(), rule_id
+            assert "R" + rule_id[1:] not in rule.name
+
+    def test_the_label_map_and_schema_derive_from_the_table(self) -> None:
+        assert set(RUBRIC_LABEL) == set(RUBRIC)
+        enum = ColdStartRole.schema["properties"]["rubric_rule_matched"]["enum"]
+        assert enum == [*RUBRIC, "none"]
+
+    def test_the_prompt_lists_every_rule(self) -> None:
+        for rule_id in RUBRIC:
+            assert f"\n{rule_id:<3} " in "\n" + _SYSTEM, rule_id
+
+    def test_the_prompt_forbids_citing_rule_ids(self) -> None:
+        assert "Do NOT mention rule ids" in _SYSTEM
+
+    def test_an_unknown_rule_has_no_name_and_none_is_blank(self) -> None:
+        assert rubric_rule_name("none") == ""
+        assert rubric_rule_name(None) == ""
+        assert rubric_rule_name("R999") == ""
