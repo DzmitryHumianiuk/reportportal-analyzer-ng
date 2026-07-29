@@ -314,3 +314,31 @@ Landed 2026-07-22 (`analysis.py`, tests in `tests/unit/test_analysis_below_band.
 3. Keep the flag off where a band-unaware UI (stock/`ng1`) is live — it would render a
    declined candidate as an endorsed "Analyzer Suggestion NN%" card. Kill switch = flip
    the env var back (no image change). On this stand: `ng4` UI + flag ON.
+
+## Follow-up — how much the model believes THIS label (`plabel=`, analyzer ≥ ng65)
+
+Issue #8's last open item. A suggest row could say what the model decided about the
+failure (`conf=`, the calibrated probability of the model's OWN answer) but not how much
+the model believed the label that row offers. When the model abstained with argmax `pb`
+at 0.63 and the row offers System Issue, 0.63 is not the System Issue number, and
+printing it next to a System Issue pill would state something the model never said.
+
+Every suggest row now carries `;plabel=<p>` (4 decimals, same style as `conf=`) with the
+calibrated probability of that row's own base group:
+
+- `DecisionResult.probs` is the GBM's RAW softmax distribution; the per-project isotonic
+  fit (§6.5) is fitted on `raw max-prob → P(argmax correct)`, so only the argmax has a
+  measured calibrated value. `calibrated_label_prob()` maps the raw distribution onto that
+  scale: the argmax group takes `p*` and the leftover mass `1 - p*` is split among the
+  other groups in their raw ratios. It stays a distribution, and its argmax entry equals
+  `p*` exactly, so `plabel=` can never contradict `conf=` on the same row.
+- The token is **omitted** whenever the answer is not known: Stage-A hash and KB short
+  circuits, the cold rule fallback and any legacy result carry no calibrated distribution
+  (their `probs` is a `{label: confidence}` placeholder that says nothing about the other
+  groups), and a locator outside the four base groups has no entry at all. A missing token
+  means "we do not know" — never 0, never a guess.
+- Additive only: `matchScore`, `conf=` and `band=` are untouched.
+
+UI side (`analyzerSuggestionMeta.js` `parseOfferedLabelProbability`, fork branch
+`analyzer-ng/offered-label-probability`): unreadable or absent → `null`, and the Similar
+failures card prints one short line next to the defect pill only when the value is known.

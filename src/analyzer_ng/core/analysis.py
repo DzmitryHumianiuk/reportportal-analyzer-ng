@@ -59,6 +59,7 @@ from analyzer_ng.core.decision import (
     GbmDecision,
     HashMatch,
     best_kb_match,
+    calibrated_label_prob,
     decide,
     score_kb_candidate,
 )
@@ -1294,6 +1295,17 @@ class AnalysisEngine:
                 and decision.confidence > 0
             ):
                 extra += f";conf={decision.confidence:.4f}"
+            # plabel= is how much the model believes THIS row's own defect group —
+            # a different question from conf= (which reports the model's own answer,
+            # whatever group that was). On an abstain with argmax pb the System Issue
+            # row's plabel= is the model's System Issue probability, not the 0.63 it
+            # held for pb. Absent whenever the calibrated distribution is unknown
+            # (hash/KB short circuit, cold rule, legacy result, non-GBM group), so a
+            # missing token reads as "we do not know" and the UI shows nothing.
+            row_group = base_group(issue_type)
+            p_label = calibrated_label_prob(decision, row_group) if row_group else None
+            if p_label is not None:
+                extra += f";plabel={p_label:.4f}"
             if band == BAND_BELOW_SUGGEST and rank == len(real) and decline_why:
                 extra += f";ek=decline;why={decline_why}"
             out.append(
