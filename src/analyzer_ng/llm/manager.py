@@ -32,6 +32,7 @@ from analyzer_ng.llm.client import OllamaClient
 from analyzer_ng.llm.engine import LlmEngine, RoleResult
 from analyzer_ng.llm.queue import LLMJob, LlmQueue
 from analyzer_ng.llm.roles import (
+    AbstainExplainerRole,
     ColdStartRole,
     ExplainerRole,
     ExtractorRole,
@@ -74,12 +75,15 @@ class LlmSidecar:
 
         self._role_enabled = {
             "explainer": config.analyzer_llm_explainer,
+            # Abstain explanations reuse the explainer flag (extension 2026-07-20).
+            "abstain_explainer": config.analyzer_llm_explainer,
             "extractor": config.analyzer_llm_extractor,
             "judge": config.analyzer_llm_judge,
             "coldstart": config.analyzer_llm_coldstart,
         }
         self._roles: dict[str, Role] = {
             "explainer": ExplainerRole(),
+            "abstain_explainer": AbstainExplainerRole(),
             "extractor": ExtractorRole(),
             "judge": JudgeRole(),
             "coldstart": ColdStartRole(),
@@ -165,6 +169,16 @@ class LlmSidecar:
         return self._client.probe()
 
     # -- production ------------------------------------------------------- #
+    def role_enabled(self, role: str) -> bool:
+        """True when the master switch AND the role's config flag are on (spec 04 §6).
+
+        The static gate consulted by the synchronous read path (e.g. the suggest
+        route surfacing a cold-start rubric provisional). The per-project runtime
+        kill-switch (``llm_role_state``) is honored only on the async ``_process``
+        path, never on this cheap read.
+        """
+        return self.enabled and self._role_enabled.get(role, False)
+
     def enqueue(self, role: str, project_id: int, item_id: int, payload: dict) -> None:
         """Enqueue an async LLM job. No-op when the master switch or role is off."""
         if not self.enabled or self._queue is None:
@@ -193,11 +207,19 @@ class LlmSidecar:
 
     # -- observability ---------------------------------------------------- #
     def health(self) -> dict[str, Any]:
+        """Cheap in-process state read for ``GET /health`` — never probes/blocks.
+
+        Every field is a plain attribute or the breaker's in-memory state, so this
+        stays sub-ms and safe to call on the health hot path. ``breaker_state`` is
+        the honest live circuit signal (closed/open/half_open) the Inspector's
+        "breaker: in-process, not in DB" caveat was working around; it is ``None``
+        when the sidecar is disabled (no breaker constructed)."""
         return {
             "enabled": self.enabled,
             "available": self._available,
             "model": self.model,
             "reason": self._reason,
+            "breaker_state": self._breaker.state.value if self._breaker is not None else None,
         }
 
     def _on_breaker_change(self, old: BreakerState, new: BreakerState) -> None:

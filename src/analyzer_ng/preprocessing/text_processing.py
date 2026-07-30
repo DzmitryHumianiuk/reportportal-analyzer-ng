@@ -20,6 +20,15 @@ Two deliberate deviations, both forced by analyzer-ng's dependency policy
   which never lemmatizes). The lemmatizer was a noun-plural normaliser; for the
   realistic exception/log tokens fed here it is effectively an identity, so the
   ported unit tests still pass.
+
+One deliberate **extension** beyond the legacy port (2026-07-18, spec 03 §3.4
+errata): :data:`STATUS_CODES_PATTERNS` gains assertion/HTTP-response idioms
+(``Expected:``/``Actual: <code>``, glued ``StatusCode``, ``HTTP/1.x <code>``,
+``-> <code>``) so the un-masked HTTP status survives as a Stage-A discriminant
+after Drain masking collapses the digit into the shared ``error_hash``. The added
+patterns are context-anchored to a 3-digit 1xx-5xx code, so bare numbers (ports,
+line numbers, counts, ids) are never mis-read as status codes and the near-dup
+MUST-group cases keep matching. The legacy patterns are unchanged.
 """
 
 from __future__ import annotations
@@ -419,7 +428,11 @@ def is_line_from_stacktrace(text: str) -> bool:
         return False
 
     res = re.sub(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d+)", "", text)
-    res = re.sub(r"(?<=:)\d+(?=\)?]?(\n|$))", " ", res)
+    # Trailing ":<n>" only reads as a "<file>:<lineno>" frame marker when the colon
+    # follows a filename/identifier char. A bare "<digit>:<digit>" is a line:column
+    # position (e.g. Newman's "at 1:1"), not a frame, so require a non-digit,
+    # non-space char before the colon.
+    res = re.sub(r"(?<=[^\s\d]:)\d+(?=\)?]?(\n|$))", " ", res)
     if res != text:
         return True
     res = re.sub(r"line\s*\d+\s*(?:(?=, in)|(?=,in)|(?=\n)|(?=$))", "line ", res, flags=re.I)
@@ -515,6 +528,24 @@ STATUS_CODES_PATTERNS = [
         ),
         flags=re.IGNORECASE,
     ),
+    # ---- 2026-07-18 extension (spec 03 §3.4 errata) --------------------------
+    # Assertion / HTTP-response idioms the legacy patterns miss. The masked
+    # assertion collapses HTTP codes into the shared ``error_hash`` (Drain masks
+    # the digits away), so the un-masked status is the only surviving discriminant
+    # between e.g. an upstream-503 (si) and a server-500 (pb) of the SAME test —
+    # both ``Xunit.Sdk.EqualException`` on the same frame. These fire on a single
+    # log line, capture a *3-digit 1xx-5xx code only in these contexts*, and are
+    # word-boundary-anchored so bare numbers (ports ``8080``, line numbers ``96``,
+    # counts ``42``, ids ``12345``, 2-digit ``retryAfter:30``) never leak in.
+    #   ``Expected: 201`` / ``Actual:   503`` (xUnit/JUnit assert values)
+    re.compile(rf"\bactual\b[:=\s]*[\"'`]?({HTTP_CODE})\b", flags=re.IGNORECASE),
+    re.compile(rf"\bexpected\b[:=\s]*[\"'`]?({HTTP_CODE})\b", flags=re.IGNORECASE),
+    #   ``StatusCode: 503`` / ``StatusCode=404`` (glued, no separator word)
+    re.compile(rf"\bstatuscode\b[:=\s]*[\"'`]?({HTTP_CODE})\b", flags=re.IGNORECASE),
+    #   ``HTTP/1.1 503`` (raw response status line)
+    re.compile(rf"\bhttp/\d(?:\.\d)?\s+({HTTP_CODE})\b", flags=re.IGNORECASE),
+    #   ``GET /path -> 500`` (request→response arrow idiom)
+    re.compile(rf"->\s*({HTTP_CODE})\b"),
 ]
 
 

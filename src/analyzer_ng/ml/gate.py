@@ -25,6 +25,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import cast
 
 from analyzer_ng.core.features import FEATURE_SCHEMA_VER
 from analyzer_ng.ml.artifacts import KIND_GBM, ArtifactSpec, ModelStore
@@ -50,6 +51,25 @@ GATE_ABSTAIN_SLACK = 0.05
 # below this both models are scored on raw max-prob (identity), symmetrically.
 GATE_CALIB_MIN = 50
 
+# Calibration-health guardrail (tech-debt #1). The active model is scored on the eval
+# slice with its *shipped* calibrator (not a fresh re-fit — see run_gate), so its ECE
+# reflects production calibration. An active whose shipped calibrator is degenerate on
+# the eval slice (ECE above this) must NOT masquerade as a protected baseline: a model
+# that mis-calibrates every prediction (e.g. an accidental partial-data isotonic fit that
+# maps raw 0.99→0.71) abstains/auto-labels wrongly in production even though its argmax
+# accuracy (macro-F1, calibrator-independent) looks fine. When the active is degenerate
+# and the candidate is meaningfully better calibrated, the marginal macro-F1 protection is
+# relaxed so a clean candidate can replace it (the accidental degenerate ship that became
+# an un-improvable baseline).
+GATE_ECE_DEGENERATE = 0.15
+# The candidate must be at least this much better calibrated (lower ECE) than a degenerate
+# active before the relaxation kicks in — a candidate no better calibrated earns nothing.
+GATE_ECE_IMPROVEMENT = 0.05
+# Relaxed macro-F1 slack applied *only* when replacing a degenerate-calibrated active with
+# a meaningfully better-calibrated candidate: the candidate may trade up to this much
+# accuracy for the large calibration win, but a genuine accuracy collapse is still rejected.
+GATE_MACRO_F1_SLACK_DEGRADED_ACTIVE = 0.05
+
 
 @dataclass(frozen=True)
 class GateResult:
@@ -62,6 +82,19 @@ class GateResult:
     extra: dict = field(default_factory=dict)
 
 
+def _active_calibration_degraded(candidate: EvalReport, active: EvalReport) -> bool:
+    """True when the active's shipped calibrator is degenerate and the candidate is
+    meaningfully better calibrated (tech-debt #1).
+
+    ``active.ece`` here is measured with the active model's *shipped* calibrator (run_gate
+    scores the active as-shipped), so a degenerate install-wide calibrator surfaces as a
+    high ECE. When that is the case and the candidate is at least ``GATE_ECE_IMPROVEMENT``
+    better calibrated, the active forfeits the tight macro-F1 protection — it should never
+    have shipped, and it must not block a well-calibrated replacement.
+    """
+    return active.ece > GATE_ECE_DEGENERATE and candidate.ece <= active.ece - GATE_ECE_IMPROVEMENT
+
+
 def passes_gate(candidate: EvalReport, active: EvalReport | None) -> GateResult:
     """Apply the three §10.2 conditions; ``active=None`` bootstraps (always ships).
 
@@ -71,12 +104,22 @@ def passes_gate(candidate: EvalReport, active: EvalReport | None) -> GateResult:
     nothing to guard on that axis — the condition is not failed (the macro-F1 and
     abstain conditions still bind, and a model that stopped auto-labeling shows up as
     a higher abstain rate there).
+
+    Calibration guardrail (tech-debt #1): when the active model's *shipped* calibrator is
+    degenerate on the eval slice and the candidate is meaningfully better calibrated, the
+    macro-F1 slack is widened to :data:`GATE_MACRO_F1_SLACK_DEGRADED_ACTIVE` so a marginally
+    higher (calibrator-independent) macro-F1 cannot let a mis-calibrated active block a
+    clean candidate. The absolute auto-band safety floor (0.855) still binds, so a
+    genuinely worse candidate is still rejected.
     """
     if active is None:
         return GateResult(ship=True, reasons=[], candidate=candidate, active=None)
 
+    degraded = _active_calibration_degraded(candidate, active)
+    f1_slack = GATE_MACRO_F1_SLACK_DEGRADED_ACTIVE if degraded else GATE_MACRO_F1_SLACK
+
     reasons: list[str] = []
-    if candidate.macro_f1 < active.macro_f1 - GATE_MACRO_F1_SLACK:
+    if candidate.macro_f1 < active.macro_f1 - f1_slack:
         reasons.append("macro_f1")
     if candidate.auto_band_precision is not None:
         active_ap = active.auto_band_precision
@@ -85,12 +128,16 @@ def passes_gate(candidate: EvalReport, active: EvalReport | None) -> GateResult:
             reasons.append("auto_band_precision")
     if candidate.abstain_rate > active.abstain_rate + GATE_ABSTAIN_SLACK:
         reasons.append("abstain_rate")
-    return GateResult(ship=not reasons, reasons=reasons, candidate=candidate, active=active)
+    return GateResult(
+        ship=not reasons,
+        reasons=reasons,
+        candidate=candidate,
+        active=active,
+        extra={"active_calibration_degraded": degraded},
+    )
 
 
-def _fit_scoring_calibrator(
-    model: GbmModel, train_events: list[dict]
-) -> IsotonicCalibrator | None:
+def _fit_scoring_calibrator(model: GbmModel, train_events: list[dict]) -> IsotonicCalibrator | None:
     """Fit an install-wide isotonic calibrator on the train slice for honest p*.
 
     The candidate's production calibrators are only fitted *after* it ships, so the
@@ -109,6 +156,11 @@ def _fit_scoring_calibrator(
 
 TrainFn = Callable[[list[dict]], GbmModel]
 
+# Sentinel for ``run_gate(active_calibrator=…)``: fit the active's scoring calibrator on
+# the train slice (the historical leakage-free proxy). Distinct from ``None``, which means
+# "score the active with no calibrator (raw max-prob), because that is how it ships".
+_REFIT_ACTIVE_CALIBRATOR = object()
+
 
 def run_gate(
     rows: list[dict],
@@ -116,16 +168,23 @@ def run_gate(
     *,
     train_frac: float = 0.8,
     train_fn: TrainFn = train_gbm,
+    active_calibrator: IsotonicCalibrator | None | object = _REFIT_ACTIVE_CALIBRATOR,
 ) -> GateResult:
     """Full leakage-free replay gate (spec §10.1 step 2 + §10.2).
 
     Splits the usable events chronologically, **fits the evaluated candidate on the
-    first 80 % train slice only** (``train_fn``) — never on the eval slice — and
-    scores that candidate *and* the active model on the held-out last 20 %, each with
-    a calibrator fitted on the train slice. This is the honest estimate the gate
-    decides on; the model the retrainer ships may be the full-data refit (the
-    80 %-slice fit here is a leakage-free proxy for it). ``active=None`` (cold store)
-    ships unconditionally — the first model has no baseline.
+    first 80 % train slice only** (``train_fn``) — never on the eval slice — and scores
+    it on the held-out last 20 % with a calibrator fitted on the train slice (a
+    leakage-free proxy for the candidate's future shipped calibrator, which is only fit
+    after it ships). ``active=None`` (cold store) ships unconditionally.
+
+    The active model is scored on the same held-out slice **as shipped**: when
+    ``active_calibrator`` is supplied (its persisted install-wide calibrator, or ``None``
+    when it shipped none and serves raw) the active is scored with exactly that, so a
+    degenerate shipped calibrator shows up in the active's ECE/abstain/auto-band and cannot
+    masquerade as a strong baseline (tech-debt #1). When ``active_calibrator`` is left at
+    the sentinel the active's scoring calibrator is re-fit on the train slice — the
+    historical behaviour, kept for direct callers that pass a never-shipped model.
 
     Returns ``ship=False, reasons=['no_eval_data']`` when there is not enough data to
     train a proxy and hold out an eval slice (and no active baseline → bootstrap).
@@ -145,7 +204,11 @@ def run_gate(
     if active is None:
         return GateResult(ship=True, reasons=[], candidate=cand_report, active=None)
 
-    act_cal = _fit_scoring_calibrator(active, train_events)
+    if active_calibrator is _REFIT_ACTIVE_CALIBRATOR:
+        act_cal = _fit_scoring_calibrator(active, train_events)
+    else:
+        # Not the sentinel: a real calibrator or None passed by the caller.
+        act_cal = cast("IsotonicCalibrator | None", active_calibrator)  # score AS SHIPPED
     act_report = evaluate(active, eval_events, act_cal)
     return passes_gate(cand_report, act_report)
 
@@ -156,6 +219,20 @@ def _load_active_model(store: ModelStore) -> GbmModel | None:
     if rec is None or rec.feature_schema_ver != FEATURE_SCHEMA_VER:
         return None
     return GbmModel.from_bytes(rec.blob)
+
+
+def _load_active_install_calibrator(store: ModelStore) -> IsotonicCalibrator | None:
+    """The active install-wide (``project_id is None``) shipped calibrator, or ``None``.
+
+    This is the calibrator serving actually applies to install-wide predictions (spec
+    §6.5), so scoring the active model with it in the gate evaluates the active exactly
+    as shipped. ``None`` means the active shipped no install-wide calibrator (it serves
+    raw max-prob), and the gate scores it raw to match.
+    """
+    for rec in store.load_active_calibrators():
+        if rec.project_id is None and rec.feature_schema_ver == FEATURE_SCHEMA_VER:
+            return IsotonicCalibrator.from_bytes(rec.blob)
+    return None
 
 
 ShipGate = Callable[[GbmModel, list[dict]], bool]
@@ -182,7 +259,19 @@ def make_ship_gate(
 
     def gate(candidate: GbmModel, rows: list[dict]) -> bool:
         active = _load_active_model(store)
-        result = run_gate(rows, active, train_frac=train_frac, train_fn=train_fn)
+        # Score the active AS SHIPPED with its persisted install-wide calibrator so a
+        # degenerate shipped calibrator is part of the comparison (tech-debt #1). An active
+        # that shipped no install-wide calibrator (serves raw) has none to load; fall back
+        # to the train-slice re-fit proxy the gate has always used for a calibrator-less
+        # baseline rather than scoring it on raw over-confidence.
+        active_cal: IsotonicCalibrator | None | object = _REFIT_ACTIVE_CALIBRATOR
+        if active is not None:
+            shipped = _load_active_install_calibrator(store)
+            if shipped is not None:
+                active_cal = shipped
+        result = run_gate(
+            rows, active, train_frac=train_frac, train_fn=train_fn, active_calibrator=active_cal
+        )
         if result.ship:
             logger.info(
                 "ship gate: candidate accepted (%s)",

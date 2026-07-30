@@ -52,6 +52,34 @@ class SignatureIn(BaseModel):
     paths: list[str] = []
     emb: list[float] | None = None  # 384 floats; None => embed asynchronously
     emb_model_ver: int = 0
+    # RP log id of the item's first ERROR log (spec 03 §8.2). The similar-TI search
+    # reply must carry a real RP log id — the RP backend loads the log by this id and
+    # drops any row it cannot find. None for items indexed before this was captured.
+    error_log_id: int | None = None
+
+
+class StoredSignature(BaseModel):
+    """An item's persisted ``failure_signature`` identity, read back verbatim (§2.5).
+
+    The *canonical* signature for read-path comparisons. ``error_hash`` and
+    ``template_ids`` are computed at index time against that index's Drain3 state;
+    the read path (analyze/suggest) mines against a read-only Drain clone whose
+    templates have since drifted, so a recompute would differ. Any hash-identity
+    comparison (Stage-A exact match, KB ``exception_fps`` GIN, burst novelty,
+    launch-group fingerprint) MUST use these stored values so it only ever compares
+    identities computed the same way (spec 03 §6.1 identity invariant).
+    """
+
+    project_id: int
+    item_id: int
+    exception_fp: int
+    error_hash: int
+    top_frames: list[str] = []
+    template_ids: list[int] = []
+    exc_text: str = ""
+    msg_text: str = ""
+    status_codes: list[str] = []
+    emb_model_ver: int = 0
 
 
 class QuerySignature(BaseModel):
@@ -100,6 +128,10 @@ class Candidate(BaseModel):
     same_test_case: bool = False
     same_error_hash: bool = False
     same_exception_fp: bool = False
+    # un-masked neighbour text (2026-07-18 errata) — carried so the decision layer can
+    # run the deterministic boilerplate-only guard on the GBM top-1 neighbour.
+    msg_text: str = ""
+    exc_text: str = ""
     launch_distance: int | None = None  # |query.launch_number - cand.launch_number|
     launch_id: int | None = None  # candidate's launch (analyzerMode scope, §6.0)
     launch_name: str | None = None
@@ -141,6 +173,22 @@ class SuggestionIn(BaseModel):
     features: dict[str, float] = {}
     model_ver: str
     llm_used: bool = False
+    # Decision provenance persisted as real columns (migration 0007): how the decision
+    # was reached ('hash'|'kb'|'gbm'|'rule_cold'|'coldstart') and, for an abstain, why
+    # ('gbm_below_suggest'|'gbm_boilerplate_only_neighbor'|'no_confident_rule'). NULL on
+    # rows written before the column existed (no backfill — NULL means "not captured").
+    method: str | None = None
+    abstain_reason: str | None = None
+    # Deterministic template explanation written at decision time (extension
+    # 2026-07-20): Stage-A inherits carry an "inherited from item N …" sentence with
+    # ``llm_used=false`` — the provenance marker distinguishing a template rationale
+    # from the LLM explainer (which sets ``llm_used=true``). None for every other path.
+    explanation: str | None = None
+    # Which route wrote the row (migration 0009, docs/EARLY-ITEM-AA.md). 'early' =
+    # the per-item pre-launch-finish pass, whose launch-context features are a
+    # degenerate group of one; the training frame refuses those snapshots. None =
+    # a launch-scoped or suggest route (the trusted provenance).
+    source: Literal["early"] | None = None
 
 
 class LabelEventIn(BaseModel):

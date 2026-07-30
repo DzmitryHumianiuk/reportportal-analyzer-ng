@@ -1,0 +1,205 @@
+diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerUtils.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerUtils.java
+index 778e5db..7b62aa5 100644
+--- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerUtils.java
++++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerUtils.java
+@@ -31,6 +31,7 @@ import static java.util.Optional.ofNullable;
+ import com.epam.reportportal.model.analyzer.IndexLog;
+ import com.epam.reportportal.model.analyzer.IndexTestItem;
+ import com.epam.reportportal.model.project.AnalyzerConfig;
++import com.epam.ta.reportportal.entity.enums.LogLevel;
+ import com.epam.ta.reportportal.entity.item.TestItem;
+ import com.epam.ta.reportportal.entity.log.LogFull;
+ import com.epam.ta.reportportal.entity.project.Project;
+@@ -39,6 +40,11 @@ import com.epam.ta.reportportal.model.analyzer.RelevantItemInfo;
+ import com.epam.ta.reportportal.model.project.UniqueErrorConfig;
+ import java.time.LocalDateTime;
+ import java.time.ZoneId;
++import java.util.ArrayList;
++import java.util.Collection;
++import java.util.Comparator;
++import java.util.HashSet;
++import java.util.LinkedHashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+@@ -54,10 +60,90 @@ import org.apache.commons.lang3.StringUtils;
+  */
+ public class AnalyzerUtils {
+ 
++  /**
++   * How many WARN-level "near-error context" lines preceding the first ERROR are forwarded to the
++   * analyzer per test item. Mirrors the analyzer's own {@code CONTEXT_LOOKBACK_LINES} window
++   * (analyzer-ng {@code preprocessing/pipeline.py}) so the payload is bounded to exactly what the
++   * analyzer can consume — it keeps the identical exception+stack from collapsing two distinct
++   * failures (e.g. a "SLOW QUERY ..." app regression vs a "connection pool exhausted ..." infra
++   * outage) that would otherwise share one {@code error_hash} (ADV-1 / S16).
++   */
++  public static final int CONTEXT_LOOKBACK_LINES = 5;
++
+   private AnalyzerUtils() {
+     //static only
+   }
+ 
++  /**
++   * Selects the logs forwarded to the analyzer for one test item: every ERROR+ log (the failure
++   * identity, unchanged from the legacy ERROR-only behaviour) PLUS the last
++   * {@link #CONTEXT_LOOKBACK_LINES} WARN-level lines that chronologically PRECEDE the first ERROR
++   * (the near-error discriminant, previously dropped).
++   *
++   * <p>The result is a {@link LinkedHashSet} in strict chronological order (by {@code logTime},
++   * {@code logId} breaking ties). Ordering matters: {@link IndexTestItem#getLogs()} is declared as
++   * a {@link Set}, but Jackson serializes the concrete collection in iteration order, so an ordered
++   * {@code LinkedHashSet} yields a time-ordered JSON {@code logs} array. The analyzer folds the
++   * WARN lines that appear before the first ERROR into {@code msg_text} (out of the identity hash),
++   * so it depends on the WARN context arriving before the ERROR — a plain {@link HashSet} would
++   * scramble that and silently drop the discriminant.
++   *
++   * <p>When the item has no ERROR log the result is empty, preserving the legacy contract that only
++   * items carrying an ERROR log are indexed (callers filter empty-log items out).
++   *
++   * @param logs     all WARN+ logs of the item (as returned by the WARN-level repository fetch)
++   * @param lookback max number of near-error WARN lines to keep (see {@link #CONTEXT_LOOKBACK_LINES})
++   * @return chronologically ordered ERROR+ logs plus the bounded near-error WARN context
++   */
++  public static Set<IndexLog> withNearErrorWarnContext(Collection<IndexLog> logs, int lookback) {
++    if (logs == null || logs.isEmpty()) {
++      return new LinkedHashSet<>();
++    }
++    final List<IndexLog> ordered = new ArrayList<>(logs);
++    ordered.sort(
++        Comparator.comparing(IndexLog::getLogTime,
++                Comparator.nullsLast(Comparator.naturalOrder()))
++            .thenComparing(IndexLog::getLogId,
++                Comparator.nullsLast(Comparator.naturalOrder())));
++
++    int firstError = -1;
++    for (int i = 0; i < ordered.size(); i++) {
++      if (ordered.get(i).getLogLevel() >= LogLevel.ERROR_INT) {
++        firstError = i;
++        break;
++      }
++    }
++    // No ERROR log -> nothing to analyze; item is not indexed (legacy behaviour).
++    if (firstError < 0) {
++      return new LinkedHashSet<>();
++    }
++
++    final Set<Integer> keep = new HashSet<>();
++    // Keep every ERROR+ log (the failure identity), wherever it sits.
++    for (int i = 0; i < ordered.size(); i++) {
++      if (ordered.get(i).getLogLevel() >= LogLevel.ERROR_INT) {
++        keep.add(i);
++      }
++    }
++    // Keep the last `lookback` WARN lines that precede the first ERROR (the context).
++    int taken = 0;
++    for (int i = firstError - 1; i >= 0 && taken < lookback; i--) {
++      final int level = ordered.get(i).getLogLevel();
++      if (level >= LogLevel.WARN_INT && level < LogLevel.ERROR_INT) {
++        keep.add(i);
++        taken++;
++      }
++    }
++
++    final LinkedHashSet<IndexLog> result = new LinkedHashSet<>();
++    for (int i = 0; i < ordered.size(); i++) {
++      if (keep.contains(i)) {
++        result.add(ordered.get(i));
++      }
++    }
++    return result;
++  }
++
+   /**
+    * Creates {@link IndexLog} model for log for further sending that into analyzer
+    */
+diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/StandardTestItemPreparerService.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/StandardTestItemPreparerService.java
+index 40c31ea..cb6294a 100644
+--- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/StandardTestItemPreparerService.java
++++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/StandardTestItemPreparerService.java
+@@ -29,7 +29,6 @@ import com.epam.ta.reportportal.entity.enums.LogLevel;
+ import com.epam.ta.reportportal.entity.item.TestItem;
+ import com.epam.ta.reportportal.jooq.enums.JTestItemTypeEnum;
+ import java.util.Collection;
+-import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import org.apache.commons.collections.CollectionUtils;
+@@ -84,14 +83,18 @@ public class StandardTestItemPreparerService implements TestItemPreparationStrat
+     return indexTestItemList.stream()
+         .peek(indexTestItem -> ofNullable(logsMapping.get(indexTestItem.getTestItemId())).filter(
+                 CollectionUtils::isNotEmpty)
+-            .map(HashSet::new)
++            .map(logs -> AnalyzerUtils.withNearErrorWarnContext(logs,
++                AnalyzerUtils.CONTEXT_LOOKBACK_LINES))
+             .ifPresent(indexTestItem::setLogs))
+         .filter(it -> CollectionUtils.isNotEmpty(it.getLogs()))
+         .collect(toList());
+   }
+ 
+   private Map<Long, List<IndexLog>> getLogsMapping(Long launchId, List<Long> itemIds) {
++    // WARN+ (not ERROR+): the analyzer folds the last few WARN lines preceding the first ERROR
++    // into the item's context to separate otherwise-identical failures. AnalyzerUtils bounds and
++    // orders them; ERROR+ logs (the identity) are always kept.
+     return logService.findAllIndexUnderTestItemByLaunchIdAndTestItemIdsAndLogLevelGte(launchId,
+-        itemIds, LogLevel.ERROR.toInt());
++        itemIds, LogLevel.WARN.toInt());
+   }
+ }
+diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemPreparerServiceImpl.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemPreparerServiceImpl.java
+index 98c0af9..3428e59 100644
+--- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemPreparerServiceImpl.java
++++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemPreparerServiceImpl.java
+@@ -30,7 +30,6 @@ import com.epam.ta.reportportal.jooq.enums.JTestItemTypeEnum;
+ import com.epam.reportportal.model.analyzer.IndexLog;
+ import com.epam.reportportal.model.analyzer.IndexTestItem;
+ import java.util.Collection;
+-import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import org.apache.commons.collections.CollectionUtils;
+@@ -78,15 +77,18 @@ public class TestItemPreparerServiceImpl implements TestItemPreparerService {
+     return indexTestItemList.stream()
+         .peek(indexTestItem -> ofNullable(logsMapping.get(indexTestItem.getTestItemId())).filter(
+                 CollectionUtils::isNotEmpty)
+-            .map(HashSet::new)
++            .map(logs -> AnalyzerUtils.withNearErrorWarnContext(logs,
++                AnalyzerUtils.CONTEXT_LOOKBACK_LINES))
+             .ifPresent(indexTestItem::setLogs))
+         .filter(it -> CollectionUtils.isNotEmpty(it.getLogs()))
+         .collect(toList());
+   }
+ 
+   private Map<Long, List<IndexLog>> getLogsMapping(Long launchId, List<Long> itemIds) {
++    // WARN+ (not ERROR+): forward the bounded near-error WARN context alongside the ERROR identity
++    // (see AnalyzerUtils#withNearErrorWarnContext).
+     return logService.findAllIndexUnderTestItemByLaunchIdAndTestItemIdsAndLogLevelGte(launchId,
+-        itemIds, LogLevel.ERROR.toInt());
++        itemIds, LogLevel.WARN.toInt());
+   }
+ 
+ }
+diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemWithRetriesPreparerService.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemWithRetriesPreparerService.java
+index 5a3d11f..810d67e 100644
+--- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemWithRetriesPreparerService.java
++++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemWithRetriesPreparerService.java
+@@ -25,7 +25,6 @@ import com.epam.ta.reportportal.entity.item.TestItem;
+ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.Collections;
+-import java.util.HashSet;
+ import java.util.List;
+ import lombok.RequiredArgsConstructor;
+ import lombok.extern.slf4j.Slf4j;
+@@ -61,8 +60,9 @@ public class TestItemWithRetriesPreparerService implements TestItemPreparationSt
+                 latestRetry.getItemResults().getIssue().getIssueType().getLocator());
+             res.setAutoAnalyzed(latestRetry.getItemResults().getIssue().getAutoAnalyzed());
+           }
+-          res.setLogs(new HashSet<>(logRepository.findNestedLogsOfRetryItem(retryWithMaxStepsId,
+-              LogLevel.ERROR.toInt())));
++          res.setLogs(AnalyzerUtils.withNearErrorWarnContext(
++              logRepository.findNestedLogsOfRetryItem(retryWithMaxStepsId, LogLevel.WARN.toInt()),
++              AnalyzerUtils.CONTEXT_LOOKBACK_LINES));
+           results.add(res);
+         });
+       } else {

@@ -169,12 +169,15 @@ def test_load_catalog_rejects_out_of_range_confidence(conf):
 
 
 def test_load_catalog_rejects_duplicate_keys():
-    dup = _GOOD + """  - mode_key: a
+    dup = (
+        _GOOD
+        + """  - mode_key: a
     title: A2
     rules: {kw: ["baz"]}
     prior: {label: si, confidence: 0.5}
     rationale: dup
 """
+    )
     with pytest.raises(SeedCatalogError, match="duplicate"):
         load_catalog(dup)
 

@@ -154,3 +154,9 @@ def test_analyze_serializes_nonempty_results() -> None:
     assert json.loads(serialize_model_list(results)) == [
         {"testItem": 1, "issueType": "pb001", "relevantItem": 2}
     ]
+
+
+def test_analyze_item_early_returns_json_array(dispatcher: Dispatcher) -> None:
+    # docs/EARLY-ITEM-AA.md: same body and reply shape as analyze.
+    reply = dispatcher.process("analyze_item_early", [LAUNCH])
+    assert json.loads(reply) == []

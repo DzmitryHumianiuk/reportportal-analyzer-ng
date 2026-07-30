@@ -102,6 +102,11 @@ class Launch(BaseModel):
     analyzerConfig: AnalyzerConf = AnalyzerConf()
     testItems: list[TestItem] = []
     clusters: dict = {}
+    # Total items in the launch, passed and failed together (spec §6.4 #31).
+    # 0 = unknown: legacy senders omit it and launch_fail_fraction stays 0.0.
+    # The launch-finish sender may fill it; the early per-item trigger sends 0
+    # on purpose (mid-launch the total does not exist yet).
+    launchItemsCount: int = 0
 
 
 class TestItemInfo(BaseModel):

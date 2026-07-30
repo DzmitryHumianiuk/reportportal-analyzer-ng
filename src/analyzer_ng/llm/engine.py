@@ -61,6 +61,141 @@ class RoleResult:
     prompt_hash: str
 
 
+# --------------------------------------------------------------------------- #
+# Negative cache (issue #7).
+#
+# Some inputs cannot be answered at all: project 7 has template sets whose whole
+# log is "expected false to deeply equal true", with no exception identifier for
+# the extractor to ground on, so post_validate rejects both seeds every single
+# time. Caching only ok results meant paying a full generation for that certain
+# failure on every open, forever.
+#
+# A negative entry is a marker row in the SAME llm_cache table (no schema change),
+# holding the outcome that produced it and nothing else. It is NOT an extraction:
+# it carries no role fields, so it can never be mistaken for a real answer, and it
+# is written with template_hash NULL so the feature-time lookup by template set
+# (§4.2) cannot see it — the GBM one-hot columns keep their ``unknown`` sentinel,
+# exactly as if the role had never run.
+#
+# Only DETERMINISTIC failures are cached, and only for roles that opt in with
+# ``Role.negative_ttl_days``. A timeout or an open breaker is a transport problem:
+# retrying it is the whole point of the circuit breaker, so caching one would turn
+# a five-minute sidecar outage into days of fake failures.
+# --------------------------------------------------------------------------- #
+_NEGATIVE_MARKER = "negative"
+
+# validation_fail only. It is a property of the input: the log holds nothing that
+# can be grounded, so every seed fails the same way. A schema_fail is not — a body
+# that failed to parse is a decoding accident that a later call may well get right,
+# so it stays uncached and keeps retrying.
+_CACHEABLE_FAILURES = ("validation_fail",)
+
+
+def negative_payload(outcome: str) -> dict[str, Any]:
+    """The cache body stored for a deterministic failure."""
+    return {_NEGATIVE_MARKER: True, "outcome": outcome}
+
+
+def is_negative(output: dict[str, Any] | None) -> bool:
+    """True if a cached body is a negative marker rather than a role answer."""
+    return output is not None and output.get(_NEGATIVE_MARKER) is True
+
+
+# --------------------------------------------------------------------------- #
+# Masked-truncation screen (§3.0 step 6b).
+#
+# Constrained decoding hides a token-budget cut: when num_predict runs out mid
+# free-text field, the grammar closes the open JSON string and emits the trailing
+# schema fields, so the body validates and a mid-sentence fragment flows through
+# to the UI (live: coldstart reason for item 3688, "...the exception is a"). The
+# ONLY reliable signal is the server's finish/stop reason == "length"; the
+# punctuation heuristic then confirms the text lacks a clean ending. The screen is
+# deliberately conservative — it fires only when BOTH hold — so a legitimately
+# short field that happens to hit the cap at a sentence boundary is left alone,
+# and non-English text (whose terminals include the CJK set below) is tolerated.
+# --------------------------------------------------------------------------- #
+_TERMINAL_CHARS = ".!?…。！？"  # sentence terminals incl. common CJK
+_TRAILING_CLOSERS = "\"'”’」』）)]}"  # closing quotes/brackets that may follow a terminal
+# Characters that never legitimately END a rationale. A field ending here is a
+# masked cut regardless of the server's finish reason: the model can stop on its
+# own mid-token, e.g. quoting a selenium error "Unable to locate element: {" and
+# halting at the brace (live: item 2958, explanation ended on a dangling "{").
+_HARD_INCOMPLETE = "{[(<:,;=/\\-–—"
+_TRUNCATION_MARKER = " …"  # honest trailing marker for a cut we could not extend away
+
+
+def _ends_complete(text: str) -> bool:
+    """True if ``text`` ends like a finished sentence (or is blank)."""
+    stripped = text.rstrip()
+    if not stripped:
+        return True  # blank/empty is not a *mid-sentence* cut
+    core = stripped.rstrip(_TRAILING_CLOSERS)
+    if not core:
+        return True  # only closers/quotes — nothing to judge, don't false-positive
+    return core[-1] in _TERMINAL_CHARS
+
+
+def _ends_hard_incomplete(text: str) -> bool:
+    """True if ``text`` ends on a token that can never finish a sentence."""
+    core = text.rstrip().rstrip(_TRAILING_CLOSERS)
+    return bool(core) and core[-1] in _HARD_INCOMPLETE
+
+
+def _looks_truncated(text: str, finish_reason: str | None) -> bool:
+    """A schema-valid field is a masked cut when it ends on an obviously-incomplete
+    token (any finish reason), OR the cap was hit AND it ends mid-sentence."""
+    if _ends_hard_incomplete(text):
+        return True
+    if finish_reason != "length":
+        return False  # server stopped on its own (or didn't say) → trust the text
+    return not _ends_complete(text)
+
+
+def _clip_to_clean_end(text: str) -> str:
+    """Trim a mid-sentence tail back to the last sentence terminal so a marked cut
+    never keeps a dangling fragment; fall back to the last word boundary."""
+    stripped = text.rstrip()
+    idx = max((stripped.rfind(c) for c in _TERMINAL_CHARS), default=-1)
+    if idx >= 0:
+        return stripped[: idx + 1]
+    trimmed = stripped.rstrip(_HARD_INCOMPLETE + " \t")
+    cut = trimmed.rfind(" ")
+    return (trimmed[:cut] if cut > 0 else trimmed).rstrip()
+
+
+def _truncated_fields(role: Role, output: dict[str, Any], finish_reason: str | None) -> list[str]:
+    fields = []
+    for name in getattr(role, "free_text_fields", ()):
+        value = output.get(name)
+        if isinstance(value, str) and _looks_truncated(value, finish_reason):
+            fields.append(name)
+    return fields
+
+
+def _mark_truncated(output: dict[str, Any], fields: list[str]) -> dict[str, Any]:
+    """Append an honest ``…`` marker to still-cut fields and flag the payload.
+
+    ``truncated`` rides in the jsonb output (no schema change) so the UI/audit can
+    see the rationale was cut; the outcome stays ``ok`` (a usable, if clipped,
+    answer). Never silently persist a mid-sentence cut.
+    """
+    marked = dict(output)
+    for name in fields:
+        value = marked.get(name)
+        if isinstance(value, str):
+            # A dangling token (…"{") reads as broken with just a marker appended,
+            # so clip it back to a clean sentence first. A plain mid-word cut keeps
+            # the full text and trails off with the marker.
+            if _ends_hard_incomplete(value):
+                clipped = _clip_to_clean_end(value)
+                base = clipped if clipped else value.rstrip()
+            else:
+                base = value.rstrip()
+            marked[name] = f"{base}{_TRUNCATION_MARKER}"
+    marked["truncated"] = True
+    return marked
+
+
 class LlmEngine:
     def __init__(
         self,
@@ -85,7 +220,16 @@ class LlmEngine:
         cache_key = sha256_hex(f"{self._model}|{role.name}|{prompt_hash}")
 
         cached = self._cache.get_fresh(project_id, cache_key, role.ttl_days)
-        if cached is not None:
+        if is_negative(cached):
+            # A negative row lives under its own, shorter window, so re-ask the
+            # store with the negative TTL (freshness stays one thing, computed in
+            # SQL on created_at). Fresh → report the cached failure and make no
+            # call. Expired → fall through and generate again, which is the point
+            # of the short window.
+            outcome = self._fresh_negative_outcome(role, project_id, cache_key)
+            if outcome is not None:
+                return self._finish(role, project_id, item_id, prompt_hash, outcome, None, True, 0)
+        elif cached is not None:
             return self._finish(role, project_id, item_id, prompt_hash, "ok", cached, True, 0)
 
         if not self._breaker.allow():
@@ -94,12 +238,16 @@ class LlmEngine:
             )
 
         schema = self._schema_for(role, inp)
-        outcome, output, latency = self._attempt(role, inp, schema, seed=7)
+        outcome, output, latency, finish = self._attempt(role, inp, schema, seed=7)
         if outcome in ("schema_fail", "validation_fail"):
             # §3.0 step 6: retry once (same prompt shape, seed 8), then drop.
-            outcome, output, latency = self._attempt(role, inp, schema, seed=8)
+            outcome, output, latency, finish = self._attempt(role, inp, schema, seed=8)
 
         if outcome == "ok" and output is not None:
+            # §3.0 step 6b: a schema-valid body may still hide a masked truncation of
+            # a free-text field. Screen, and (if cut) retry once with a doubled budget
+            # before persisting — marking any residual cut honestly.
+            output = self._resolve_truncation(role, inp, schema, output, finish)
             self._cache.put(
                 project_id,
                 cache_key,
@@ -108,7 +256,31 @@ class LlmEngine:
                 output,
                 role.template_hash(inp),
             )
+        elif outcome in _CACHEABLE_FAILURES and role.negative_ttl_days is not None:
+            # Both seeds failed the same deterministic check: remember that, so a
+            # repeat inside the short window costs nothing. template_hash stays
+            # NULL — this is not an extraction for a template set and must never be
+            # served as one at feature time.
+            self._cache.put(
+                project_id, cache_key, role.name, self._model, negative_payload(outcome), None
+            )
         return self._finish(role, project_id, item_id, prompt_hash, outcome, output, False, latency)
+
+    def _fresh_negative_outcome(self, role: Role, project_id: int, cache_key: str) -> str | None:
+        """Outcome of a negative cache row still inside the role's negative TTL.
+
+        ``None`` means "treat as a miss": the row aged out of the short window, or
+        the role no longer opts into negative caching (then an old marker row must
+        not keep suppressing calls).
+        """
+        if role.negative_ttl_days is None:
+            return None
+        row = self._cache.get_fresh(project_id, cache_key, role.negative_ttl_days)
+        if row is None or not is_negative(row):
+            return None
+        outcome = str(row.get("outcome"))
+        # Never report a stored value we do not recognise as an outcome.
+        return outcome if outcome in _CACHEABLE_FAILURES else "validation_fail"
 
     @staticmethod
     def _schema_for(role: Role, inp: dict[str, Any]) -> dict[str, Any]:
@@ -116,36 +288,71 @@ class LlmEngine:
         return schema_for(inp) if callable(schema_for) else role.schema
 
     def _attempt(
-        self, role: Role, inp: dict[str, Any], schema: dict[str, Any], seed: int
-    ) -> tuple[str, dict[str, Any] | None, int | None]:
+        self,
+        role: Role,
+        inp: dict[str, Any],
+        schema: dict[str, Any],
+        seed: int,
+        num_predict: int | None = None,
+    ) -> tuple[str, dict[str, Any] | None, int | None, str | None]:
         system, user = role.build_prompt(inp, new_nonce())
         try:
             resp = self._client.chat(
                 system=system,
                 user=user,
                 schema=schema,
-                num_predict=role.num_predict,
+                num_predict=role.num_predict if num_predict is None else num_predict,
                 seed=seed,
             )
         except LlmTransportError:
             self._breaker.record_failure()
-            return ("timeout", None, None)
+            return ("timeout", None, None, None)
 
         # A well-formed HTTP response — the sidecar is up, so the breaker heals even
         # if the body is bad (schema failures follow the retry/drop path, §1.4).
         self._breaker.record_response()
 
         if resp.tool_calls:  # §5.3: any tool_calls ⇒ schema failure, drop.
-            return ("schema_fail", None, resp.latency_ms)
+            return ("schema_fail", None, resp.latency_ms, resp.finish_reason)
         try:
             parsed = json.loads(resp.content)
         except (json.JSONDecodeError, TypeError):
-            return ("schema_fail", None, resp.latency_ms)
+            return ("schema_fail", None, resp.latency_ms, resp.finish_reason)
         if not is_valid(parsed, schema):
-            return ("schema_fail", None, resp.latency_ms)
+            return ("schema_fail", None, resp.latency_ms, resp.finish_reason)
         if not role.post_validate(parsed, inp):
-            return ("validation_fail", None, resp.latency_ms)
-        return ("ok", parsed, resp.latency_ms)
+            return ("validation_fail", None, resp.latency_ms, resp.finish_reason)
+        return ("ok", parsed, resp.latency_ms, resp.finish_reason)
+
+    def _resolve_truncation(
+        self,
+        role: Role,
+        inp: dict[str, Any],
+        schema: dict[str, Any],
+        output: dict[str, Any],
+        finish_reason: str | None,
+    ) -> dict[str, Any]:
+        """Screen a schema-valid body for a masked free-text cut; retry-or-mark (§3.0 6b).
+
+        Detection: :func:`_truncated_fields`. On a hit, one retry with a doubled
+        num_predict (same seed/prompt shape); if that comes back clean, use it. If
+        the retry is still cut (or failed to produce a body), keep the longer text
+        available and persist it with an explicit ``…`` marker plus a ``truncated``
+        flag — never a silent mid-sentence cut.
+        """
+        fields = _truncated_fields(role, output, finish_reason)
+        if not fields:
+            return output
+
+        r_outcome, r_output, _r_latency, r_finish = self._attempt(
+            role, inp, schema, seed=7, num_predict=role.num_predict * 2
+        )
+        if r_outcome == "ok" and r_output is not None:
+            r_fields = _truncated_fields(role, r_output, r_finish)
+            if not r_fields:
+                return r_output  # doubled budget finished the sentence
+            return _mark_truncated(r_output, r_fields)  # still cut → mark the longer text
+        return _mark_truncated(output, fields)  # retry unusable → mark the original
 
     def _finish(
         self,

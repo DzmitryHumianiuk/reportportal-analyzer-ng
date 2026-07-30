@@ -9,11 +9,23 @@ is snapshotted into ``suggestion.features`` on every decision.
 Pipeline per launch: build signatures/embeddings (read-only) → launch grouping
 (§5) → per-representative matching A/B/C (§6.1-§6.3) → decision + policy bands
 (§6.6) → fan out to members, persist ``launch_group`` + ``suggestion`` rows.
+
+Identity invariant (§6.1): hash-identity comparisons only ever compare values
+computed the same way. The read path mines against a *read-only Drain3 clone*
+(:meth:`IndexPipeline.build_item_analyses` never saves), and Drain templates drift
+as new logs are mined, so a read-time recompute of the query item's ``error_hash``
+diverges from the value each history row was indexed under — causing false Stage-A
+matches (a drifted hash colliding with an unrelated row → wrong inherited label)
+*and* false non-matches. So the decision path resolves the query item's CANONICAL
+identity — its persisted ``failure_signature`` row (:meth:`_resolve_identity`) —
+and every hash comparison (Stage A, KB ``exception_fps``, burst novelty, launch
+fingerprint) stays stored-vs-stored. A never-indexed item recomputes then persists.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -38,6 +50,8 @@ from analyzer_ng.core.decision import (
     ACTION_AUTO,
     KB_CANDIDATE_SCORE,
     METHOD_GBM,
+    METHOD_HASH,
+    METHOD_KB,
     TAU_AUTO,
     TAU_SUGGEST,
     DecisionInputs,
@@ -45,6 +59,7 @@ from analyzer_ng.core.decision import (
     GbmDecision,
     HashMatch,
     best_kb_match,
+    calibrated_label_prob,
     decide,
     score_kb_candidate,
 )
@@ -54,6 +69,7 @@ from analyzer_ng.core.features import (
     TIME_DECAY_PER_DAY,
     FeatureContext,
     SeedSignal,
+    base_group,
     feature_names,
     src_weight,
     to_vector,
@@ -64,6 +80,7 @@ from analyzer_ng.db.repositories.models import (
     Candidate,
     CandidateFilters,
     QuerySignature,
+    SignatureIn,
     SuggestionIn,
 )
 from analyzer_ng.db.repositories.retrieval import PgRetrievalStore
@@ -77,6 +94,62 @@ TOP_K = 20
 # Retrieve wider than TOP_K so the analyzerMode hard-scope filter (§6.0) is not
 # starved by out-of-scope rows dominating the top-20 before filtering.
 STAGE_C_RETRIEVE_K = 60
+# Declined-dock floor (Bench band contract, README-bench "Follow-up"): suggest
+# rows scoring in [SUGGEST_BELOW_FLOOR, TAU_SUGGEST) ship with band=below_suggest
+# so the UI can show what the analyzer looked at and said no to; anything below
+# the floor is dropped as noise. Every suggest row carries ng=1 + an explicit
+# band= token. Below-band rows themselves are gated behind
+# ANALYZER_SUGGEST_BELOW_ENABLED (a stock/ng1 UI would render them as endorsed
+# suggestion cards) and capped at ANALYZER_SUGGEST_BELOW_MAX (hard cap 3).
+SUGGEST_BELOW_FLOOR = 0.30
+SUGGEST_BELOW_MAX = 2
+SUGGEST_BELOW_MAX_CAP = 3
+BAND_AUTO = "auto"
+BAND_SUGGEST = "suggest"
+BAND_BELOW_SUGGEST = "below_suggest"
+
+# Routes whose decisions can be APPLIED (auto-label), so their Stage-A and
+# Stage-C candidates must pass the hard ``in_analyze_scope`` filter honoring the
+# project's analyzerMode (ALL / LAUNCH_NAME / CURRENT_LAUNCH / …). The suggest
+# route only displays, so it keeps the softer base filter + boost. The early
+# per-item route (docs/EARLY-ITEM-AA.md) belongs HERE: without it, a project
+# scoped to LAUNCH_NAME could early-inherit — and auto-apply — a label from a
+# launch the finish pass would refuse to look at.
+ANALYZE_SCOPED_ROUTES = ("analyze", "analyze_item_early")
+
+# Plain-English abstain narration for the first below-band row's ek=decline;why=
+# token (same DB-derived texts the LLM fact block quotes — llm.wiring._ABSTAIN_GATE).
+_DECLINE_NARRATION = {
+    "gbm_below_suggest": "model probability stayed below the suggest threshold",
+    "gbm_boilerplate_only_neighbor": (
+        "the nearest neighbour shared no structural evidence (boilerplate guard)"
+    ),
+    "no_confident_rule": "no rule or model matched with enough confidence",
+}
+
+
+def _provenance(label_source: str | None, is_auto_analyzed: bool) -> str:
+    """Human-readable label provenance for a suggest candidate's modelInfo.
+
+    Real data only: derived from the matched item's label_event source and its
+    is_auto_analyzed flag — 'human-confirmed' (rp/human triage), 'auto-analyzed'
+    (the analyzer's own label, incl. ai_suggested), 'seed' (shipped catalog),
+    'unlabeled' when no source is recorded."""
+    if is_auto_analyzed or label_source == "ai_suggested":
+        return "auto-analyzed"
+    if label_source in ("rp", "human"):
+        return "human-confirmed"
+    if label_source == "seed":
+        return "seed"
+    return "unlabeled"
+
+
+def _row_provenance(row: SuggestAnalysisResult) -> str:
+    """The ``src=`` provenance token of a rendered suggest row's modelInfo, or
+    ``'unlabeled'`` when absent. Lets the rubric gate tell a grounded suggestion
+    (human/auto/seed/kb-mode) from a bare unlabeled cosine twin."""
+    m = re.search(r"(?:^|;)src=([^;]+)", row.modelInfo or "")
+    return m.group(1) if m else "unlabeled"
 
 
 @dataclass(frozen=True)
@@ -91,6 +164,34 @@ class ModeMatch:
     mode_id: int
     score: float
     matched_by: str  # 'hash' | 'vector' | 'lexical' | 'human'
+
+
+@dataclass(frozen=True)
+class _QueryIdentity:
+    """The canonical hash-identity of the item under analysis (spec §3.2-§3.3, §6.1).
+
+    Every hash-identity comparison on the read path must compare values computed
+    the same way. ``error_hash`` folds the ordered Drain3 template ids, which drift
+    as new logs re-cluster the miner; the analyze/suggest path mines against a
+    *read-only Drain clone* (never ``save_manager``) whose templates have moved on
+    from the state each history row was indexed under. So a recompute of the query
+    item's ``error_hash`` at analyze time can silently collide with an unrelated
+    history row (false match → wrong inherited label) or fail to match its own past
+    self (false non-match). This struct carries the *persisted* identity — the value
+    written at index time — so Stage A, KB ``exception_fps`` matching, the burst
+    novelty check and the launch-group fingerprint stay stored-vs-stored. It is
+    recomputed (and then persisted) only for an item that was never indexed.
+    """
+
+    exception_fp: int
+    error_hash: int
+    template_ids: tuple[int, ...]
+    top_frames: tuple[str, ...]
+    status_codes: tuple[str, ...]
+    msg_text: str
+    exception_names: tuple[str, ...]
+
+
 SEARCH_COS_THRESHOLD = 0.75
 INT53_MASK = (1 << 53) - 1  # Java long-safe positive cluster id
 SUGGEST_MAX = 3
@@ -122,10 +223,113 @@ class AnalysisEngine:
     suggest_max: int = SUGGEST_MAX  # ANALYZER_SUGGEST_MAX → suggestions returned
     burst_si_share: float = BURST_X  # ANALYZER_BURST_SI_SHARE → grouping burst prior
     time_decay: float = TIME_DECAY_PER_DAY  # ANALYZER_TIME_DECAY → feature recency decay
+    # Declined-dock rows (README-bench "Follow-up"): OFF by default — flip only
+    # once every consuming UI parses band= tokens (Bench ng2+). Kill switch: env.
+    suggest_below_enabled: bool = False  # ANALYZER_SUGGEST_BELOW_ENABLED
+    # Early per-item auto-analysis (docs/EARLY-ITEM-AA.md). Off = the route is
+    # inert (empty reply, no rows, no LLM). The policy caps what the early pass
+    # may auto-apply: 'kb_inherit_only' lets deterministic decisions (Stage-A
+    # hash inherit, KB short-circuit) label while every GBM decision is demoted
+    # to a stored suggestion; 'suggest_only' demotes everything.
+    early_item_analysis: bool = False  # ANALYZER_EARLY_ITEM_ANALYSIS
+    early_label_policy: str = "kb_inherit_only"  # ANALYZER_EARLY_AA_LABEL_POLICY
+    # kb_inherit_and_pb only: the stricter-than-auto confidence bar a GBM 'pb'
+    # decision must clear to label early (replay: pb holds at the singleton
+    # corner, si flips — so pb may earn early labeling, si never does).
+    early_gbm_pb_min: float = 0.85  # ANALYZER_EARLY_GBM_PB_MIN
+    suggest_below_max: int = SUGGEST_BELOW_MAX  # ANALYZER_SUGGEST_BELOW_MAX (≤ 3)
 
     # ------------------------------------------------------------------ #
     # analyze (spec §6.6 analyze column)
     # ------------------------------------------------------------------ #
+    def analyze_item_early(self, launches: Sequence[Launch]) -> list[AnalysisResult]:
+        """Early per-item pass, before the launch finishes (docs/EARLY-ITEM-AA.md).
+
+        Same wire contract as ``analyze`` (the trigger sends one launch holding
+        one just-finished item, logs inline), but the item is decided as a group
+        of one — the same singleton shape the suggest route uses — and the
+        policy gate rules what may be applied:
+
+        * Stage-A hash inherit / KB short-circuit at the auto band → applied
+          (reply row + mirror update), exactly like ``analyze``. These depend on
+          no launch-context feature, so early versus late cannot change them.
+        * Every GBM decision is demoted to a stored suggestion, whatever its
+          confidence: the singleton corner (group_dominance=1.0, si_prior=0.0)
+          was never validated against the auto threshold, and the System Issue
+          signal cannot exist before the launch ends. The launch-finish pass
+          re-analyzes the full launch and remains the only source of GBM-driven
+          auto-labels.
+
+        Every decision writes a ``source='early'`` suggestion row (the training
+        frame refuses those snapshots; early/final pairs give the flip-rate
+        metric), and LLM enrichment is enqueued as on every other route so the
+        caches are warm long before launch finish.
+        """
+        if not self.early_item_analysis:
+            return []
+        out: list[AnalysisResult] = []
+        deterministic = (METHOD_HASH, METHOD_KB)
+        for launch in launches:
+            project = launch.project
+            entries = [(launch, item) for item in launch.testItems]
+            analyses = self.pipeline.build_item_analyses(project, entries)
+            scope_q = self._scope_query(launch)
+            for rep in analyses:
+                if not rep.signature.signature_text:
+                    continue  # no ERROR logs → nothing to analyze (spec §3.4)
+                item_id = rep.item.testItemId
+                group = self._singleton_group(rep)
+                decision, mode_match = self._decide(
+                    project,
+                    scope_q,
+                    launch.analyzerConfig.analyzerMode,
+                    rep,
+                    group,
+                    total_failures=1,
+                    route="analyze_item_early",
+                )
+                self._record_membership(project, [item_id], mode_match, rep)
+                sid = self._write_suggestion(
+                    project, item_id, launch.launchId, None, decision, source="early"
+                )
+                self._enqueue_llm(project, item_id, launch.launchId, decision, suggestion_id=sid)
+                # Fail closed: only policies named here may label; a typo'd or
+                # future value demotes everything instead of silently labeling.
+                # rule_cold seed-prior autos are demoted deliberately (hash/kb
+                # only). kb_inherit_and_pb additionally admits a GBM 'pb' above
+                # the stricter early bar — replay showed pb holds at the
+                # singleton corner while si flips. si never labels early on ANY
+                # path, deterministic included: an environment burst is only
+                # visible launch-wide, so mid-launch si stays a suggestion.
+                policy = self.early_label_policy
+                allows_deterministic = policy in ("kb_inherit_only", "kb_inherit_and_pb")
+                pb_gbm_applies = (
+                    policy == "kb_inherit_and_pb"
+                    and decision.method == METHOD_GBM
+                    and decision.label == "pb"
+                    and decision.confidence >= self.early_gbm_pb_min
+                )
+                applies = (
+                    decision.action == ACTION_AUTO
+                    and decision.label not in ("ti", "si")
+                    and (
+                        (decision.method in deterministic and allows_deterministic)
+                        or pb_gbm_applies
+                    )
+                )
+                if applies:
+                    self.retrieval.update_issue_type(
+                        project, item_id, decision.issue_type, is_auto=True
+                    )
+                    out.append(
+                        AnalysisResult(
+                            testItem=item_id,
+                            issueType=decision.issue_type,
+                            relevantItem=decision.relevant_item_id or 0,
+                        )
+                    )
+        return out
+
     def analyze(self, launches: Sequence[Launch]) -> list[AnalysisResult]:
         results: list[AnalysisResult] = []
         for launch in launches:
@@ -139,18 +343,20 @@ class AnalysisEngine:
         by_id = {a.item.testItemId: a for a in analyses}
         groups = self._group(project, launch.launchId, analyses)
         total_failures = len(analyses)
+        scope_q = self._scope_query(launch)
+        analyzer_mode = launch.analyzerConfig.analyzerMode
+        # §6.1 identity invariant on the fan-out: the canonical (stored/recompute) FULL
+        # discriminant per item — error_hash AND status_codes AND masked message tokens —
+        # so the representative's decision only fans to members whose discriminant is
+        # truly identical to it.
+        canon_disc = self._canonical_discriminants(project, analyses)
 
         out: list[AnalysisResult] = []
         for group in groups:
+            assert group.representative is not None  # grouping always sets a representative
             rep = by_id[group.representative.item_id]
             decision, mode_match = self._decide(
-                project,
-                self._scope_query(launch),
-                launch.analyzerConfig.analyzerMode,
-                rep,
-                group,
-                total_failures,
-                route="analyze",
+                project, scope_q, analyzer_mode, rep, group, total_failures, route="analyze"
             )
             group_id = self.retrieval.upsert_launch_group(
                 project,
@@ -160,25 +366,61 @@ class AnalysisEngine:
                 group.si_prior,
                 dominant=group.si_prior > 0.0,
             )
-            # §6.7/§9: record every grouped member as a member of the matched mode so
-            # the KB-mode loop can bootstrap — purity/support/centroid then move as
-            # those items are labeled (defect_update → update_purity).
-            self._record_membership(project, [m.item_id for m in group.members], mode_match, rep)
+            # A launch group is bucketed by exception_fp (§5), so distinct failures of one
+            # exception class share a group; §3.3 further collapses failures that raise the
+            # identical exception through the identical stack into one error_hash even when
+            # their near-error CONTEXT differs (ADV-1: SLOW QUERY→pb vs pool-exhausted→si vs
+            # bare→abstain). Fanning the representative's high-confidence decision — a Stage-A
+            # inherit OR a GBM/KB auto-label + its feature snapshot — to members whose
+            # discriminant differs is the near-miss trap that lands them confidently-wrong.
+            # So the group decision is fanned ONLY to members whose FULL canonical
+            # discriminant (error_hash AND status_codes set AND masked message tokens) is
+            # identical to the representative's; every other member is decided on ITS OWN
+            # identity (its own Stage A / KB / GBM, its own discriminant features). Deciding a
+            # truly-identical member individually would yield the same result, so this only
+            # ever corrects — never regresses — the fan-out (§6.1).
+            rep_disc = canon_disc.get(rep.item.testItemId)
+            inherit_ids: list[int] = []
             for member in group.members:
-                self._write_suggestion(project, member.item_id, launch.launchId, group_id, decision)
+                m_decision = decision
+                m_mode = mode_match
+                if canon_disc.get(member.item_id) != rep_disc:
+                    m_ana = by_id[member.item_id]
+                    m_decision, m_mode = self._decide(
+                        project,
+                        scope_q,
+                        analyzer_mode,
+                        m_ana,
+                        group,
+                        total_failures,
+                        route="analyze",
+                    )
+                    # §6.7/§9: this member joins the mode ITS own decision matched.
+                    self._record_membership(project, [member.item_id], m_mode, m_ana)
+                else:
+                    inherit_ids.append(member.item_id)
+                sid = self._write_suggestion(
+                    project, member.item_id, launch.launchId, group_id, m_decision
+                )
                 # §1.5: enqueue async LLM enrichment after the row is committed.
-                self._enqueue_llm(project, member.item_id, launch.launchId, decision)
-                if decision.action == ACTION_AUTO and decision.label != "ti":
+                self._enqueue_llm(
+                    project, member.item_id, launch.launchId, m_decision, suggestion_id=sid
+                )
+                if m_decision.action == ACTION_AUTO and m_decision.label != "ti":
                     self.retrieval.update_issue_type(
-                        project, member.item_id, decision.issue_type, is_auto=True
+                        project, member.item_id, m_decision.issue_type, is_auto=True
                     )
                     out.append(
                         AnalysisResult(
                             testItem=member.item_id,
-                            issueType=decision.issue_type,
-                            relevantItem=decision.relevant_item_id or 0,
+                            issueType=m_decision.issue_type,
+                            relevantItem=m_decision.relevant_item_id or 0,
                         )
                     )
+            # §6.7/§9: record the members that kept the group decision as members of the
+            # matched mode so the KB-mode loop can bootstrap — purity/support/centroid
+            # then move as those items are labeled (defect_update → update_purity).
+            self._record_membership(project, inherit_ids, mode_match, rep)
         return out
 
     # ------------------------------------------------------------------ #
@@ -209,7 +451,7 @@ class AnalysisEngine:
         # renders an empty reply. Persist here, before rendering, so an abstained
         # item later labeled by a human still carries its feature snapshot into
         # training (the analyze route already writes per member; suggest must too).
-        self._write_suggestion(info.project, info.testItemId, info.launchId, None, decision)
+        sid = self._write_suggestion(info.project, info.testItemId, info.launchId, None, decision)
         elapsed = time.monotonic() - started
         # §4.3 read-path surfacing: honor a prior async judge verdict by promoting the
         # chosen candidate to resultPosition 0. Only when the sidecar is on, so the
@@ -218,6 +460,11 @@ class AnalysisEngine:
             self.retrieval.latest_judge(info.project, info.testItemId) if self._llm_on() else None
         )
         out = self._render_suggestions(info, rep, decision, elapsed, judge_verdict)
+        # Cold-start rubric fallback (product ext 2026-07-20): when the classical path
+        # yields NO evidence-backed suggestion, surface the LLM rubric provisional the
+        # cold-start role already persisted (read-only — no LLM call on the suggest
+        # budget). Never displaces a real suggestion.
+        out = self._maybe_rubric_fallback(out, info, rep, elapsed)
         # §1.5: enqueue async LLM enrichment *after* the classical reply is built and
         # the suggestion row committed. Never on the synchronous suggest budget.
         self._enqueue_llm(
@@ -226,11 +473,106 @@ class AnalysisEngine:
             info.launchId,
             decision,
             candidates=self._judge_candidates(decision),
+            suggestion_id=sid,
         )
         return out
 
     def _llm_on(self) -> bool:
         return self.sidecar is not None and getattr(self.sidecar, "enabled", False)
+
+    def _coldstart_on(self) -> bool:
+        """Master switch AND the cold-start role flag are on (spec 04 §4.4/§6).
+
+        The gate for surfacing a persisted rubric provisional on the suggest read
+        path — honors ANALYZER_LLM_ENABLED and ANALYZER_LLM_COLDSTART so an operator
+        who turned the role off never sees stale rubric rows.
+        """
+        sidecar = self.sidecar
+        if sidecar is None or not getattr(sidecar, "enabled", False):
+            return False
+        role_enabled = getattr(sidecar, "role_enabled", None)
+        return bool(role_enabled("coldstart")) if callable(role_enabled) else False
+
+    def _maybe_rubric_fallback(
+        self,
+        out: list[SuggestAnalysisResult],
+        info: TestItemInfo,
+        rep: ItemAnalysis,
+        elapsed: float,
+    ) -> list[SuggestAnalysisResult]:
+        """Append the cold-start rubric provisional ONLY when the classical suggest
+        reply carries no VOUCHED suggestion (product ext 2026-07-20; unlabeled-gate
+        errata 2026-07-22). A "vouched" suggestion is a row at/above τ_suggest whose
+        matched neighbour has a real label source (human-confirmed / auto-analyzed /
+        seed / kb-mode) — i.e. a grounded answer. A high-cosine but ``src=unlabeled``
+        look-alike is NOT vouched: it is a twin nobody ever labelled, so it must not
+        suppress the analyzer's own cold-start hypothesis (that is the 4998 case —
+        decision abstained, yet 0.98 unlabeled twins were hiding the rubric). Empty,
+        below_suggest-only, or unlabeled-only replies all still surface the rubric so
+        the Bench shows the AI guess (and the dock, if any) side by side. A vouched
+        row is returned untouched with no DB read, so the rubric can never displace
+        or reorder a grounded suggestion.
+        """
+        if any(
+            r.matchScore >= TAU_SUGGEST * 100 and _row_provenance(r) != "unlabeled" for r in out
+        ):
+            return out
+        return [*out, *self._rubric_provisional_suggestions(info, rep, elapsed)]
+
+    def _rubric_provisional_suggestions(
+        self, info: TestItemInfo, rep: ItemAnalysis, elapsed: float
+    ) -> list[SuggestAnalysisResult]:
+        """Build a single rubric-hypothesis ``SuggestAnalysisResult`` from the item's
+        persisted cold-start provisional, or ``[]`` when the role is off or the latest
+        suggestion row is not a rubric provisional (§4.4).
+
+        Delivery mapping (see report):
+        * ``methodName='coldstart_rubric'`` — explicit/greppable; the RP UI ignores
+          methodName, so an unknown value cannot break the modal.
+        * ``issueType`` = the rubric locator (proposed defect type).
+        * ``matchScore`` = rubric confidence × 100 (a rubric confidence, NOT a
+          similarity — e.g. 0.65 → 65.0).
+        * ``relevantItem`` = the queried item itself (SELF-reference): RP loads the
+          relevant item by id to build ``testItemResource``; a fabricated neighbor id
+          would fail that load, so we point at the one id guaranteed to resolve — a
+          hypothesis about THIS very item. ``relevantLogId`` highlights its own log.
+        * ``explanation`` (the "why"): the RP suggestions tab renders NO analyzer text
+          field — only ``matchScore`` and the relevant item's own DB fields — so the
+          rationale rides in ``modelInfo`` (machine-readable; the Inspector shows it).
+        """
+        if not self._coldstart_on():
+            return []
+        row = self.retrieval.latest_rubric_provisional(info.project, info.testItemId)
+        if row is None:
+            return []
+        log_id = info.logs[0].logId if info.logs else 0
+        confidence = float(row.get("confidence") or 0.0)
+        explanation = (row.get("explanation") or "").strip()
+        model_ver = row.get("model_ver") or ""
+        return [
+            SuggestAnalysisResult(
+                project=info.project,
+                testItem=info.testItemId,
+                testItemLogId=log_id,
+                launchId=info.launchId,
+                launchName=info.launchName,
+                launchNumber=info.launchNumber,
+                issueType=str(row.get("predicted_label") or "ti"),
+                relevantItem=info.testItemId,
+                relevantLogId=log_id,
+                isMergedLog=rep.signature.is_merged_small_logs,
+                matchScore=round(min(1.0, confidence) * 100, 2),
+                resultPosition=0,
+                esScore=0.0,
+                esPosition=0,
+                modelInfo=f"coldstart_rubric;{model_ver};why={explanation}",
+                usedLogLines=info.analyzerConfig.numberOfLogLines,
+                minShouldMatch=info.analyzerConfig.minShouldMatch,
+                processedTime=round(elapsed, 4),
+                methodName="coldstart_rubric",
+                clusterId=info.clusterId,
+            )
+        ]
 
     # ------------------------------------------------------------------ #
     # cluster (spec §8.1)
@@ -245,6 +587,7 @@ class AnalysisEngine:
 
         clusters: list[ClusterInfo] = []
         for group in groups:
+            assert group.representative is not None  # grouping always sets a representative
             rep = by_id[group.representative.item_id]
             cluster_id = self._cluster_id(
                 project, launch.launchId, group.representative.error_hash, info.forUpdate
@@ -285,19 +628,30 @@ class AnalysisEngine:
             return []
 
         q = self._query_signature(rep, launch_id=request.launchId, launch_number=0)
-        cands = self.retrieval.find_candidates(project, q, k=TOP_K)
-        filtered = set(request.filteredLaunchIds)
+        # §8.2: the search route is the MIRROR of the decision path — it hunts still-
+        # uninvestigated (TI) look-alikes, scoped to the launches RP asks us to search
+        # within (filteredLaunchIds), excluding the query item. The decision-path
+        # ``find_candidates`` filters ``issue_type_group <> 'ti'`` in every leg, which
+        # is exactly wrong here, so search has its own TI-only retrieval variant.
+        cands = self.retrieval.search_ti_candidates(
+            project,
+            q,
+            k=TOP_K,
+            filtered_launch_ids=list(request.filteredLaunchIds),
+            self_item_id=request.itemId,
+        )
         out: list[SearchLogInfo] = []
         for c in cands:
             if c.item_id is None:
-                continue
-            if filtered and c.launch_id not in filtered:
                 continue
             cos = c.cosine or 0.0
             fts_hit = (c.lex_score or 0.0) > 0.0
             if cos >= SEARCH_COS_THRESHOLD or fts_hit:
                 out.append(
                     SearchLogInfo(
+                        # Real RP log id of the matched item's first ERROR log: the RP
+                        # backend loads the log BY this id and drops rows it cannot find
+                        # (SearchLogServiceImpl). NULL (pre-migration rows) → 0.
                         logId=c.relevant_log_id or 0,
                         testItemId=c.item_id,
                         matchScore=round(min(1.0, cos) * 100, 2),
@@ -311,11 +665,24 @@ class AnalysisEngine:
     def _group(
         self, project: int, launch_id: int, analyses: Sequence[ItemAnalysis]
     ) -> list[LaunchGroup]:
+        # §6.1 identity invariant: the representative's ``error_hash`` feeds the burst
+        # novelty check (``error_hash_seen``, stored history) and the persisted
+        # launch-group fingerprint — both stored-vs-stored comparisons. Use each
+        # item's canonical (index-time) ``error_hash`` when it exists so a drifted
+        # read-time recompute cannot fake/miss novelty or churn the fingerprint.
+        # ``exception_fp`` and ``template_ids`` (used only for *within-batch* cohesion
+        # bucketing / Jaccard) stay recomputed — they don't fold Drain templates
+        # (fp) or are compared only against their same-batch peers (templates).
+        canonical = self.retrieval.get_signatures(project, [a.item.testItemId for a in analyses])
         items = [
             GroupItem(
                 item_id=a.item.testItemId,
                 exception_fp=a.signature.exception_fp,
-                error_hash=a.signature.error_hash,
+                error_hash=(
+                    stored.error_hash
+                    if (stored := canonical.get(a.item.testItemId)) is not None
+                    else a.signature.error_hash
+                ),
                 emb=a.emb,
                 has_stacktrace=a.signature.has_stacktrace,
                 log_count=a.log_count,
@@ -331,6 +698,43 @@ class AnalysisEngine:
             is_error_hash_new=lambda h: not self.retrieval.error_hash_seen(project, h, launch_id),
         )
 
+    def _canonical_discriminants(
+        self, project: int, analyses: Sequence[ItemAnalysis]
+    ) -> dict[int, tuple[int, frozenset[str], frozenset[str]]]:
+        """Canonical FULL discriminant per item for the fan-out identity split (§6.1).
+
+        Returns ``(error_hash, status_codes set, masked-message-token set)`` — the same
+        un-masked discriminants the Stage-A inherit gate compares (decision.py), so the
+        fan-out only inherits a member that is truly indistinguishable from the
+        representative. ``error_hash`` alone is insufficient: §3.3 collapses the
+        near-error CONTEXT into a shared hash, so the message tokens (which now carry that
+        folded context, ADV-1) are what separate a SLOW-QUERY-pb member from a
+        pool-exhausted-si member that share the identical exception+stack.
+
+        Prefers each item's persisted ``failure_signature`` value (the stored-vs-stored
+        invariant, §6.1); a never-indexed item uses its read-time recompute — the same
+        value :meth:`_resolve_identity` would make canonical when that member is decided.
+        Batched in one query so the split adds no per-member DB round-trips.
+        """
+        stored = self.retrieval.get_signatures(project, [a.item.testItemId for a in analyses])
+        out: dict[int, tuple[int, frozenset[str], frozenset[str]]] = {}
+        for a in analyses:
+            s = stored.get(a.item.testItemId)
+            if s is not None:
+                out[a.item.testItemId] = (
+                    s.error_hash,
+                    frozenset(s.status_codes),
+                    frozenset(s.msg_text.split()),
+                )
+            else:
+                sig = a.signature
+                out[a.item.testItemId] = (
+                    sig.error_hash,
+                    frozenset(sig.status_codes),
+                    frozenset(sig.msg_text.split()),
+                )
+        return out
+
     def _decide(
         self,
         project: int,
@@ -342,17 +746,23 @@ class AnalysisEngine:
         *,
         route: str,
     ) -> tuple[DecisionResult, ModeMatch | None]:
-        sig = rep.signature
-        q = self._query_signature(
-            rep, launch_id=rep.launch.launchId, launch_number=rep.launch.launchNumber
+        # §6.1 identity invariant: resolve the query item's CANONICAL identity (its
+        # persisted failure_signature row) rather than the drifted read-time recompute
+        # in ``rep.signature``. This keeps Stage A (below), the KB ``exception_fps``
+        # GIN / template Jaccard match (``kb.match_modes`` on ``q``) and the Stage-C
+        # ``same_error_hash`` feature all stored-vs-stored. A never-indexed item falls
+        # back to the recompute AND persists it, so the value is canonical next time.
+        ident = self._resolve_identity(project, rep)
+        q = self._query_from_identity(
+            ident, rep, launch_id=rep.launch.launchId, launch_number=rep.launch.launchNumber
         )
 
         # Stage A — exact error_hash matches with label provenance, restricted to
         # the analyzerMode scope (§6.1: labeled items *in scope*). analyze applies
         # the hard filter; suggest keeps every labeled, non-ti match (base only).
         hash_matches: list[HashMatch] = []
-        if sig.exception_fp != 0:
-            for row in self.retrieval.find_hash_matches(project, sig.error_hash):
+        if ident.exception_fp != 0:
+            for row in self.retrieval.find_hash_matches(project, ident.error_hash):
                 if row["item_id"] == rep.item.testItemId:
                     continue
                 sc = scope.ScopeCandidate(
@@ -361,7 +771,7 @@ class AnalysisEngine:
                     issue_type_group=row["issue_type_group"] or "",
                     is_labeled=True,
                 )
-                if route == "analyze":
+                if route in ANALYZE_SCOPED_ROUTES:
                     if not scope.in_analyze_scope(analyzer_mode, scope_q, sc):
                         continue
                 elif not scope.passes_base(sc):
@@ -375,12 +785,18 @@ class AnalysisEngine:
                         label_ts=row["label_ts"],
                         confidence=src_weight(row["label_source"]),
                         is_auto_analyzed=bool(row["is_auto_analyzed"]),
+                        exception_fp=row["exception_fp"] or 0,
+                        status_codes=tuple(row["status_codes"] or ()),
+                        msg_tokens=frozenset((row["msg_text"] or "").split()),
                     )
                 )
 
-        # Stage B — KB modes (exact scan) + seed prior.
+        # Stage B — KB modes (exact scan) + seed prior. Seed rules match on the
+        # exception classes and the Drain-*masked* message text (static mask regexes,
+        # not the mined cluster set), so they do not drift with template re-clustering
+        # — no stored-vs-recomputed mismatch class; the read-time recompute is fine.
         kb_candidates = list(self.kb.match_modes(project, q, k=10))  # type: ignore[attr-defined]
-        seed, seed_mode_id = self._seed_signal(project, sig)
+        seed, seed_mode_id = self._seed_signal(project, rep.signature)
 
         # Stage C — hybrid item-history retrieval, scoped/boosted per analyzerMode.
         stage_c, ages = self._stage_c(
@@ -390,14 +806,18 @@ class AnalysisEngine:
         ctx = self._feature_ctx(rep, group, total_failures)
         # Serving hook (spec §6.5): the shipped GBM decides once Stage A / KB have
         # not short-circuited; when no model is live the predictor returns None per
-        # vector and control falls through to the rule-based cold fallback.
-        gbm_predict: Callable[[list[float]], GbmDecision | None] | None = None
+        # snapshot and control falls through to the rule-based cold fallback. The hook
+        # receives the name→value snapshot so serving assembles the vector from the
+        # model's own stored feature list (schema-robust, 2026-07-18 errata).
+        gbm_predict: Callable[[dict[str, float]], GbmDecision | None] | None = None
         predictor = self.predictor
         if predictor is not None:
-            gbm_predict = lambda vec: predictor.predict(vec, project)  # noqa: E731
+            gbm_predict = lambda feats: predictor.predict(feats, project)  # noqa: E731
         inputs = DecisionInputs(
-            exception_fp=sig.exception_fp,
+            exception_fp=ident.exception_fp,
             hash_matches=hash_matches,
+            query_status_codes=ident.status_codes,
+            query_msg_tokens=frozenset(ident.msg_text.split()),
             kb_candidates=kb_candidates,
             seed=seed,
             stage_c=stage_c,
@@ -469,7 +889,9 @@ class AnalysisEngine:
         )
         items = [c for c in cands if c.item_id is not None]
         # Enrich with launch_name for name-based scope (single batched lookup).
-        names = self.retrieval.item_launch_names(project, [c.item_id for c in items])  # type: ignore[arg-type]
+        names = self.retrieval.item_launch_names(
+            project, [c.item_id for c in items if c.item_id is not None]
+        )
         scored: list[tuple[float, Candidate]] = []
         for c in items:
             sc = scope.ScopeCandidate(
@@ -478,7 +900,7 @@ class AnalysisEngine:
                 issue_type_group="".join(x for x in (c.issue_type or "")[:2] if x.isalpha()),
                 is_labeled=c.issue_type is not None,
             )
-            if route == "analyze":
+            if route in ANALYZE_SCOPED_ROUTES:
                 if not scope.in_analyze_scope(analyzer_mode, scope_q, sc):
                     continue
                 boost = scope.analyze_boost(analyzer_mode, scope_q, sc)
@@ -545,10 +967,12 @@ class AnalysisEngine:
             window_failures=stats_row.get("window_failures", 0) or 0,
             window_flips=stats_row.get("window_flips", 0) or 0,
             group_size=len(group.members),
-            # We know the failing-item count; the launch's *total* item count is not
-            # carried on the wire, so launch_fail_fraction stays 0 (unknown, §6.4 #31).
             launch_failures=total_failures,
-            launch_items=0,
+            # Total items in the launch, when the sender carries it (§6.4 #31,
+            # Launch.launchItemsCount, 2026-07-26). Legacy senders and the early
+            # per-item trigger send 0, so launch_fail_fraction stays 0 for them;
+            # a launch-finish sender that fills the count makes it live.
+            launch_items=rep.launch.launchItemsCount,
             si_prior=group.si_prior,
             test_age_days=test_age_days,
             item_log_count=rep.log_count,
@@ -571,8 +995,10 @@ class AnalysisEngine:
         launch_id: int,
         group_id: int | None,
         decision: DecisionResult,
-    ) -> None:
-        self.retrieval.write_suggestion(
+        *,
+        source: str | None = None,
+    ) -> int:
+        return self.retrieval.write_suggestion(
             SuggestionIn(
                 project_id=project,
                 item_id=item_id,
@@ -584,7 +1010,29 @@ class AnalysisEngine:
                 matched_item_id=decision.relevant_item_id,
                 features=decision.features,
                 model_ver=self._model_ver(decision),
+                explanation=self._stage_a_explanation(decision),
+                method=decision.method,
+                abstain_reason=decision.abstain_reason,
+                source=source,  # type: ignore[arg-type]  # 'early' | None (migration 0009)
             )
+        )
+
+    @staticmethod
+    def _stage_a_explanation(decision: DecisionResult) -> str | None:
+        """Deterministic Stage-A inherit rationale (extension 2026-07-20).
+
+        Stage-A facts are fully unambiguous — a confirmed neighbour with the identical
+        ``error_hash`` that cleared the discriminant gate — so narrative synthesis adds
+        nothing an LLM should be spent on. The sentence is generated in-process (no LLM,
+        no queue) and persisted with ``llm_used=false`` (the provenance marker: an LLM
+        explanation always sets ``llm_used=true``). Returns None for every other path.
+        """
+        if decision.method != METHOD_HASH or decision.relevant_item_id is None:
+            return None
+        human = "human-labeled " if decision.relevant_label_source in ("human", "rp") else ""
+        return (
+            f"Inherited from item {decision.relevant_item_id} "
+            f"({human}{decision.issue_type}, same error_hash, discriminant gate passed)."
         )
 
     def _record_membership(
@@ -608,9 +1056,7 @@ class AnalysisEngine:
         # Only stamp a version when the representative carried a real vector — a
         # lexical-only degrade (emb=None) must not pin the mode to the emb=0 sentinel.
         emb_ver = rep.emb_model_ver if rep.emb is not None else None
-        members = [
-            (int(iid), float(mode_match.score), mode_match.matched_by) for iid in item_ids
-        ]
+        members = [(int(iid), float(mode_match.score), mode_match.matched_by) for iid in item_ids]
         try:
             self.kb.add_members(project, mode_match.mode_id, members, emb_ver)  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001 — membership persistence must never fail a decision
@@ -628,12 +1074,27 @@ class AnalysisEngine:
         launch_id: int,
         decision: DecisionResult,
         candidates: list[dict] | None = None,
+        suggestion_id: int | None = None,
     ) -> None:
         """Enqueue the relevant LLM roles after the suggestion row is committed.
 
         A no-op when no sidecar is wired or the master switch is off (byte-identity,
         §0). Never raises into the decision path, never waits on the LLM (§0/§1.5).
         Per-role flags and the per-project kill-switch are enforced downstream.
+
+        Decision-outcome coverage (extension 2026-07-20):
+
+        * **abstain** → an ``abstain_explainer`` job narrates *why the analyzer
+          declined* (label conflict + blocking gate). The worker re-reads the evidence
+          fresh (§1.5): Stage-C neighbour cosines carried here + the exact-error_hash
+          conflict pool queried straight from the DB (which holds the pb-vs-ab conflict
+          even when ``exception_fp=0`` disables Stage A). A **pure-empty abstain** — no
+          Stage-C labels and an empty hash pool — makes no LLM call (the fact-loader
+          returns None: nothing to explain).
+        * **Stage-A inherit** → no LLM: the deterministic "inherited from item N …"
+          sentence is written at ``_write_suggestion`` time (unambiguous facts).
+        * **suggest/auto with a match** → the match explainer (unchanged), plus the
+          judge in the suggest tie-break band (unchanged).
         """
         sc = self.sidecar
         if sc is None or not getattr(sc, "enabled", False):
@@ -643,8 +1104,26 @@ class AnalysisEngine:
             # cache dedupes actual Ollama calls to once per novel template set (§4.2).
             sc.enqueue("extractor", project, item_id, {})  # type: ignore[attr-defined]
             if decision.label == "ti":
-                # Abstain → cold-start rubric (fact_loader gates on a cold project).
+                if suggestion_id is not None:
+                    # Every abstain is a candidate for a decline explanation; the async
+                    # fact-loader gates on real conflicting evidence (Stage-C labels or a
+                    # non-empty exact-hash pool) and skips the LLM for a pure-empty one.
+                    sc.enqueue(  # type: ignore[attr-defined]
+                        "abstain_explainer",
+                        project,
+                        item_id,
+                        {
+                            "suggestion_id": suggestion_id,
+                            "abstain_reason": decision.abstain_reason,
+                            "confidence": decision.confidence,
+                            "candidates": self._abstain_candidates(decision),
+                        },
+                    )
                 sc.enqueue("coldstart", project, item_id, {"launch_id": launch_id})  # type: ignore[attr-defined]
+            elif decision.method == METHOD_HASH:
+                # Stage-A inherit: explanation is the deterministic template written at
+                # decision time (llm_used=false). No LLM narration is warranted.
+                pass
             elif decision.confidence >= TAU_SUGGEST:
                 sc.enqueue("explainer", project, item_id, {})  # type: ignore[attr-defined]
                 if (
@@ -657,6 +1136,27 @@ class AnalysisEngine:
                     )
         except Exception:  # noqa: BLE001 — enrichment must never fail a decision
             logger.exception("LLM enqueue failed (project=%s item=%s)", project, item_id)
+
+    @staticmethod
+    def _abstain_candidates(decision: DecisionResult) -> list[dict]:
+        """Top Stage-C candidate refs for the abstain explainer (extension).
+
+        Carries each neighbour's locator + similarity — the label conflict the gates
+        declined to resolve. The worker re-reads the query facts fresh (§1.5); these
+        refs are pointers/evidence like the judge's candidate list, not trusted output.
+        """
+        out: list[dict] = []
+        for c in list(decision.stage_c)[:3]:
+            if c.issue_type is None:
+                continue
+            out.append(
+                {
+                    "id": c.item_id,
+                    "label": c.issue_type,
+                    "similarity": round(min(1.0, c.cosine or 0.0), 3),
+                }
+            )
+        return out
 
     @staticmethod
     def _judge_candidates(decision: DecisionResult) -> list[dict]:
@@ -689,10 +1189,18 @@ class AnalysisEngine:
         proxy = decision.confidence
         if not proxy and stage_c:
             proxy = min(1.0, stage_c[0].cosine or 0.0)
-        if proxy < TAU_SUGGEST:
+        # With the dock off the reply gate stays at τ_suggest (byte-identical to the
+        # pre-contract build apart from the new ng=1/band= tokens). With it on, the
+        # gate drops to the dock floor so [floor, τ_suggest) replies can ship their
+        # looked-at-and-declined rows instead of an empty reply.
+        below_on = self.suggest_below_enabled
+        floor = SUGGEST_BELOW_FLOOR if below_on else TAU_SUGGEST
+        if proxy < floor:
             return []
 
-        candidates = self._suggestion_candidates(decision, stage_c)
+        candidates = [
+            c for c in self._suggestion_candidates(decision, stage_c) if min(1.0, c[2]) >= floor
+        ]
         if not candidates:
             return []
         # §4.3: a fresh judge verdict promotes its chosen candidate — suggest-band only,
@@ -700,15 +1208,106 @@ class AnalysisEngine:
         candidates = self._reorder_for_judge(
             candidates, judge_verdict, is_auto=decision.action == ACTION_AUTO
         )
+        # Real suggestions keep the stock suggest_max cap; dock rows ride behind
+        # them under their own (small) cap so they can never crowd out an answer.
+        # NB: RP's service-api serves at most ~suggest_max rows, so dock rows must
+        # fit INSIDE that budget — on an abstained reply (no endorsed answer
+        # exists) the dock reserves its slots and the neighbour rows yield.
+        below_cap = max(0, min(self.suggest_below_max, SUGGEST_BELOW_MAX_CAP))
+        real_all = [c for c in candidates if min(1.0, c[2]) >= TAU_SUGGEST]
+        real = real_all[: self.suggest_max]
+        below = [c for c in candidates if min(1.0, c[2]) < TAU_SUGGEST] if below_on else []
+        # A gbm_below_suggest abstain IS the "looked at these and said no" case,
+        # but it lives on the CALIBRATED scale (decision.confidence = calibrated
+        # p*), not the cosine scale (e5 cosines rarely dip under ~0.85 in-domain)
+        # and not decision.probs (the GBM's RAW distribution — e.g. raw pb 0.64
+        # calibrates down to 0.32). Ship the declined argmax-group hypothesis as
+        # ONE dock row anchored to that group's best stage-C candidate not already
+        # shown (real RP ids only, nothing fabricated); its matchScore is the
+        # calibrated p* — the number that justifies "too weak to suggest".
+        if (
+            below_on
+            and decision.abstain_reason == "gbm_below_suggest"
+            and decision.probs
+            and SUGGEST_BELOW_FLOOR <= decision.confidence < TAU_SUGGEST
+        ):
+            used = {rel for _l, rel, _s, _e, _p in [*real, *below]}
+            declined_grp = max(decision.probs, key=lambda g: decision.probs[g])
+            cand = next(
+                (
+                    c
+                    for c in stage_c
+                    if c.item_id is not None
+                    and c.item_id not in used
+                    and c.issue_type
+                    and base_group(c.issue_type) == declined_grp
+                ),
+                None,
+            )
+            # The generator above already filters item_id/issue_type non-None; restate
+            # for the type checker so the tuple below is (str, int, ...).
+            if cand is not None and cand.item_id is not None and cand.issue_type is not None:
+                below.append(
+                    (
+                        cand.issue_type,
+                        cand.item_id,
+                        decision.confidence,
+                        cand.rrf_score,
+                        _provenance(cand.label_source, False),
+                    )
+                )
+        below = below[:below_cap]
+        # An abstained reply carries no endorsed answer, so its dock rows take
+        # their slots from the shared reply budget (RP truncates past it) and the
+        # plain neighbour rows shrink to make room — mockup shape: 1 neighbour +
+        # up to 2 declined. Non-abstain replies never sacrifice a real answer.
+        if below and decision.label == "ti":
+            real = real_all[: max(0, self.suggest_max - len(below))]
+        logger.info(
+            "suggest bands: label=%s action=%s abstain=%s probs=%s "
+            "below_enabled=%s candidates=%d real=%d below=%d",
+            decision.label,
+            decision.action,
+            decision.abstain_reason,
+            {k: round(v, 4) for k, v in decision.probs.items()},
+            below_on,
+            len(candidates),
+            len(real),
+            len(below),
+        )
 
         names = ";".join(feature_names())
         values = ";".join(f"{v:.6f}" for v in to_vector(decision.features))
         log_id = info.logs[0].logId if info.logs else 0
         method = "auto_analysis" if decision.action == ACTION_AUTO else "suggestion"
+        decline_why = _DECLINE_NARRATION.get(decision.abstain_reason or "")
         out: list[SuggestAnalysisResult] = []
-        for rank, (issue_type, rel_item, score, es_score) in enumerate(
-            candidates[: self.suggest_max]
-        ):
+        for rank, (issue_type, rel_item, score, es_score, provenance) in enumerate([*real, *below]):
+            band = self._row_band(decision, rel_item, min(1.0, score))
+            # conf= rides only on the decision's own calibrated answer (the row the
+            # non-abstain decision actually chose — never a mere stage-C neighbour);
+            # ek=decline;why= narrates the abstain on the FIRST dock row (why= stays
+            # the LAST token — its free text may contain ';').
+            extra = ""
+            if (
+                decision.label != "ti"
+                and rel_item == decision.relevant_item_id
+                and decision.confidence > 0
+            ):
+                extra += f";conf={decision.confidence:.4f}"
+            # plabel= is how much the model believes THIS row's own defect group —
+            # a different question from conf= (which reports the model's own answer,
+            # whatever group that was). On an abstain with argmax pb the System Issue
+            # row's plabel= is the model's System Issue probability, not the 0.63 it
+            # held for pb. Absent whenever the calibrated distribution is unknown
+            # (hash/KB short circuit, cold rule, legacy result, non-GBM group), so a
+            # missing token reads as "we do not know" and the UI shows nothing.
+            row_group = base_group(issue_type)
+            p_label = calibrated_label_prob(decision, row_group) if row_group else None
+            if p_label is not None:
+                extra += f";plabel={p_label:.4f}"
+            if band == BAND_BELOW_SUGGEST and rank == len(real) and decline_why:
+                extra += f";ek=decline;why={decline_why}"
             out.append(
                 SuggestAnalysisResult(
                     project=info.project,
@@ -727,7 +1326,7 @@ class AnalysisEngine:
                     esPosition=rank,
                     modelFeatureNames=names,
                     modelFeatureValues=values,
-                    modelInfo=self._model_info(decision),
+                    modelInfo=f"{self._model_info(decision)};ng=1;band={band};src={provenance}{extra}",
                     usedLogLines=info.analyzerConfig.numberOfLogLines,
                     minShouldMatch=info.analyzerConfig.minShouldMatch,
                     processedTime=round(elapsed, 4),
@@ -740,12 +1339,26 @@ class AnalysisEngine:
         return out
 
     @staticmethod
+    def _row_band(decision: DecisionResult, rel_item: int, score: float) -> str:
+        """Per-row confidence band for the Bench contract (explicit, never guessed).
+
+        below_suggest: the row itself scored under τ_suggest — a looked-at-and-
+        declined candidate for the dock. auto: this row IS the auto decision's own
+        answer. suggest: everything else at or above τ_suggest.
+        """
+        if score < TAU_SUGGEST:
+            return BAND_BELOW_SUGGEST
+        if decision.action == ACTION_AUTO and rel_item == decision.relevant_item_id:
+            return BAND_AUTO
+        return BAND_SUGGEST
+
+    @staticmethod
     def _reorder_for_judge(
-        candidates: list[tuple[str, int, float, float]],
+        candidates: list[tuple[str, int, float, float, str]],
         judge_verdict: dict | None,
         *,
         is_auto: bool,
-    ) -> list[tuple[str, int, float, float]]:
+    ) -> list[tuple[str, int, float, float, str]]:
         """Promote the judge's chosen candidate to resultPosition 0 (§4.3).
 
         No-op for an auto-band decision (untouchable by the judge), for a ``none``/
@@ -764,28 +1377,165 @@ class AnalysisEngine:
 
     def _suggestion_candidates(
         self, decision: DecisionResult, stage_c: Sequence[Candidate]
-    ) -> list[tuple[str, int, float, float]]:
-        """(issueType, relevantItem, matchScore∈[0,1], esScore) tuples, best-first."""
+    ) -> list[tuple[str, int, float, float, str]]:
+        """(issueType, relevantItem, matchScore∈[0,1], esScore, provenance) tuples,
+        best-first. ``provenance`` names where the candidate's label came from
+        (human-confirmed / auto-analyzed / seed / kb-mode / unlabeled) so the UI can
+        tell a human-vouched answer from a machine-inherited one."""
         # A short-circuit (hash/kb) or auto decision surfaces its single answer first.
-        result: list[tuple[str, int, float, float]] = []
+        result: list[tuple[str, int, float, float, str]] = []
         if decision.label != "ti" and decision.relevant_item_id is not None:
+            prov = (
+                "kb-mode"
+                if decision.method == METHOD_KB
+                else _provenance(decision.relevant_label_source, decision.relevant_is_auto_analyzed)
+            )
             result.append(
-                (decision.issue_type, decision.relevant_item_id, decision.confidence, 0.0)
+                (
+                    decision.issue_type,
+                    decision.relevant_item_id,
+                    decision.confidence,
+                    0.0,
+                    prov,
+                )
             )
         for c in stage_c:
             if c.item_id is None or c.issue_type is None:
                 continue
-            if any(c.item_id == rel for _l, rel, _s, _e in result):
+            if any(c.item_id == rel for _l, rel, _s, _e, _p in result):
                 continue
-            result.append((c.issue_type, c.item_id, min(1.0, c.cosine or 0.0), c.rrf_score))
+            result.append(
+                (
+                    c.issue_type,
+                    c.item_id,
+                    min(1.0, c.cosine or 0.0),
+                    c.rrf_score,
+                    _provenance(c.label_source, False),
+                )
+            )
         return result
 
     # ------------------------------------------------------------------ #
     # Signature / scope / id helpers
     # ------------------------------------------------------------------ #
+    def _resolve_identity(self, project: int, rep: ItemAnalysis) -> _QueryIdentity:
+        """The canonical hash-identity of ``rep`` for the read path (spec §6.1).
+
+        Index precedes analyze, so the item almost always has a persisted
+        ``failure_signature`` row: use ITS ``error_hash`` / ``exception_fp`` /
+        ``template_ids`` / ``top_frames`` / ``status_codes`` / ``msg_text`` — the
+        values written at index time under that index's Drain3 state — as the query
+        identity, never a recompute against the drifted read-only Drain clone. A
+        never-indexed item falls back to the recompute in ``rep.signature`` and, so
+        the value becomes canonical for any later comparison, PERSISTS it (upsert).
+        """
+        stored = self.retrieval.get_signatures(project, [rep.item.testItemId]).get(
+            rep.item.testItemId
+        )
+        if stored is not None:
+            return _QueryIdentity(
+                exception_fp=stored.exception_fp,
+                error_hash=stored.error_hash,
+                template_ids=tuple(stored.template_ids),
+                top_frames=tuple(stored.top_frames),
+                status_codes=tuple(stored.status_codes),
+                msg_text=stored.msg_text,
+                # exc_text is the space-joined normalized chain (class names carry no
+                # internal whitespace), so split() recovers the exception name list.
+                exception_names=tuple(stored.exc_text.split()),
+            )
+        self._persist_recomputed_signature(project, rep)
+        sig = rep.signature
+        return _QueryIdentity(
+            exception_fp=sig.exception_fp,
+            error_hash=sig.error_hash,
+            template_ids=tuple(self.pipeline.template_id(h) for h in sig.template_hashes),
+            top_frames=tuple(sig.frames),
+            status_codes=tuple(sig.status_codes),
+            msg_text=sig.msg_text,
+            exception_names=tuple(sig.exc_classes),
+        )
+
+    def _persist_recomputed_signature(self, project: int, rep: ItemAnalysis) -> None:
+        """Upsert a never-indexed item's recomputed signature (spec §6.1 fallback).
+
+        Makes the just-computed identity canonical so a later analyze of the same
+        item compares stored-vs-stored. Best-effort — a persist failure must never
+        fail the decision (the read path can proceed on the in-memory recompute).
+        ``tmpl_text`` (FTS-only, not part of any hash identity) is left empty here;
+        the next real ``index`` of the item fills it from the live miner patterns.
+        """
+        sig = rep.signature
+        if not sig.signature_text:
+            return  # empty signature (no ERROR logs) → nothing indexable (§3.4)
+        try:
+            self.retrieval.upsert_signatures(
+                [
+                    SignatureIn(
+                        project_id=project,
+                        item_id=rep.item.testItemId,
+                        exception_fp=sig.exception_fp,
+                        error_hash=sig.error_hash,
+                        top_frames=list(sig.frames),
+                        template_ids=[self.pipeline.template_id(h) for h in sig.template_hashes],
+                        exc_text=" ".join(sig.exc_classes),
+                        msg_text=sig.msg_text,
+                        frames_text=" ".join(sig.frames),
+                        tmpl_text="",
+                        status_codes=list(sig.status_codes),
+                        emb=rep.emb,
+                        emb_model_ver=rep.emb_model_ver,
+                    )
+                ]
+            )
+        except Exception:  # noqa: BLE001 — fallback persist must never fail a decision
+            logger.exception(
+                "fallback signature persist failed (project=%s item=%s)",
+                project,
+                rep.item.testItemId,
+            )
+
+    def _query_from_identity(
+        self, ident: _QueryIdentity, rep: ItemAnalysis, *, launch_id: int, launch_number: int
+    ) -> QuerySignature:
+        """Build the retrieval :class:`QuerySignature` from a canonical identity.
+
+        The hash/lexical identity fields come from ``ident`` (stored-when-indexed);
+        only the dense vector (``emb``) is the live read-time embedding — vector
+        similarity is a separate, non-identity signal and the current embedder tag
+        must match the DB's stored vectors' ``emb_model_ver``.
+        """
+        salient = (
+            list(ident.exception_names)
+            + ident.msg_text.split()[:MSG_SALIENT_TERMS]
+            + [f"HTTP_{c}" for c in ident.status_codes]
+        )
+        return QuerySignature(
+            exception_fp=ident.exception_fp,
+            error_hash=ident.error_hash,
+            top_frames=list(ident.top_frames),
+            template_ids=list(ident.template_ids),
+            salient_terms=salient,
+            exception_names=list(ident.exception_names),
+            emb=rep.emb,
+            emb_model_ver=rep.emb_model_ver,
+            test_case_hash=rep.item.testCaseHash or None,
+            launch_id=launch_id,
+            launch_number=launch_number,
+        )
+
     def _query_signature(
         self, rep: ItemAnalysis, *, launch_id: int, launch_number: int
     ) -> QuerySignature:
+        """Recompute a QuerySignature from the in-memory analysis (``search`` route).
+
+        Used only by :meth:`search` (§8.2), whose query is an ad-hoc set of log
+        messages with a synthetic item id that is typically not indexed — there is
+        no persisted identity to prefer, and search has no hash-inherit stage (it
+        ranks purely on cosine/FTS), so a read-time recompute is correct here. The
+        analyze/suggest decision path instead resolves the item's *stored* identity
+        via :meth:`_resolve_identity` (spec §6.1 identity invariant).
+        """
         sig = rep.signature
         template_ids = [self.pipeline.template_id(h) for h in sig.template_hashes]
         salient = (

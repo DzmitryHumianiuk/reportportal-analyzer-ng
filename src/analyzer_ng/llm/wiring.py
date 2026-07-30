@@ -22,7 +22,7 @@ from typing import Any
 from psycopg_pool import ConnectionPool
 
 from analyzer_ng.config import AppConfig
-from analyzer_ng.core.decision import default_locator
+from analyzer_ng.core.decision import TAU_SUGGEST, default_locator
 from analyzer_ng.core.features import LLM_UNKNOWN
 from analyzer_ng.db.repositories.llm_cache import PgLlmCacheStore
 from analyzer_ng.db.repositories.llm_events import PgLlmEventStore, PgLlmRoleStateStore
@@ -32,13 +32,28 @@ from analyzer_ng.llm.apply import (
     apply_explainer,
     apply_judge,
 )
-from analyzer_ng.llm.engine import RoleResult
+from analyzer_ng.llm.engine import RoleResult, is_negative
 from analyzer_ng.llm.manager import LlmSidecar
 from analyzer_ng.llm.roles.extractor import extractor_template_hash
 
 logger = logging.getLogger(__name__)
 
 _EXTRACTOR_TTL_DAYS = 90
+
+# Human-readable rendering of the classical abstain_reason for the abstain explainer
+# fact block (extension 2026-07-20). These are DB-derived facts (the gate the decision
+# layer recorded), so they are safe to inject and quote.
+_ABSTAIN_GATE = {
+    "gbm_below_suggest": "model probability stayed below the suggest threshold",
+    "gbm_boilerplate_only_neighbor": (
+        "the nearest neighbour shared no structural evidence (boilerplate guard)"
+    ),
+    "no_confident_rule": "no rule or model matched with enough confidence",
+}
+
+
+def _abstain_gate_sentence(reason: str | None) -> str:
+    return _ABSTAIN_GATE.get(reason or "", "no candidate cleared the decision gates")
 
 
 def _fact_block(sig: dict) -> dict[str, Any]:
@@ -79,6 +94,8 @@ class PgLlmFactLoader:
         error_hash = sig.get("error_hash") or 0
         if role == "explainer":
             return self._explainer_input(project_id, item_id, sig, fact_block, excerpt)
+        if role == "abstain_explainer":
+            return self._abstain_explainer_input(project_id, item_id, sig, excerpt, payload)
         if role == "extractor":
             return {
                 "fact_block": fact_block,
@@ -117,6 +134,77 @@ class PgLlmFactLoader:
             "mode_id": sug.get("matched_mode_id") or 0,
             "error_hash": sig.get("error_hash") or 0,
             "suggestion_id": sug.get("suggestion_id"),
+        }
+
+    def _abstain_explainer_input(
+        self, project_id: int, item_id: int, sig: dict, excerpt: str, payload: dict
+    ) -> dict[str, Any] | None:
+        """Build the abstain-explanation input (extension 2026-07-20).
+
+        Fires for an abstain that still had conflicting evidence, drawn from two
+        sources re-read fresh in the worker (§1.5): the retrieved Stage-C neighbours
+        (carried as payload refs with their cosine) and — crucially — the *exact
+        error_hash pool* queried straight from the DB. The hash pool is what carries
+        item 4998's pb-vs-ab conflict: ``exception_fp=0`` disables Stage A, so those
+        conflicting labels never reach the decision's candidate lists, yet they are the
+        whole reason the analyzer could not choose. A **pure-empty abstain** — no
+        Stage-C labels AND an empty hash pool — returns None here: no LLM call, nothing
+        to explain. All facts are DB-derived so the substring grounding has a real
+        corpus.
+        """
+        sid = payload.get("suggestion_id")
+        if sid is None:
+            return None
+        error_hash = sig.get("error_hash") or 0
+        reason = payload.get("abstain_reason")
+        confidence = float(payload.get("confidence") or 0.0)
+
+        cand_lines = [
+            f"cosine {c['similarity']} label {c['label']}"
+            for c in (payload.get("candidates") or [])
+            if c.get("label")
+        ]
+
+        pool = self._facts.hash_pool(project_id, error_hash, item_id) if error_hash else []
+        pool_counts: dict[str, int] = {}
+        for row in pool:
+            loc = row.get("issue_type")
+            if loc:
+                pool_counts[loc] = pool_counts.get(loc, 0) + 1
+        pool_lines = [f"{n}x {loc}" for loc, n in pool_counts.items()]
+
+        # Nothing conflicting to narrate → skip the LLM entirely.
+        if not cand_lines and not pool_lines:
+            return None
+
+        conflict_labels = list(
+            dict.fromkeys(
+                [c["label"] for c in (payload.get("candidates") or []) if c.get("label")]
+                + list(pool_counts)
+            )
+        )
+        conflict = (
+            "evidence splits across labels: " + ", ".join(conflict_labels)
+            if len(conflict_labels) > 1
+            else f"only weak same-label evidence: {conflict_labels[0]}"
+        )
+        abstain_facts = {
+            "decision": "abstain: analyzer declined to choose a defect type",
+            "reason_code": reason or "no_confident_rule",
+            "blocking_gate": _abstain_gate_sentence(reason),
+            "confidence": f"{confidence:.3f}",
+            "suggest_threshold": f"{TAU_SUGGEST:.2f}",
+            "top_candidates": cand_lines,
+            "exact_hash_pool": pool_lines,
+            "label_conflict": conflict,
+        }
+        return {
+            "error_hash": error_hash,
+            "reason_code": reason or "no_confident_rule",
+            "candidate_key": "|".join(cand_lines) + "#" + "|".join(sorted(pool_lines)),
+            "fact_block": abstain_facts,
+            "log_excerpt": excerpt,
+            "suggestion_id": sid,
         }
 
     def _judge_input(
@@ -168,7 +256,11 @@ class PgLlmApplier:
     ) -> None:
         if result.output is None:
             return
-        if role == "explainer":
+        if role in ("explainer", "abstain_explainer"):
+            # Both fill explanation + llm_used on their target suggestion row (§4.1).
+            # The match explainer targets the shown suggestion; the abstain explainer
+            # targets the specific ti (abstain) row via the id threaded in the payload,
+            # so a same-item cold-start insert cannot steal the explanation.
             sid = inp.get("suggestion_id")
             if sid is not None:
                 apply_explainer(self._ops, project_id, int(sid), result.output)
@@ -217,7 +309,11 @@ def build_extractor_feature_lookup(
         except Exception:  # noqa: BLE001 — a feature lookup must never fail a decision
             logger.exception("extractor feature lookup failed for project %s", project_id)
             return None
-        if not out:
+        if not out or is_negative(out):
+            # A negative cache row (issue #7) records that the extractor could not
+            # ground an answer. It is stored with template_hash NULL so this query
+            # cannot return it; the check is here so the rule holds even if a row
+            # ever arrives by another path. A miss keeps the unknown sentinel.
             return None
         return (out.get("failing_layer") or LLM_UNKNOWN, out.get("error_class") or LLM_UNKNOWN)
 

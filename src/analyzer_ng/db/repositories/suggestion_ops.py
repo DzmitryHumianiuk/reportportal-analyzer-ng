@@ -78,14 +78,17 @@ class PgSuggestionOps(StoreBase):
         model_ver: str,
         features: dict[str, Any],
     ) -> int:
-        """§4.4 row update: insert a suggest-band AI suggestion (``llm_used=true``)."""
+        """§4.4 row update: insert a suggest-band AI suggestion (``llm_used=true``).
+
+        ``method='coldstart'`` is stamped as a real column (migration 0007) so the read
+        path/Inspector shows the rubric provenance without parsing ``model_ver``."""
         with self._conn() as conn:
             cur = conn.execute(
                 """
                 INSERT INTO analyzer.suggestion
                     (project_id, item_id, launch_id, predicted_label, confidence,
-                     features, model_ver, llm_used)
-                VALUES (%s,%s,%s,%s,%s,%s,%s, true)
+                     features, model_ver, llm_used, method)
+                VALUES (%s,%s,%s,%s,%s,%s,%s, true, 'coldstart')
                 RETURNING suggestion_id
                 """,
                 (
@@ -120,6 +123,39 @@ class PgLlmFacts(StoreBase):
                 (project_id, item_id),
             )
             return cur.fetchone()
+
+    def hash_pool(
+        self, project_id: int, error_hash: int, exclude_item_id: int, limit: int = 10
+    ) -> list[dict]:
+        """Labeled (non-``ti``) items sharing ``error_hash`` — the conflict pool the
+        abstain explainer narrates (extension 2026-07-20).
+
+        Mirrors :meth:`PgRetrievalStore.find_hash_matches` label semantics but is
+        available to the async LLM worker (§1.5) and, crucially, is queried
+        independently of ``exception_fp``: item 4998's pb-vs-ab conflict lives in this
+        pool even though ``exception_fp=0`` makes Stage A itself unavailable. Read-only,
+        project-scoped, newest-label first. Returns ``[]`` when nothing labeled shares
+        the hash (a genuinely pure-empty abstain — no LLM call is then made)."""
+        with self._conn() as conn:
+            cur = conn.cursor(row_factory=dict_row)
+            cur.execute(
+                """
+                SELECT ti.issue_type, ti.issue_type_group, le.source AS label_source
+                FROM analyzer.failure_signature fs
+                JOIN analyzer.test_item ti USING (project_id, item_id)
+                LEFT JOIN LATERAL (
+                    SELECT source, ts FROM analyzer.label_event le
+                    WHERE le.project_id = ti.project_id AND le.item_id = ti.item_id
+                    ORDER BY le.ts DESC LIMIT 1
+                ) le ON true
+                WHERE fs.project_id = %s AND fs.error_hash = %s AND ti.item_id <> %s
+                  AND ti.issue_type IS NOT NULL AND ti.issue_type_group <> 'ti'
+                ORDER BY le.ts DESC NULLS LAST, ti.item_id DESC
+                LIMIT %s
+                """,
+                (project_id, error_hash, exclude_item_id, limit),
+            )
+            return cur.fetchall()
 
     def latest_suggestion(self, project_id: int, item_id: int) -> dict | None:
         """The item's most-recent suggestion (the explainer/judge target row)."""

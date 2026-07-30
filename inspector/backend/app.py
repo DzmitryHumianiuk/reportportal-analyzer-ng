@@ -23,6 +23,7 @@ from . import payloads
 from .config import Config
 from .db import Database
 from .rp_names import RPNameResolver
+from .rubric_loader import rubric_rows
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -61,6 +62,17 @@ def _build_inner(cfg: Config) -> FastAPI:
     app.state.db = db
     app.state.rp = rp
 
+    # Static assets are ES modules; without revalidation a redeploy can leave a
+    # browser running a stale module tree (query-busting the HTML never busts the
+    # module URLs). `no-cache` forces a conditional request each load, so a
+    # changed ETag serves fresh code immediately.
+    @app.middleware("http")
+    async def _revalidate_static(request, call_next):  # noqa: ANN001, ANN202
+        response = await call_next(request)
+        if "/static/" in request.url.path:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     # ---- Health ----
     @app.get("/healthz")
     def healthz() -> dict[str, Any]:
@@ -86,11 +98,11 @@ def _build_inner(cfg: Config) -> FastAPI:
 
     @app.get("/api/launches")
     def api_launches(project: int = Query(...)) -> dict[str, Any]:
-        return {"launches": payloads.list_launches(db, project, limit)}
+        return {"launches": payloads.list_launches(db, project, limit, rp)}
 
     @app.get("/api/items")
     def api_items(project: int = Query(...), launch: int = Query(...)) -> dict[str, Any]:
-        return {"items": payloads.list_items(db, project, launch, limit)}
+        return {"items": payloads.list_items(db, project, launch, limit, rp)}
 
     # ---- Item Journey ----
     @app.get("/api/item/{project}/{item_id}/journey")
@@ -99,6 +111,16 @@ def _build_inner(cfg: Config) -> FastAPI:
         if data is None:
             raise HTTPException(status_code=404, detail="item not found")
         return data
+
+    # ---- Rubric reference ----
+    @app.get("/api/rubric")
+    def api_rubric() -> dict[str, Any]:
+        """The cold-start rules, read from the analyzer's own table.
+
+        A reader shown "Could not reach the service" on a guess can come here to
+        see the rule behind it, what it looks for, and what it always produces.
+        """
+        return {"rules": rubric_rows()}
 
     # ---- Explorers ----
     @app.get("/api/templates")
@@ -124,6 +146,44 @@ def _build_inner(cfg: Config) -> FastAPI:
     @app.get("/api/summary")
     def api_summary(project: int = Query(...)) -> dict[str, Any]:
         return payloads.summary(db, project, rp)
+
+    @app.get("/api/signatures")
+    def api_signatures(
+        project: int = Query(...),
+        q: str | None = Query(default=None),
+        conflicts: bool = Query(default=False),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        return payloads.signatures(db, project, q, conflicts, limit, offset, rp)
+
+    @app.get("/api/signature-hash")
+    def api_signature_hash(project: int = Query(...), error_hash: str = Query(...)) -> Any:
+        data = payloads.signature_hash(db, project, error_hash, rp)
+        if data is None:
+            raise HTTPException(status_code=404, detail="error_hash not found")
+        return data
+
+    # ---- LLM sidecar observability (read-only; spec 04 tables) ----
+    @app.get("/api/llm/summary")
+    def api_llm_summary(project: int = Query(...)) -> dict[str, Any]:
+        return payloads.llm_summary(db, project)
+
+    @app.get("/api/llm/events")
+    def api_llm_events(
+        project: int = Query(...),
+        role: str | None = Query(default=None),
+        outcome: str | None = Query(default=None),
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        return payloads.llm_events(db, project, role, outcome, limit, rp)
+
+    @app.get("/api/llm/cache")
+    def api_llm_cache(
+        project: int = Query(...),
+        role: str = Query(default="extractor"),
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        return payloads.llm_cache(db, project, role, limit)
 
     # ---- Optional live analyzer health proxy ----
     @app.get("/api/analyzer-health")

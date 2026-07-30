@@ -15,7 +15,11 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from analyzer_ng.llm.roles.coldstart import CONFIDENCE_SCORE
+from analyzer_ng.llm.roles.coldstart import (
+    CONFIDENCE_SCORE,
+    rubric_rule_name,
+    strip_rule_ids,
+)
 
 # Cold-start suggestions are surfaced to RP flagged as AI-suggested (§4.4).
 COLDSTART_METHOD_NAME = "llm_coldstart"
@@ -83,9 +87,7 @@ def apply_judge(
             "prompt_hash": prompt_hash,
         }
     }
-    ops.annotate_judge(
-        project_id, item_id, chosen_item_id=chosen_item_id, features_patch=patch
-    )
+    ops.annotate_judge(project_id, item_id, chosen_item_id=chosen_item_id, features_patch=patch)
 
 
 def apply_coldstart(
@@ -98,15 +100,26 @@ def apply_coldstart(
     group_locator: str,
     model_tag: str,
 ) -> int:
-    """Insert a cold-start AI suggestion, always inside the suggest band (§4.4)."""
+    """Insert a cold-start AI suggestion, always inside the suggest band (§4.4).
+
+    Extension 2026-07-20: the rubric ``reason`` sentence the model already produced
+    (and which is audited verbatim in ``llm_event.output``) is copied straight onto
+    the inserted suggestion's ``explanation`` — no second LLM call, provenance stays
+    ``rubric+<model>``. Cheap and deterministic: the sentence already exists.
+    """
     confidence = CONFIDENCE_SCORE[output["confidence"]]
     features = {
         "coldstart": {
             "rule": output["rubric_rule_matched"],
+            # The rule's reader-facing name travels with the id, so a UI can show
+            # "Could not reach the service" instead of "R6" without keeping its own
+            # copy of the rubric. The id stays for audit and for arguing with the
+            # rule itself.
+            "rule_name": rubric_rule_name(output["rubric_rule_matched"]),
             "confidence": output["confidence"],
         }
     }
-    return ops.insert_coldstart(
+    suggestion_id = ops.insert_coldstart(
         project_id=project_id,
         item_id=item_id,
         launch_id=launch_id,
@@ -115,3 +128,12 @@ def apply_coldstart(
         model_ver=f"rubric+{model_tag}",
         features=features,
     )
+    # The rule id is carried in ``features.coldstart.rule``, where a reader can be
+    # shown its name. In the sentence it is jargon nobody can resolve, and this
+    # sentence is copied onto the defect comment, which outlives the modal. Cleaned
+    # here rather than only at generation time so the answers already sitting in the
+    # 90 day cache are cleaned too.
+    reason = strip_rule_ids(output.get("reason"))
+    if reason:
+        ops.set_explanation(project_id, suggestion_id, reason)
+    return suggestion_id

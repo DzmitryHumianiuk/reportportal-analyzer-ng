@@ -20,10 +20,19 @@ export const api = {
   launches: (project) => get(`api/launches?${qs({ project })}`),
   items: (project, launch) => get(`api/items?${qs({ project, launch })}`),
   journey: (project, itemId) => get(`api/item/${project}/${itemId}/journey`),
+  rubric: () => get('api/rubric'),
   templates: (project, q) => get(`api/templates?${qs({ project, q })}`),
   modes3d: (project) => get(`api/modes3d?${qs({ project })}`),
   groups: (project, launch) => get(`api/groups?${qs({ project, launch })}`),
   timeline: (project) => get(`api/timeline?${qs({ project })}`),
   summary: (project) => get(`api/summary?${qs({ project })}`),
+  signatures: (project, q, conflicts, offset) =>
+    get(`api/signatures?${qs({ project, q, conflicts: conflicts ? 1 : '', offset })}`),
+  signatureHash: (project, errorHash) =>
+    get(`api/signature-hash?${qs({ project, error_hash: errorHash })}`),
   analyzerHealth: () => get('api/analyzer-health'),
+  llmSummary: (project) => get(`api/llm/summary?${qs({ project })}`),
+  llmEvents: (project, role, outcome, limit) =>
+    get(`api/llm/events?${qs({ project, role, outcome, limit })}`),
+  llmCache: (project, role, limit) => get(`api/llm/cache?${qs({ project, role, limit })}`),
 };

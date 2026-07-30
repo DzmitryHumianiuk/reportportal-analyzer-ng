@@ -490,7 +490,10 @@ def test_delete_launches_retains_label_events(pool: ConnectionPool) -> None:
         assert events == 1
 
 
-def test_delete_project_removes_all_rows(pool: ConnectionPool) -> None:
+def test_delete_project_purges_derived_data_but_keeps_label_events(pool: ConnectionPool) -> None:
+    # RP's "Generate index" is delete->rebuild via this route, so delete_project
+    # must wipe only DERIVED data and keep the append-only label_event log — else
+    # every reindex destroys the project's learning history.
     store = PgRetrievalStore(pool)
     _seed_hybrid_fixture(store, project_id=1)
     PgKBStore(pool).spawn_candidate_mode(
@@ -502,21 +505,134 @@ def test_delete_project_removes_all_rows(pool: ConnectionPool) -> None:
     PgDrain3StateStore(pool).save(1, b"blob", 0, {})
     store.delete_project(1)
     with pool.connection() as conn:
+        # Derived tables are wiped (regenerated on reindex; test_history_stats is
+        # rebuilt incrementally so it must not linger and double-count).
         for table in (
             "test_item",
             "failure_signature",
             "failure_mode",
             "mode_membership",
-            "label_event",
             "drain3_state",
             "log_template",
             "suggestion",
+            "test_history_stats",
             "project",
         ):
             n = conn.execute(
                 f"SELECT count(*) FROM analyzer.{table} WHERE project_id=1"
             ).fetchone()[0]
             assert n == 0, f"{table} still has rows for project 1"
+        # label_event survives (no FK to project; append-only learning log).
+        events = conn.execute(
+            "SELECT item_id, new_label FROM analyzer.label_event WHERE project_id=1"
+        ).fetchall()
+        assert events == [(1, "pb001")]
+
+    # After reindex the item returns under its stable item_id and rejoins its
+    # preserved event (the training stream is intact).
+    store.upsert_items([TestItemIn(item_id=1, project_id=1, launch_id=1, issue_type="pb001")])
+    with pool.connection() as conn:
+        joined = conn.execute(
+            "SELECT ti.item_id, le.new_label FROM analyzer.test_item ti "
+            "JOIN analyzer.label_event le "
+            "  ON le.project_id = ti.project_id AND le.item_id = ti.item_id "
+            "WHERE ti.project_id=1"
+        ).fetchall()
+        assert joined == [(1, "pb001")]
+
+
+def _orphan_reaper_seed(pool: ConnectionPool) -> PgRetrievalStore:
+    """A project with one labeled item, then genuinely deleted (item orphaned)."""
+    store = PgRetrievalStore(pool)
+    store.upsert_items([TestItemIn(item_id=1, project_id=1, launch_id=1, issue_type="pb001")])
+    PgLabelStore(pool).append_event(
+        LabelEventIn(project_id=1, item_id=1, new_label="pb001", source="human_ui")
+    )
+    store.delete_project(1)  # genuine deletion: test_item gone, label_event kept
+    return store
+
+
+def _label_events(pool: ConnectionPool) -> int:
+    with pool.connection() as conn:
+        return conn.execute(
+            "SELECT count(*) FROM analyzer.label_event WHERE project_id=1"
+        ).fetchone()[0]
+
+
+def _orphan_tombstones(pool: ConnectionPool) -> int:
+    with pool.connection() as conn:
+        return conn.execute(
+            "SELECT count(*) FROM analyzer.label_event_orphan WHERE project_id=1"
+        ).fetchone()[0]
+
+
+def _backdate_tombstone(pool: ConnectionPool, days: int) -> None:
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE analyzer.label_event_orphan "
+            "SET first_orphaned_at = now() - make_interval(days => %s) WHERE project_id=1",
+            (days,),
+        )
+
+
+def test_reap_marks_but_spares_freshly_orphaned_label_events(pool: ConnectionPool) -> None:
+    # tech-debt #6: the first pass only MARKS a genuinely-deleted item; nothing is
+    # purged until the grace elapses, so a same-day reindex can still reclaim it.
+    _orphan_reaper_seed(pool)
+    store = PgRetrievalStore(pool)
+
+    purged = store.reap_orphan_label_events(grace_days=30)
+
+    assert purged == 0
+    assert _label_events(pool) == 1  # history intact
+    assert _orphan_tombstones(pool) == 1  # tombstoned, grace running
+
+
+def test_reap_sweeps_label_events_orphaned_past_grace(pool: ConnectionPool) -> None:
+    # An item orphaned continuously past the grace (genuine deletion, never rebuilt)
+    # is finally purged, closing the orphan-accumulation leak.
+    _orphan_reaper_seed(pool)
+    store = PgRetrievalStore(pool)
+    store.reap_orphan_label_events(grace_days=30)  # mark
+    _backdate_tombstone(pool, days=31)  # grace has now elapsed
+
+    purged = store.reap_orphan_label_events(grace_days=30)  # sweep
+
+    assert purged == 1
+    assert _label_events(pool) == 0  # orphan reclaimed
+    assert _orphan_tombstones(pool) == 0  # tombstone cleaned up too
+
+
+def test_reap_never_purges_mid_reindex_even_past_grace(pool: ConnectionPool) -> None:
+    # The safety property: even if a tombstone is older than the grace, a reindex
+    # that re-creates test_item clears it via UNMARK, so live learning history is
+    # NEVER purged. Backdating past the grace makes the test independent of timing.
+    _orphan_reaper_seed(pool)
+    store = PgRetrievalStore(pool)
+    store.reap_orphan_label_events(grace_days=30)  # mark
+    _backdate_tombstone(pool, days=99)  # far past grace — maximally adversarial
+
+    # Reindex: RP re-publishes the launch, test_item returns under its stable id.
+    store.upsert_items([TestItemIn(item_id=1, project_id=1, launch_id=1, issue_type="pb001")])
+    purged = store.reap_orphan_label_events(grace_days=30)
+
+    assert purged == 0  # unmark cleared the tombstone before any sweep
+    assert _label_events(pool) == 1  # history survived the reindex
+    assert _orphan_tombstones(pool) == 0  # tombstone gone (item re-indexed)
+
+
+def test_reap_disabled_grace_marks_but_never_sweeps(pool: ConnectionPool) -> None:
+    # grace_days <= 0 disables the destructive sweep; an operator cannot set an
+    # aggressive grace that reaps history.
+    _orphan_reaper_seed(pool)
+    store = PgRetrievalStore(pool)
+    store.reap_orphan_label_events(grace_days=30)  # mark
+    _backdate_tombstone(pool, days=999)
+
+    purged = store.reap_orphan_label_events(grace_days=0)
+
+    assert purged == 0
+    assert _label_events(pool) == 1  # never swept
 
 
 def test_delete_by_log_time_respects_log_time_max(pool: ConnectionPool) -> None:

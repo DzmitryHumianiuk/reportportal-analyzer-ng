@@ -130,12 +130,87 @@ def test_index_writes_real_rows_lowercased_and_stats(
         assert stats == [(1234567, 1, 1), (7654321, 1, 1)]
 
         # Drain3 state persisted + template mirror populated.
-        assert conn.execute(
-            "SELECT count(*) FROM analyzer.drain3_state WHERE project_id=%s", (PROJECT,)
-        ).fetchone()[0] == 1
-        assert conn.execute(
-            "SELECT count(*) FROM analyzer.log_template WHERE project_id=%s", (PROJECT,)
-        ).fetchone()[0] >= 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM analyzer.drain3_state WHERE project_id=%s", (PROJECT,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM analyzer.log_template WHERE project_id=%s", (PROJECT,)
+            ).fetchone()[0]
+            >= 1
+        )
+
+
+def test_concurrent_burst_index_one_project_serializes_no_loss(store_dsn: str) -> None:
+    """Burst of concurrent ``index`` batches for ONE project persists every launch.
+
+    Reproduces RP's project-wide "Generate index" against the real store: several
+    batches for the same project run on parallel threads, each doing
+    load-version -> Drain-mine -> CAS-save. The per-project Postgres advisory lock
+    (``PgDrain3StateStore.project_lock``) serializes that critical section, so no
+    batch loses the optimistic-concurrency race and gets dropped — the live defect.
+
+    Uses its own generously sized pool so the lock's held connection plus the
+    load/save/retrieval connections never exhaust it (constraint: pool_max must
+    exceed the number of concurrent same-project workers).
+    """
+
+    def _batch(item_id: int) -> Launch:
+        return Launch(
+            launchId=item_id,
+            launchName="burst",
+            launchNumber=item_id,
+            project=PROJECT,
+            testItems=[
+                {
+                    "testItemId": item_id,
+                    "isAutoAnalyzed": False,
+                    "testItemName": "t",
+                    "testCaseHash": item_id,
+                    "issueType": "ab001",
+                    "logs": [
+                        {
+                            "logId": item_id,
+                            "logLevel": 40000,
+                            "message": "NullPointerException at Foo.bar(Foo.java:1)",
+                        }
+                    ],
+                }
+            ],
+        )
+
+    item_ids = [3001, 3002, 3003, 3004, 3005]
+    with ConnectionPool(store_dsn, min_size=2, max_size=12, open=True) as burst_pool:
+        handlers = PipelineHandlers()
+        handlers.bind(burst_pool)
+        results: dict[int, Any] = {}
+
+        def worker(iid: int) -> None:
+            results[iid] = handlers.index([_batch(iid)])
+
+        threads = [threading.Thread(target=worker, args=(iid,)) for iid in item_ids]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+        assert not any(t.is_alive() for t in threads), "an index worker deadlocked"
+
+        # Every batch succeeded — none lost the CAS under the advisory lock.
+        assert all(not r.errors for r in results.values())
+        with burst_pool.connection() as conn:
+            item_count = conn.execute(
+                "SELECT count(DISTINCT item_id) FROM analyzer.test_item WHERE project_id=%s",
+                (PROJECT,),
+            ).fetchone()[0]
+            version = conn.execute(
+                "SELECT state_version FROM analyzer.drain3_state WHERE project_id=%s",
+                (PROJECT,),
+            ).fetchone()[0]
+    assert item_count == len(item_ids)  # every launch persisted, nothing dropped
+    assert version == len(item_ids)  # one serialized CAS save per batch, none lost
 
 
 def test_reindex_is_idempotent_no_duplicate_rows(

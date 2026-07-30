@@ -1,0 +1,351 @@
+{
+  "framework": "playwright-ts",
+  "archetypes": [
+    {
+      "archetype_id": "TS-PW-01",
+      "framework": "playwright-ts",
+      "label": "nd",
+      "title": "Vite warm-up race — expect(locator).toBeVisible() times out on rotating storefront specs",
+      "test_name_pattern": "storefront/{spec} › {suite} › {test}",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] navigate to https://storefront.staging.hawkins-lab.dev/{route}" },
+        { "level": "debug", "template": "pw:api  navigating to \"https://storefront.staging.hawkins-lab.dev/{route}\", waiting until \"load\"" },
+        { "level": "debug", "template": "[hydration] waiting for window.__STOREFRONT_READY__ (Vite dev bundle warm-up, attempt {warmup_attempt})" },
+        { "level": "info", "template": "[STEP] expect(page.getByTestId('{testid}')).toBeVisible()" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "Error: expect(locator).toBeVisible() failed\n\nLocator:  getByTestId('{testid}')\nExpected: visible\nReceived: hidden\nTimeout:  5000ms\n\nCall log:\n  - Expect \"toBeVisible\" with timeout 5000ms\n  - waiting for getByTestId('{testid}')\n\n    at {suite_lower} ({spec_path}:{line}:{col})\n    at /work/frontend-apps/e2e/fixtures/storefront.ts:41:5" }
+      ],
+      "variants": [
+        { "params": { "spec": "product-grid.spec.ts", "spec_path": "e2e/specs/product-grid.spec.ts", "suite": "Product grid", "suite_lower": "product grid", "test": "lazy-loads the next page of results", "route": "c/womens-outerwear", "testid": "product-tile-page-2", "warmup_attempt": "3", "line": "38", "col": "42" }, "label_override": "nd" },
+        { "params": { "spec": "mini-cart.spec.ts", "spec_path": "e2e/specs/mini-cart.spec.ts", "suite": "Mini cart", "suite_lower": "mini cart", "test": "shows the item-count badge after add-to-cart", "route": "p/hopper-boots-8842", "testid": "mini-cart-badge", "warmup_attempt": "2", "line": "54", "col": "48" }, "label_override": "nd" },
+        { "params": { "spec": "search-suggest.spec.ts", "spec_path": "e2e/specs/search-suggest.spec.ts", "suite": "Search", "suite_lower": "search", "test": "renders type-ahead suggestions", "route": "search?q=jacket", "testid": "suggest-panel", "warmup_attempt": "4", "line": "27", "col": "44" }, "label_override": "nd" },
+        { "params": { "spec": "promo-banner.spec.ts", "spec_path": "e2e/specs/promo-banner.spec.ts", "suite": "Promo banner", "suite_lower": "promo banner", "test": "renders the hero campaign slot", "route": "", "testid": "hero-campaign", "warmup_attempt": "2", "line": "19", "col": "40" }, "label_override": "nd" },
+        { "params": { "spec": "wishlist.spec.ts", "spec_path": "e2e/specs/wishlist.spec.ts", "suite": "Wishlist", "suite_lower": "wishlist", "test": "adds a product to the saved list", "route": "p/palace-parka-7731", "testid": "wishlist-heart-active", "warmup_attempt": "3", "line": "61", "col": "46" }, "label_override": "ab" },
+        { "params": { "spec": "account-menu.spec.ts", "spec_path": "e2e/specs/account-menu.spec.ts", "suite": "Account", "suite_lower": "account", "test": "opens the profile dropdown", "route": "account", "testid": "account-dropdown", "warmup_attempt": "2", "line": "33", "col": "41" }, "label_override": "ab" },
+        { "params": { "spec": "product-grid.spec.ts", "spec_path": "e2e/specs/product-grid.spec.ts", "suite": "Product grid", "suite_lower": "product grid", "test": "renders the filter rail", "route": "c/mens-footwear", "testid": "filter-rail", "warmup_attempt": "3", "line": "72", "col": "43" }, "label_override": "nd" },
+        { "params": { "spec": "mini-cart.spec.ts", "spec_path": "e2e/specs/mini-cart.spec.ts", "suite": "Mini cart", "suite_lower": "mini cart", "test": "opens the drawer on hover", "route": "p/byers-tee-1180", "testid": "mini-cart-drawer", "warmup_attempt": "5", "line": "88", "col": "47" }, "label_override": "nd" }
+      ],
+      "attachments": [
+        { "name": "test-failed-1.png", "kind": "image", "probability": 1 },
+        { "name": "video.webm", "kind": "trace", "probability": 0.9 },
+        { "name": "trace.zip", "kind": "trace", "probability": 1 }
+      ],
+      "scenario_refs": ["S40"],
+      "expected_behavior": "Flaky Vite warm-up race Jul 6-10: 4-6 random specs per night time out on a 5000ms toBeVisible; retries rescue ~half. High flakiness_score, flips_30d>0 in stored vector; matches seed flaky_retry_passed(nd@0.7) once test_stats accrue; probes suggest/auto nd (Robin's 3 quarantined specs carry flaky-quarantine=true and drift ti->ab). Flakiness stops when the pinned-server fix lands Fri Jul 10.",
+      "placeholders": ["spec", "spec_path", "suite", "suite_lower", "test", "route", "testid", "warmup_attempt", "line", "col"]
+    },
+    {
+      "archetype_id": "TS-PW-02",
+      "framework": "playwright-ts",
+      "label": "si",
+      "title": "Staging ingress down — page.goto net::ERR_CONNECTION_REFUSED (Jul 1 outage)",
+      "test_name_pattern": "storefront/{spec} › {suite} › {test}",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] fixture 'storefront' launching chromium (headless) against {host}" },
+        { "level": "debug", "template": "pw:api  navigating to \"https://{host}/{route}\", waiting until \"load\"" },
+        { "level": "warn", "template": "pw:api  retrying navigation (1/2) after net::ERR_CONNECTION_REFUSED" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "Error: page.goto: net::ERR_CONNECTION_REFUSED at https://{host}/{route}\nCall log:\n  - navigating to \"https://{host}/{route}\", waiting until \"load\"\n\n    at StorefrontPage.open (/work/frontend-apps/e2e/pages/StorefrontPage.ts:29:20)\n    at {suite_lower} ({spec_path}:{line}:{col})" }
+      ],
+      "variants": [
+        { "params": { "spec": "checkout.spec.ts", "spec_path": "e2e/specs/checkout.spec.ts", "suite": "Checkout", "suite_lower": "checkout", "test": "completes a guest checkout", "host": "storefront.staging.hawkins-lab.dev", "route": "checkout", "line": "22", "col": "18" } },
+        { "params": { "spec": "product.spec.ts", "spec_path": "e2e/specs/product.spec.ts", "suite": "Product", "suite_lower": "product detail", "test": "shows the size selector", "host": "storefront.staging.hawkins-lab.dev", "route": "p/hopper-boots-8842", "line": "17", "col": "18" } },
+        { "params": { "spec": "cart.spec.ts", "spec_path": "e2e/specs/cart.spec.ts", "suite": "Cart", "suite_lower": "cart", "test": "recalculates the line totals", "host": "storefront.staging.hawkins-lab.dev", "route": "cart", "line": "31", "col": "18" } },
+        { "params": { "spec": "home.spec.ts", "spec_path": "e2e/specs/home.spec.ts", "suite": "Home", "suite_lower": "home", "test": "renders the campaign carousel", "host": "storefront.staging.hawkins-lab.dev", "route": "", "line": "14", "col": "18" } },
+        { "params": { "spec": "account.spec.ts", "spec_path": "e2e/specs/account.spec.ts", "suite": "Account", "suite_lower": "account", "test": "loads the order history", "host": "storefront.staging.hawkins-lab.dev", "route": "account/orders", "line": "26", "col": "18" } }
+      ],
+      "attachments": [
+        { "name": "test-failed-1.png", "kind": "image", "probability": 0.3 },
+        { "name": "trace.zip", "kind": "trace", "probability": 1 }
+      ],
+      "scenario_refs": ["S34"],
+      "expected_behavior": "Jul 1 infra outage (INFRA-4412, 02:00-09:40): staging ingress refused connections; ~50% of the FEA PW nightly fails with net::ERR_CONNECTION_REFUSED. Shares the burst db-conn-shaped signature; grouped into the outage group, si_prior~0.9, fans out si sharing group_id. Byte-consistent host across variants so masking collapses to one fingerprint.",
+      "placeholders": ["spec", "spec_path", "suite", "suite_lower", "test", "host", "route", "line", "col"]
+    },
+    {
+      "archetype_id": "TS-PW-03",
+      "framework": "playwright-ts",
+      "label": "ti",
+      "title": "Locale price formatting mismatch — decimal comma vs point (near-miss of the fixed VAT bug)",
+      "test_name_pattern": "storefront/checkout.spec.ts › Checkout › displays the order total with grouping and decimals",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] add SKU {sku} to cart and open /checkout?locale={locale}" },
+        { "level": "debug", "template": "pw:api  GET /api/v3/cart/summary -> 200 (locale={locale}, total_minor={total_minor})" },
+        { "level": "info", "template": "[STEP] expect(page.getByTestId('order-total')).toHaveText('{expected}')" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "Error: expect(locator).toHaveText(expected) failed\n\nLocator:  getByTestId('order-total')\nExpected string: \"{expected}\"\nReceived string: \"{actual}\"\nTimeout:  5000ms\n\nCall log:\n  - Expect \"toHaveText\" with timeout 5000ms\n  - waiting for getByTestId('order-total')\n  -   locator resolved to <span data-testid=\"order-total\">{actual}</span>\n  -   unexpected value \"{actual}\"\n\n    at checkout ({spec_path}:{line}:{col})" }
+      ],
+      "variants": [
+        { "params": { "sku": "hopper-boots-8842", "locale": "de-DE", "total_minor": "4190", "expected": "€ 41.90", "actual": "€ 41,90", "spec_path": "e2e/specs/checkout.spec.ts", "line": "119", "col": "39" } },
+        { "params": { "sku": "palace-parka-7731", "locale": "de-DE", "total_minor": "12900", "expected": "€ 129.00", "actual": "€ 129,00", "spec_path": "e2e/specs/checkout.spec.ts", "line": "119", "col": "39" } }
+      ],
+      "attachments": [
+        { "name": "test-failed-1.png", "kind": "image", "probability": 1 },
+        { "name": "trace.zip", "kind": "trace", "probability": 1 }
+      ],
+      "scenario_refs": ["S18"],
+      "adv_case": "ADV-3.C",
+      "expected_behavior": "Jul 15 FEA probe. Lexically close to the FIXED S09 VAT rounding bug (currency/euro/decimal tokens) but a distinct locale-formatting bug. Cold project, no local history, seed 'assertion'(0.4) below bar. MUST NOT confidently inherit pb from the dead VAT bug; correct outcome is abstain (ti) or at most a modest-confidence suggest — never auto-pb.",
+      "placeholders": ["sku", "locale", "total_minor", "expected", "actual", "spec_path", "line", "col"]
+    },
+    {
+      "archetype_id": "TS-PW-04",
+      "framework": "playwright-ts",
+      "label": "si",
+      "title": "DNS resolution failure — page.goto net::ERR_NAME_NOT_RESOLVED",
+      "test_name_pattern": "storefront/smoke.spec.ts › Smoke › storefront home page is reachable",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] navigate to https://{host}/" },
+        { "level": "debug", "template": "pw:api  navigating to \"https://{host}/\", waiting until \"domcontentloaded\"" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "Error: page.goto: net::ERR_NAME_NOT_RESOLVED at https://{host}/\nCall log:\n  - navigating to \"https://{host}/\", waiting until \"domcontentloaded\"\n\n    at StorefrontPage.open (/work/frontend-apps/e2e/pages/StorefrontPage.ts:29:20)\n    at smoke (e2e/specs/smoke.spec.ts:12:16)" }
+      ],
+      "variants": [
+        { "params": { "host": "storefront.staging.hawkins-lab.dev" } },
+        { "params": { "host": "cdn-assets.staging.hawkins-lab.dev" } }
+      ],
+      "attachments": [
+        { "name": "trace.zip", "kind": "trace", "probability": 1 }
+      ],
+      "scenario_refs": ["S33"],
+      "expected_behavior": "Cold FEA Phase-1 analysis. Matches seed dns_resolution (si@0.85) via exc/msg rule on ERR_NAME_NOT_RESOLVED; prior >= 0.7 so method=rule_cold auto-labels si.",
+      "placeholders": ["host"]
+    },
+    {
+      "archetype_id": "TS-PW-05",
+      "framework": "playwright-ts",
+      "label": "si",
+      "title": "TLS certificate expired — page.goto net::ERR_CERT_DATE_INVALID",
+      "test_name_pattern": "storefront/smoke.spec.ts › Smoke › checkout API is reachable over https",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] navigate to https://{host}/health" },
+        { "level": "debug", "template": "pw:api  navigating to \"https://{host}/health\", waiting until \"load\"" },
+        { "level": "warn", "template": "pw:api  certificate verify failed: notAfter={not_after}" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "Error: page.goto: net::ERR_CERT_DATE_INVALID at https://{host}/health\nCall log:\n  - navigating to \"https://{host}/health\", waiting until \"load\"\n\n    at StorefrontPage.open (/work/frontend-apps/e2e/pages/StorefrontPage.ts:29:20)\n    at smoke (e2e/specs/smoke.spec.ts:24:16)" }
+      ],
+      "variants": [
+        { "params": { "host": "api.staging.hawkins-lab.dev", "not_after": "Jul 12 00:00:00 2026 GMT" } },
+        { "params": { "host": "storefront.staging.hawkins-lab.dev", "not_after": "Jul 14 00:00:00 2026 GMT" } }
+      ],
+      "attachments": [
+        { "name": "trace.zip", "kind": "trace", "probability": 1 }
+      ],
+      "scenario_refs": ["S33"],
+      "expected_behavior": "Cold FEA Phase-1. Matches seed tls_cert (si) on ERR_CERT_DATE_INVALID; prior >= 0.7 -> method=rule_cold auto-si.",
+      "placeholders": ["host", "not_after"]
+    },
+    {
+      "archetype_id": "TS-PW-06",
+      "framework": "playwright-ts",
+      "label": "si",
+      "title": "CI agent disk full — ENOSPC on artifact/webServer write",
+      "test_name_pattern": "storefront/{spec} › {suite} › {test}",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] starting @playwright/test run on agent {agent}" },
+        { "level": "debug", "template": "[webServer] starting: pnpm preview --port {port}" },
+        { "level": "warn", "template": "[artifacts] failed to persist video for {test}; retrying trace flush" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "Error: Process from config.webServer was not able to start. Exit code: 1\n\n[webServer] node:internal/fs/utils:347\n[webServer]     throw err;\n[webServer]     ^\n[webServer] Error: ENOSPC: no space left on device, write\n[webServer]     at writeSync (node:fs:936:3)\n[webServer]     at Object.writeFileSync (node:fs:2312:26)\n[webServer]     at persistArtifact (/work/frontend-apps/node_modules/vite/dist/node/chunks/dep-{chunk}.js:11482:7)\n    at /work/frontend-apps/node_modules/@playwright/test/lib/plugins/webServerPlugin.js:151:13" }
+      ],
+      "variants": [
+        { "params": { "spec": "checkout.spec.ts", "suite": "Checkout", "test": "completes a guest checkout", "agent": "fea-ci-agent-03", "port": "4173", "chunk": "b7f2a19c" } },
+        { "params": { "spec": "product.spec.ts", "suite": "Product", "test": "shows the size selector", "agent": "fea-ci-agent-07", "port": "4173", "chunk": "b7f2a19c" } }
+      ],
+      "attachments": [],
+      "scenario_refs": ["S33"],
+      "expected_behavior": "Cold FEA Phase-1. Matches seed disk_full (si@0.9) on ENOSPC 'no space left on device'; prior >= 0.7 -> method=rule_cold auto-si. Exercises the webServer-startup dialect and the no-attachment path.",
+      "placeholders": ["spec", "suite", "test", "agent", "port", "chunk"]
+    },
+    {
+      "archetype_id": "TS-PW-07",
+      "framework": "playwright-ts",
+      "label": "ti",
+      "title": "Expired auth token — API returns 401 during test setup",
+      "test_name_pattern": "storefront/account.spec.ts › Account › {test}",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] request.newContext with storageState account-{user}.json" },
+        { "level": "debug", "template": "pw:api  GET {endpoint} -> 401 in {ms} ms" },
+        { "level": "warn", "template": "[auth] bearer token for {user} rejected: {reason}" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: 200\nReceived: 401\n\n  response body: {\"error\":\"token_expired\",\"message\":\"JWT expired at {exp}\",\"correlationId\":\"{corr}\"}\n\n    at Object.<anonymous> (e2e/specs/account.spec.ts:{line}:{col})" }
+      ],
+      "variants": [
+        { "params": { "test": "loads saved addresses", "user": "premium_7", "endpoint": "/api/v3/account/addresses", "ms": "142", "reason": "exp in the past", "exp": "2026-07-14T23:59:00Z", "corr": "c-8841ad", "line": "44", "col": "31" } },
+        { "params": { "test": "loads the loyalty balance", "user": "standard_2", "endpoint": "/api/v3/account/loyalty", "ms": "118", "reason": "signature/exp invalid", "exp": "2026-07-15T02:10:00Z", "corr": "c-90f22b", "line": "58", "col": "31" } },
+        { "params": { "test": "loads the wishlist", "user": "premium_7", "endpoint": "/api/v3/account/wishlist", "ms": "133", "reason": "exp in the past", "exp": "2026-07-15T00:03:00Z", "corr": "c-71ce09", "line": "72", "col": "31" } }
+      ],
+      "attachments": [
+        { "name": "account-401.json", "kind": "json", "probability": 0.7 }
+      ],
+      "scenario_refs": ["S33"],
+      "expected_behavior": "Cold FEA. Matches seed http_401_403 (prior 0.55, BELOW the 0.7 auto bar) -> abstain ti; seed_mode_matched recorded but no auto-label. Zero-false-positive discipline on the sub-threshold seed.",
+      "placeholders": ["test", "user", "endpoint", "ms", "reason", "exp", "corr", "line", "col"]
+    },
+    {
+      "archetype_id": "TS-PW-08",
+      "framework": "playwright-ts",
+      "label": "ti",
+      "title": "Connection timeout to upstream — plus priority-tie items grazing generic_timeout",
+      "test_name_pattern": "storefront/{spec} › {suite} › {test}",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] {spec} calls upstream {upstream} during {test}" },
+        { "level": "debug", "template": "pw:api  connecting to {upstream} ({ip}:{port})" },
+        { "level": "warn", "template": "pw:api  socket idle, no bytes after {idle_ms} ms" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "Error: apiRequestContext.get: connect ETIMEDOUT {ip}:{port}\nCall log:\n  - connection timed out after {idle_ms}ms to {upstream}{tie_line}\n\n    at CheckoutApi.quote (/work/frontend-apps/e2e/api/CheckoutApi.ts:63:24)\n    at {suite_lower} ({spec_path}:{line}:{col})" }
+      ],
+      "variants": [
+        { "params": { "spec": "checkout.spec.ts", "spec_path": "e2e/specs/checkout.spec.ts", "suite": "Checkout", "suite_lower": "checkout", "test": "fetches a shipping quote", "upstream": "shipping-svc.staging.hawkins-lab.dev", "ip": "10.4.11.6", "port": "8443", "idle_ms": "10000", "tie_line": "", "line": "88", "col": "26" } },
+        { "params": { "spec": "checkout.spec.ts", "spec_path": "e2e/specs/checkout.spec.ts", "suite": "Checkout", "suite_lower": "checkout", "test": "fetches a tax quote", "upstream": "tax-svc.staging.hawkins-lab.dev", "ip": "10.4.11.9", "port": "8443", "idle_ms": "10000", "tie_line": "", "line": "97", "col": "26" } },
+        { "params": { "spec": "checkout.spec.ts", "spec_path": "e2e/specs/checkout.spec.ts", "suite": "Checkout", "suite_lower": "checkout", "test": "fetches a delivery-slot quote", "upstream": "fulfilment-svc.staging.hawkins-lab.dev", "ip": "10.4.11.14", "port": "8443", "idle_ms": "30000", "tie_line": "\n  - Test timeout of 30000ms exceeded while waiting for apiRequestContext.get", "line": "112", "col": "26" }, "adv_case": "tie" },
+        { "params": { "spec": "cart.spec.ts", "spec_path": "e2e/specs/cart.spec.ts", "suite": "Cart", "suite_lower": "cart", "test": "revalidates the cart against pricing-svc", "upstream": "pricing-svc.staging.hawkins-lab.dev", "ip": "10.4.11.21", "port": "8443", "idle_ms": "30000", "tie_line": "\n  - Test timeout of 30000ms exceeded while waiting for apiRequestContext.get", "line": "77", "col": "26" }, "adv_case": "tie" }
+      ],
+      "attachments": [],
+      "scenario_refs": ["S33"],
+      "expected_behavior": "Cold FEA. The first two (base) items carry only the ETIMEDOUT/'connection timed out' text and match seed conn_timeout (prior 0.65, below 0.7) -> abstain ti. The last two (tie items, tie_line populated) additionally contain 'Test timeout of 30000ms exceeded' so they graze generic_timeout(#47) as well as conn_timeout(#8); seed priority order must resolve seed_mode_matched=conn_timeout(#8) (lower index wins) and still abstain ti. No auto-label on either group.",
+      "placeholders": ["spec", "spec_path", "suite", "suite_lower", "test", "upstream", "ip", "port", "idle_ms", "tie_line", "line", "col"]
+    },
+    {
+      "archetype_id": "TS-PW-09",
+      "framework": "playwright-ts",
+      "label": "ti",
+      "title": "Seed-negative pack — benign noisy ERROR shapes that must graze no rule",
+      "test_name_pattern": "storefront/{spec} › {suite} › {test}",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] {test}" },
+        { "level": "debug", "template": "pw:api  page interaction on https://storefront.staging.hawkins-lab.dev/{route}" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "{error_body}\n    at {suite_lower} ({spec_path}:{line}:{col})" }
+      ],
+      "variants": [
+        { "params": { "spec": "product.spec.ts", "spec_path": "e2e/specs/product.spec.ts", "suite": "Product", "suite_lower": "product detail", "test": "shows the reviews tab", "route": "p/hopper-boots-8842", "error_body": "Error: expect(locator).toHaveCount(expected) failed\n\nLocator:  getByRole('tab', { name: 'Reviews' })\nExpected: 1\nReceived: 2", "line": "51", "col": "45" } },
+        { "params": { "spec": "cart.spec.ts", "spec_path": "e2e/specs/cart.spec.ts", "suite": "Cart", "suite_lower": "cart", "test": "applies a coupon", "route": "cart", "error_body": "Error: locator.click: Element is not attached to the DOM\nCall log:\n  - waiting for getByTestId('apply-coupon')", "line": "63", "col": "38" } },
+        { "params": { "spec": "search.spec.ts", "spec_path": "e2e/specs/search.spec.ts", "suite": "Search", "suite_lower": "search", "test": "sorts by price ascending", "route": "search?q=boots", "error_body": "Error: expect(received).toEqual(expected)\n\n- Expected  - 1\n+ Received  + 1\n\n  Array [\n-   39.9,\n+   41.9,\n    49.0,\n  ]", "line": "77", "col": "31" } },
+        { "params": { "spec": "pdp.spec.ts", "spec_path": "e2e/specs/pdp.spec.ts", "suite": "Product detail", "suite_lower": "product detail", "test": "zooms the gallery image", "route": "p/palace-parka-7731", "error_body": "Error: page.mouse.wheel: Target closed", "line": "112", "col": "22" } },
+        { "params": { "spec": "footer.spec.ts", "spec_path": "e2e/specs/footer.spec.ts", "suite": "Footer", "suite_lower": "footer", "test": "opens the newsletter modal", "route": "", "error_body": "Error: expect(locator).toBeEnabled() failed\n\nLocator:  getByRole('button', { name: 'Subscribe' })\nExpected: enabled\nReceived: disabled", "line": "29", "col": "48" } },
+        { "params": { "spec": "checkout.spec.ts", "spec_path": "e2e/specs/checkout.spec.ts", "suite": "Checkout", "suite_lower": "checkout", "test": "validates the postcode field", "route": "checkout", "error_body": "Error: expect(received).toContain(expected)\n\nExpected substring: \"Enter a valid postcode\"\nReceived string:    \"Please enter your postal code\"", "line": "141", "col": "34" } },
+        { "params": { "spec": "nav.spec.ts", "spec_path": "e2e/specs/nav.spec.ts", "suite": "Navigation", "suite_lower": "navigation", "test": "highlights the active category", "route": "c/mens-footwear", "error_body": "Error: expect(locator).toHaveClass(expected) failed\n\nLocator:  getByTestId('nav-mens')\nExpected pattern: /active/\nReceived string:  \"nav-item\"", "line": "40", "col": "45" } },
+        { "params": { "spec": "pdp.spec.ts", "spec_path": "e2e/specs/pdp.spec.ts", "suite": "Product detail", "suite_lower": "product detail", "test": "selects a size", "route": "p/byers-tee-1180", "error_body": "Error: locator.selectOption: Timeout 5000ms exceeded.\nCall log:\n  - waiting for getByTestId('size-select')\n  -   locator resolved to <select …> but no <option> matched value \"XL\"", "line": "84", "col": "40" } },
+        { "params": { "spec": "cart.spec.ts", "spec_path": "e2e/specs/cart.spec.ts", "suite": "Cart", "suite_lower": "cart", "test": "removes a line item", "route": "cart", "error_body": "Error: expect(received).toHaveLength(expected)\n\nExpected length: 0\nReceived length: 1", "line": "99", "col": "37" } },
+        { "params": { "spec": "home.spec.ts", "spec_path": "e2e/specs/home.spec.ts", "suite": "Home", "suite_lower": "home", "test": "loads the recommendations rail", "route": "", "error_body": "Error: expect(locator).toBeVisible() failed\n\nLocator:  getByTestId('recs-rail')\nExpected: visible\nReceived: hidden\nTimeout:  5000ms", "line": "22", "col": "42" } }
+      ],
+      "attachments": [
+        { "name": "test-failed-1.png", "kind": "image", "probability": 0.6 }
+      ],
+      "scenario_refs": ["S33"],
+      "expected_behavior": "Ten distinct benign ERROR shapes (assorted assertion/DOM/selector failures) that must match NO seed rule. Every one abstains ti in cold FEA (seed_mode_matched empty). The zero-false-positive check for the seed catalog.",
+      "placeholders": ["spec", "spec_path", "suite", "suite_lower", "test", "route", "error_body", "line", "col"]
+    },
+    {
+      "archetype_id": "TS-PW-10",
+      "framework": "playwright-ts",
+      "label": "nd",
+      "title": "Flaky-retry-passed — login smoke fails on attempt 1, passes on retry",
+      "test_name_pattern": "storefront/login-smoke.spec.ts › Login smoke › {test}",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] attempt {attempt}: navigate to /login and sign in as {user}" },
+        { "level": "debug", "template": "pw:api  waiting for getByTestId('account-dropdown') to be visible" },
+        { "level": "warn", "template": "pw:test  test failed on attempt 1, will retry (retries=2)" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "Error: expect(locator).toBeVisible() failed\n\nLocator:  getByTestId('account-dropdown')\nExpected: visible\nReceived: hidden\nTimeout:  5000ms\n\nCall log:\n  - Expect \"toBeVisible\" with timeout 5000ms\n  - waiting for getByTestId('account-dropdown')\n\n    at login smoke (e2e/specs/login-smoke.spec.ts:{line}:{col})\n\n  Retry #1 ─────────────────────────────────────────\n  ✓ passed after retry ({retry_ms}ms)" }
+      ],
+      "variants": [
+        { "params": { "test": "signs in with a valid account", "user": "standard_2", "attempt": "1", "line": "18", "col": "40", "retry_ms": "2140" } },
+        { "params": { "test": "signs in and lands on the dashboard", "user": "premium_7", "attempt": "1", "line": "31", "col": "40", "retry_ms": "1980" } },
+        { "params": { "test": "keeps the session after reload", "user": "standard_9", "attempt": "1", "line": "44", "col": "40", "retry_ms": "2260" } },
+        { "params": { "test": "shows the account greeting on first paint", "user": "standard_2", "attempt": "1", "line": "57", "col": "40", "retry_ms": "0" }, "status": "passed" }
+      ],
+      "attachments": [
+        { "name": "test-failed-1.png", "kind": "image", "probability": 0.8 },
+        { "name": "trace.zip", "kind": "trace", "probability": 1 }
+      ],
+      "scenario_refs": ["S33", "S40"],
+      "expected_behavior": "Fail-then-pass across launches; RP retry rescues it. The three failing variants match seed flaky_retry_passed (nd@0.7) -> method=rule_cold auto-nd; flips_30d>0, high flakiness_score. Ties into S28/S40: auto-nd must NOT propagate to neighbors. The 4th variant (status=passed) is the stable control test that never flips — flakiness_score ~0, flips_30d=0 — so the analyzer's flakiness features are measurably discriminating between it and the flaky siblings.",
+      "placeholders": ["test", "user", "attempt", "line", "col", "retry_ms"]
+    },
+    {
+      "archetype_id": "TS-PW-11",
+      "framework": "playwright-ts",
+      "label": "ti",
+      "title": "Bare test timeout — no context lines (Timeout 30000ms, fp=0)",
+      "test_name_pattern": "storefront/{spec} › {suite} › {test}",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] {test}" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "Test timeout of 30000ms exceeded.\n\nError: locator.click: Test timeout of 30000ms exceeded.\nCall log:\n  - waiting for getByTestId('{testid}')\n\n    at {suite_lower} ({spec_path}:{line}:{col})" }
+      ],
+      "variants": [
+        { "params": { "spec": "checkout.spec.ts", "spec_path": "e2e/specs/checkout.spec.ts", "suite": "Checkout", "suite_lower": "checkout", "test": "places an order", "testid": "place-order-btn", "line": "156", "col": "39" } },
+        { "params": { "spec": "cart.spec.ts", "spec_path": "e2e/specs/cart.spec.ts", "suite": "Cart", "suite_lower": "cart", "test": "proceeds to checkout", "testid": "goto-checkout-btn", "line": "108", "col": "39" } },
+        { "params": { "spec": "product.spec.ts", "spec_path": "e2e/specs/product.spec.ts", "suite": "Product", "suite_lower": "product detail", "test": "adds to cart", "testid": "add-to-cart-btn", "line": "62", "col": "39" } }
+      ],
+      "attachments": [
+        { "name": "trace.zip", "kind": "trace", "probability": 1 }
+      ],
+      "scenario_refs": ["S16"],
+      "adv_case": "ADV-1.C",
+      "expected_behavior": "FEA contrast to the WSU timeout triplet: bare 30000ms test timeout, no discriminating context (SLOW QUERY / pool-exhausted). exception_fp=0, Stage A skipped, matches generic_timeout seed (prior 0.5 < 0.7) -> abstain ti cold. The SAME items, once WSU history exists, would suggest; here they must abstain.",
+      "placeholders": ["spec", "spec_path", "suite", "suite_lower", "test", "testid", "line", "col"]
+    },
+    {
+      "archetype_id": "TS-PW-12",
+      "framework": "playwright-ts",
+      "label": "ti",
+      "title": "Feature-default probe — novel error, no stacktrace, no candidates, no KB",
+      "test_name_pattern": "storefront/bootstrap.spec.ts › Bootstrap › {test}",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] {test} on https://storefront.staging.hawkins-lab.dev/{route}" },
+        { "level": "debug", "template": "pw:api  page.evaluate initializing storefront bootstrap" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "Error: page.evaluate: {novel_error}" }
+      ],
+      "variants": [
+        { "params": { "test": "hydrates the app shell", "route": "", "novel_error": "ReferenceError: __STOREFRONT_FLUX_KERNEL__ is not defined" } },
+        { "params": { "test": "registers the service worker", "route": "account", "novel_error": "TypeError: navigator.serviceWorker.registerWarp is not a function" } }
+      ],
+      "attachments": [],
+      "scenario_refs": ["S39"],
+      "expected_behavior": "S39d feature-default integrity in the cold FEA project: never-seen message, NO stacktrace frames, no retrieval candidates, no KB, no seed match. Stored feature vector must equal documented defaults (entropy=1, kb_*=0, no NaN); decision abstains ti.",
+      "placeholders": ["test", "route", "novel_error"]
+    },
+    {
+      "archetype_id": "TS-PW-13",
+      "framework": "playwright-ts",
+      "label": "ti",
+      "title": "Zero-error failed item — only info/debug logs, no captured error output",
+      "test_name_pattern": "storefront/{spec} › {suite} › {test}",
+      "info_logs": [
+        { "level": "info", "template": "[STEP] {test}" },
+        { "level": "debug", "template": "pw:api  navigating to \"https://storefront.staging.hawkins-lab.dev/{route}\"" },
+        { "level": "info", "template": "pw:api  page loaded, DOMContentLoaded in {ms} ms" },
+        { "level": "debug", "template": "pw:test  afterEach hook completed for {test}" }
+      ],
+      "error_logs": [
+        { "level": "error", "template": "[worker teardown] test '{test}' reported status 'failed' but produced no captured error output" }
+      ],
+      "variants": [
+        { "params": { "spec": "home.spec.ts", "suite": "Home", "test": "renders above the fold", "route": "", "ms": "612" } },
+        { "params": { "spec": "product.spec.ts", "suite": "Product", "test": "opens the size guide", "route": "p/hopper-boots-8842", "ms": "704" } }
+      ],
+      "attachments": [
+        { "name": "trace.zip", "kind": "trace", "probability": 0.5 }
+      ],
+      "scenario_refs": ["S02"],
+      "expected_behavior": "Failed status with no diagnostic ERROR content: the single terminal line carries no exception class, no assertion, no stack frames, so after the level>=40000 filter and masking the signature is empty. Empty-signature path (A2): item is NEVER analyzed, decision is abstain with reason no_error_logs.",
+      "placeholders": ["spec", "suite", "test", "route", "ms"]
+    }
+  ]
+}

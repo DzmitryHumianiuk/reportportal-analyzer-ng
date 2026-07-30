@@ -90,6 +90,13 @@ class PgLlmCacheStore(StoreBase):
                     template_hash = EXCLUDED.template_hash,
                     output        = EXCLUDED.output,
                     model         = EXCLUDED.model,
+                    -- The row was just regenerated, so its freshness clock restarts.
+                    -- Without this the old created_at survives the rewrite and the
+                    -- entry can never be fresh again: every read misses on TTL,
+                    -- rewrites the same stale timestamp, and the role regenerates
+                    -- forever. It bites hardest on the short negative TTL (7 days,
+                    -- issue #7), which would stop suppressing calls after one week.
+                    created_at    = now(),
                     last_hit_at   = now()
                 """,
                 (project_id, cache_key, role, template_hash, Jsonb(output), model),

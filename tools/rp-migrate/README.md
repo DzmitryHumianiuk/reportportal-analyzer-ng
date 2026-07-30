@@ -1,0 +1,133 @@
+# rp-migrate — replay launches from another ReportPortal instance
+
+Reads launches from a SOURCE ReportPortal via the public API and replays them
+into a TARGET instance through the async v2 reporting API, so the target's
+**analyzer-ng ingests them exactly like live traffic** — the point is to test
+auto-analysis on real data from another install.
+
+What is transferred per launch:
+
+- launch name / number ordering / start–end times (back-dated), description,
+  non-system attributes, mode;
+- the full item tree: suites → tests → steps → **nested steps** (`hasStats:false`),
+  with descriptions, attributes, parameters, codeRef, retry flags, statuses;
+- all logs per item (level, time, message) and, by default, **attachments**
+  (re-uploaded via multipart; degrades to text-only per log on failure);
+- **defect types (analysis results)** — replayed as a separate post-finish
+  triage pass (see below), or skipped per launch / entirely.
+
+## Setup
+
+```sh
+cd tools/rp-migrate
+cp .env.example .env   # fill in both instances (URL, project key, API key)
+```
+
+### Auth and long runs (token refresh)
+
+Each side authenticates either by **API key** (`SRC_API_KEY` / `DST_API_KEY`,
+used directly as the bearer) or by **password grant** (`SRC_PASSWORD` /
+`DST_PASSWORD` with the matching `*_USER`, exchanged for a token at
+`POST /uat/sso/oauth/token`). At least one credential per side is required;
+`*_PASSWORD` wins when both are set.
+
+RP **access tokens are short-lived** (minutes–1h). A long migration (many items
+and attachments) can outlive the token obtained at start, after which every
+request would 401 with `invalid_token`. The client now handles this
+transparently: on any 401 it **re-authenticates once and retries the same
+request once** (printing `re-authenticated (token refreshed)`); a second 401
+after a fresh login is raised as a real auth error. For a token that genuinely
+expires mid-run this only self-heals in password-grant mode (a fresh token is
+obtained) — API-key mode simply re-sets the same non-expiring key. The target
+therefore uses password grant (`superadmin`/`superadmin`), the source an API
+key. Uploads (item POSTs and attachment multipart) go through the same path, so
+they survive expiry too.
+
+## Usage
+
+```sh
+# by explicit source launch ids
+python3 migrate.py --launch-ids 1201,1202,1305
+
+# by date range
+python3 migrate.py --from 2026-06-01 --to 2026-07-01
+
+# by date range, only launches with an exact name
+python3 migrate.py --from 2026-06-01 --name pytest-docs-demo
+
+# see what would be migrated, change nothing
+python3 migrate.py --from 2026-06-01 --dry-run
+
+# transfer structure+logs, but keep items To-Investigate for two launches
+python3 migrate.py --launch-ids 1201,1202,1305 --skip-defects-launches 1202,1305
+
+# same, but "the last two of the selection" without listing ids — migrate a
+# named set from the last 3 days, skip analysis (defect replay) for the newest 2
+python3 migrate.py --from 2026-07-25 --name pytest-docs-demo --skip-defects-last 2
+
+# transfer no analysis results at all
+python3 migrate.py --from 2026-06-01 --skip-all-defects
+
+# skip attachments (faster)
+python3 migrate.py --launch-ids 1201 --no-attachments
+
+# do not transfer PASSED tests/steps (whole passed subtrees are dropped;
+# suites survive while they still hold failed/skipped/… descendants)
+python3 migrate.py --launch-ids 1201 --skip-passed
+
+# test ONE launch at a time — process only the first launch of the selection
+# (the limit is applied BEFORE the pre-scan, so only that 1 launch is fetched,
+# not the whole selected set; composes with every other flag)
+python3 migrate.py --from 2026-07-21 --to 2026-07-22 --skip-passed --limit 1
+```
+
+`--limit N` caps how many source launches are processed. It is applied right
+after selection, keeping the **first N** launches in selection order
+(oldest-first for `--from/--to`, as given for `--launch-ids`). Because it runs
+before the pre-scan, defect-type sync and migration, only the kept launches are
+ever fetched from the source — so `--limit 1` is a fast single-launch test
+instead of a full pre-scan of every selected launch. Prints e.g.
+`limited to first 1 of 9 selected launch(es)`. `--dry-run --limit 1` lists
+exactly that one launch.
+
+Re-runs are idempotent at launch level: a target launch with the same
+name+startTime is skipped.
+
+## How defect types are handled (the ML part)
+
+1. Before migration the script collects every defect locator used by the
+   selected items and **syncs custom subtypes to the target project**
+   (matched by group + long name; created with the same long/short name and
+   color when missing). Locators are re-mapped source→target automatically —
+   the same defect *types* are guaranteed to exist.
+2. Launches are reported **without** issues first (failed items land as
+   To-Investigate), finished, and given `INDEX_WAIT_S` to be indexed by the
+   analyzer.
+3. Defects are then applied via RP's bulk defect-update API — this emits the
+   `defect_update` AMQP events that analyzer-ng's feedback loop learns from
+   (the same signal as a human triaging in the UI; `autoAnalyzed:false`, the
+   source comment and `ignoreAnalyzer` flag are carried over). `ti001` is not
+   replayed (it is the default state).
+4. Verification that the ML actually **ate the labels**:
+   - RP-side: each updated item is read back and its issueType compared;
+   - analyzer-side (optional, recommended): set `ANALYZER_PG_EXEC` in `.env`
+     (see example) and the script counts `analyzer.label_event` rows for the
+     migrated items, and **retries the defect replay once** if coverage is
+     short (defect_update for a not-yet-indexed item is dropped by the
+     analyzer — the known indexing race).
+
+Manual verification one-liner for the minikube stand:
+
+```sh
+kubectl exec deploy/analyzer-pg -- psql -U analyzer -d analyzer -c \
+  "select count(*) from analyzer.label_event where source in ('rp') and ts > now() - interval '1 hour'"
+```
+
+## Notes / limits
+
+- `testCaseHash`/`uniqueId` are regenerated by the target from
+  codeRef+parameters (they are not settable via the API); parameterized
+  (data-driven) identity is preserved as long as the source reported
+  parameters.
+- Launch `number` on the target follows the target's own sequence.
+- Requires only Python 3.11+ and `requests`.

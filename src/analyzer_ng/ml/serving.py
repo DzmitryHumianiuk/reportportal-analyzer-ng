@@ -22,7 +22,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from analyzer_ng.core.features import FEATURE_SCHEMA_VER
+from analyzer_ng.core.features import FEATURE_SCHEMA_VER, to_vector_for
 from analyzer_ng.ml.artifacts import ModelStore
 from analyzer_ng.ml.calibration import IsotonicCalibrator
 from analyzer_ng.ml.trainer import GbmModel
@@ -74,12 +74,18 @@ class GbmPredictor:
         self._checked = False
 
     # -- serving ---------------------------------------------------------- #
-    def predict(self, vector: list[float], project_id: int) -> GbmPrediction | None:
-        """Calibrated prediction, or ``None`` when no model is shipped (cold)."""
+    def predict(self, features: dict[str, float], project_id: int) -> GbmPrediction | None:
+        """Calibrated prediction, or ``None`` when no model is shipped (cold).
+
+        ``features`` is the name→value snapshot; the serving vector is assembled from
+        the active model's *own* stored ``feature_names`` (schema-robust invariant) so
+        a model is always fed columns in the order it was trained on.
+        """
         self._ensure_current()
         state = self._state  # atomic snapshot (single reference read)
         if state.model is None:
             return None
+        vector = to_vector_for(features, state.model.feature_names)
         label, raw, probs = state.model.predict_label(vector)
         calibrator = state.calibrators.get(project_id) or state.calibrators.get(None)
         p_star = calibrator.predict(raw) if calibrator is not None else raw

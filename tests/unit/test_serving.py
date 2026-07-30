@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 
 from _ml_synth import synth_frame
 
-from analyzer_ng.core.features import FEATURE_SCHEMA_VER, to_vector
+from analyzer_ng.core.features import FEATURE_SCHEMA_VER
 from analyzer_ng.ml.artifacts import KIND_CALIB, KIND_GBM, ArtifactRecord, ArtifactSpec
 from analyzer_ng.ml.serving import GbmPredictor
 from analyzer_ng.ml.trainer import fit_calibrators, train_gbm
@@ -75,6 +75,14 @@ class FakeModelStore:
         times = [r.trained_at for r in self._rows if r.kind == kind]
         return max(times) if times else None
 
+    def last_shipped_at(self, kind: str = KIND_GBM) -> datetime | None:
+        times = [
+            r.trained_at
+            for r in self._rows
+            if r.kind == kind and str(r.metrics.get("rejected")).lower() != "true"
+        ]
+        return max(times) if times else None
+
 
 def _deactivate(r: ArtifactRecord) -> ArtifactRecord:
     return ArtifactRecord(**{**r.__dict__, "is_active": False})
@@ -107,7 +115,7 @@ def _ship(store: FakeModelStore, rows: list[dict], version: str) -> None:
 
 def test_cold_predictor_returns_none():
     pred = GbmPredictor(FakeModelStore())
-    assert pred.predict([0.0] * 41, project_id=1) is None
+    assert pred.predict({}, project_id=1) is None
     assert pred.has_model() is False
     assert pred.active_version() is None
 
@@ -117,7 +125,7 @@ def test_predictor_serves_after_ship_and_refresh():
     rows = synth_frame(n=300, seed=10)
     _ship(store, rows, "gbm-v1")
     pred = GbmPredictor(store, refresh_interval_s=0.0)
-    out = pred.predict(to_vector(rows[0]["features"]), project_id=1)
+    out = pred.predict(rows[0]["features"], project_id=1)
     assert out is not None
     assert out.label in {"pb", "ab", "si", "nd"}
     assert 0.0 <= out.max_prob <= 1.0
@@ -151,21 +159,49 @@ def test_feature_schema_mismatch_serves_rules():
     )
     pred = GbmPredictor(store, refresh_interval_s=0.0)
     # Stale schema → treated as no model (caller falls back to rules).
-    assert pred.predict(to_vector(rows[0]["features"]), project_id=1) is None
+    assert pred.predict(rows[0]["features"], project_id=1) is None
+
+
+def test_predict_assembles_vector_from_models_own_feature_list():
+    # Serving assembles the vector from the active model's stored feature_names (not
+    # the ambient registry): a snapshot that OMITS the newest columns and carries an
+    # unknown extra key still yields a valid prediction — missing columns are
+    # back-filled with defaults, unknown keys are dropped. This is the schema-robust
+    # invariant that lets an artifact keep serving across snapshot/registry drift.
+    store = FakeModelStore()
+    rows = synth_frame(n=300, seed=41)
+    _ship(store, rows, "gbm-v1")
+    pred = GbmPredictor(store, refresh_interval_s=0.0)
+
+    full = dict(rows[0]["features"])
+    # Drop the 4 errata columns (an "old"-shaped snapshot) and add a stray key.
+    errata = [
+        "status_codes_present",
+        "status_codes_match_top1",
+        "identifier_jaccard_top1",
+        "hash_gate_blocked",
+    ]
+    old_shaped = {k: v for k, v in full.items() if k not in errata}
+    old_shaped["some_future_feature"] = 0.99  # unknown → ignored by assembly
+
+    out = pred.predict(old_shaped, project_id=1)
+    assert out is not None
+    assert out.label in {"pb", "ab", "si", "nd"}
+    assert set(out.probs) == {"pb", "ab", "si", "nd"}
 
 
 def test_concurrent_predict_during_swap_never_sees_torn_state():
     store = FakeModelStore()
     _ship(store, synth_frame(n=300, seed=14), "gbm-v1")
     pred = GbmPredictor(store, refresh_interval_s=0.0)
-    vec = to_vector(synth_frame(n=1, seed=99)[0]["features"])
+    feats = synth_frame(n=1, seed=99)[0]["features"]
     stop = threading.Event()
     errors: list[Exception] = []
 
     def reader() -> None:
         while not stop.is_set():
             try:
-                out = pred.predict(vec, project_id=1)
+                out = pred.predict(feats, project_id=1)
                 if out is not None:
                     # A consistent snapshot: a shipped version + a valid prob.
                     assert out.model_version.startswith("gbm-v")

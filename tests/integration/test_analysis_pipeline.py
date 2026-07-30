@@ -38,6 +38,7 @@ from analyzer_ng.amqp.models import (
 )
 from analyzer_ng.amqp.models import TestItem as RPItem
 from analyzer_ng.amqp.models import TestItemInfo as RPItemInfo
+from analyzer_ng.core.features import feature_names
 from analyzer_ng.core.handlers import PipelineHandlers
 from analyzer_ng.db.repositories.kb import PgKBStore
 from analyzer_ng.db.startup import bootstrap_and_migrate
@@ -231,8 +232,10 @@ def test_g2_suggestions_written_with_features_and_launch_groups(db_factory) -> N
         ).fetchall()
         assert len(sug) == 7
         for _iid, _label, _conf, features, model_ver, group_id in sug:
-            # 39 classical (spec 03 §6.4) + 2 LLM-extractor columns (spec 04 §4.2).
-            assert len(features) == 41  # full feature snapshot (training reads these)
+            # Full feature snapshot: every column the current FEATURES registry
+            # defines (training reads these). Pinned to the registry so adding a
+            # feature does not silently shrink what the suggestion row persists.
+            assert len(features) == len(feature_names())
             assert model_ver.startswith("rule_cold")
             assert group_id is not None
 
@@ -368,8 +371,7 @@ def test_suggest_abstain_still_writes_suggestion_row(db_factory) -> None:
     assert handlers.suggest(info) == []
     with pool.connection() as conn:
         row = conn.execute(
-            "SELECT predicted_label FROM analyzer.suggestion "
-            "WHERE project_id=%s AND item_id=888",
+            "SELECT predicted_label FROM analyzer.suggestion WHERE project_id=%s AND item_id=888",
             (PROJECT,),
         ).fetchone()
     assert row is not None, "abstained suggest must persist a suggestion row (spec 03 §6.6)"
@@ -388,8 +390,11 @@ def _mode_row(pool: ConnectionPool, seed_key: str) -> dict:
         ).fetchone()
     assert row is not None, f"seed mode {seed_key} not created"
     return {
-        "mode_id": row[0], "purity": row[1], "support": row[2],
-        "has_centroid": row[3], "emb_model_ver": row[4],
+        "mode_id": row[0],
+        "purity": row[1],
+        "support": row[2],
+        "has_centroid": row[3],
+        "emb_model_ver": row[4],
     }
 
 
@@ -468,24 +473,63 @@ def test_cluster_groups_launch_with_stable_ids(db_factory) -> None:
     assert "OutOfMemoryError" in oom.clusterMessage
 
 
-def test_search_returns_scored_item_matches_respecting_launch_filter(db_factory) -> None:
+def test_search_returns_similar_to_investigate_items(db_factory) -> None:
+    """The `search` route ("Similar 'To Investigate'") returns TI look-alikes only.
+
+    Mirrors legacy search_service.search_logs: still-uninvestigated (TI) items within
+    filteredLaunchIds, self excluded, labeled (non-TI) items NOT returned, each with a
+    real RP log id (the item's first ERROR log id, stored at index time).
+    """
     pool = db_factory()
     handlers = _bound_handlers(pool)
-    _seed_history_and_label(handlers)
+    # Launch 900: a TI twin (800, stays ti001), a labeled non-TI twin (810 -> pb001),
+    # and a TI item in a DIFFERENT launch (820) that the launch filter must exclude.
+    handlers.index(
+        [
+            Launch(
+                launchId=900,
+                project=PROJECT,
+                launchName="Nightly",
+                launchNumber=6,
+                testItems=[
+                    _item(800, "order_flow", NPE_MSG, tch=2000, issue="ti001"),
+                    _item(810, "order_flow", NPE_MSG, tch=2001, issue="pb001"),
+                ],
+            ),
+            Launch(
+                launchId=901,
+                project=PROJECT,
+                launchName="Nightly",
+                launchNumber=6,
+                testItems=[_item(820, "order_flow", NPE_MSG, tch=2002, issue="ti001")],
+            ),
+        ]
+    )
 
     request = SearchLogs(
         launchId=1000,
         launchName="Nightly",
         itemId=999,
         projectId=PROJECT,
-        filteredLaunchIds=[900],  # only the history launch is eligible
+        filteredLaunchIds=[900],  # only launch 900 is eligible
         logMessages=[NPE_MSG],
         logLines=5,
     )
     hits = handlers.search(request)
-    assert any(h.testItemId == 800 for h in hits)
+    ids = {h.testItemId for h in hits}
+    assert 800 in ids  # the TI twin is found
+    assert 810 not in ids  # a labeled (non-TI) item is NOT a "To Investigate" match
+    assert 820 not in ids  # out-of-launch TI item excluded by filteredLaunchIds
     assert all(0.0 <= h.matchScore <= 100.0 for h in hits)
+    # logId is the matched item's real RP log id (its first ERROR log), not 0.
+    hit_800 = next(h for h in hits if h.testItemId == 800)
+    assert hit_800.logId == 8000  # _log(item_id * 10)
 
-    # A launch filter excluding the history launch yields no hit for item 800.
+    # The query item itself is excluded from its own similar-TI results.
+    request.itemId = 800
+    assert all(h.testItemId != 800 for h in handlers.search(request))
+
+    # A launch filter excluding launch 900 yields no hit for item 800.
+    request.itemId = 999
     request.filteredLaunchIds = [12345]
     assert all(h.testItemId != 800 for h in handlers.search(request))

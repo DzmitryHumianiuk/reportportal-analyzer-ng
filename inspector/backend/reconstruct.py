@@ -101,7 +101,8 @@ def reconstruct_stage_b(
         },
         "candidates": candidates,
         "note": (
-            "Re-executed the analyzer's versioned Stage-B hybrid RRF SQL "
+            "Re-executed the analyzer's versioned Stage-C hybrid RRF SQL "
+            "(internal name STAGE_B_HYBRID_SQL) "
             f"(HYBRID_RETRIEVAL_VERSION={HYBRID_RETRIEVAL_VERSION}) against current data."
             + (
                 ""

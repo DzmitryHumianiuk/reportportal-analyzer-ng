@@ -75,9 +75,7 @@ def test_watchdog_fails_task_that_overruns_the_budget() -> None:
     )
     pool.start()
     try:
-        pool.submit(
-            ProcessingItem(1, 1, "noop_echo", reply_to="rq", correlation_id="c", body="hi")
-        )
+        pool.submit(ProcessingItem(1, 1, "noop_echo", reply_to="rq", correlation_id="c", body="hi"))
         _wait(lambda: pub.dead_letters)
         _body, headers = pub.dead_letters[0]
         assert "TaskTimeout" in headers["x-error"]

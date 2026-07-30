@@ -75,7 +75,7 @@
     "has_stacktrace": true
   },
   "JsAssertTest.shouldEqual": {
-    "signature_text": "TEST: JsAssertTest.shouldEqual should Equal\nEXC: AssertionError\nMSG: AssertionError [ERR_ASSERTION]: expected <VAL>     at Object.<anonymous> (<PATH>:<NUM>:<NUM>)\nTEMPLATES: 0c4dc6134b9f00ca",
+    "signature_text": "TEST: JsAssertTest.shouldEqual should Equal\nEXC: AssertionError\nMSG: AssertionError [ERR_ASSERTION]: expected <VAL>     at Object.<anonymous> (<PATH>:<NUM>:<NUM>)\nTEMPLATES: 0c4dc6134b9f00ca\nCODES: HTTP_200",
     "exception_fp": -3395063307933854075,
     "error_hash": -197795997088305224,
     "exc_classes": [
@@ -85,7 +85,9 @@
     "template_hashes": [
       "0c4dc6134b9f00ca"
     ],
-    "status_codes": [],
+    "status_codes": [
+      "200"
+    ],
     "is_assertion": true,
     "has_stacktrace": false
   },

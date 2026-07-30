@@ -175,8 +175,7 @@ class MetricsDailyJob:
             self._store.upsert_daily_metrics(dm)
         auto_corrected = sum(dm.auto_corrected for dm in metrics)
         logger.info(
-            "metrics_daily %s: %d project(s), %d suggestions, %d auto-labeled, "
-            "%d auto-corrected",
+            "metrics_daily %s: %d project(s), %d suggestions, %d auto-labeled, %d auto-corrected",
             day.isoformat(),
             len(metrics),
             sum(dm.suggestions for dm in metrics),

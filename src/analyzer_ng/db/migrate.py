@@ -262,9 +262,7 @@ def select_pending(applied: set[int], migrations: list[Migration]) -> list[Migra
     (0004 reserved by an unmerged branch when 0005 shipped) applies 0004 on the
     first start after it lands, instead of skipping it forever because 4 < 5.
     """
-    return sorted(
-        (m for m in migrations if m.version not in applied), key=lambda m: m.version
-    )
+    return sorted((m for m in migrations if m.version not in applied), key=lambda m: m.version)
 
 
 def ledger_gaps(applied: set[int], migrations: list[Migration]) -> list[int]:

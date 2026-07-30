@@ -14,10 +14,18 @@ from backend.rp_names import RPNameResolver
 _PROJECTS = {1: "superadmin_personal", 2: "default_personal"}
 _DEFECTS = {
     1: {
-        "pb001": {"locator": "pb001", "name": "Product Bug",
-                  "short_name": "PB", "color": "#d32f2f"},
-        "si001": {"locator": "si001", "name": "System Issue",
-                  "short_name": "SI", "color": "#3e7be6"},
+        "pb001": {
+            "locator": "pb001",
+            "name": "Product Bug",
+            "short_name": "PB",
+            "color": "#d32f2f",
+        },
+        "si001": {
+            "locator": "si001",
+            "name": "System Issue",
+            "short_name": "SI",
+            "color": "#3e7be6",
+        },
     }
 }
 

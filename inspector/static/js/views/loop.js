@@ -3,8 +3,8 @@
 // optional live analyzer /health snapshot.
 import { api } from '../api.js';
 import {
-  h, clear, card, emptyState, loading, setDefects, defectBadge, defectColor, defectName, defectInfo,
-  shortTime, fmt, echartsBase, MUTED, INK, INK2, HAIRLINE, BAND, WARNING,
+  h, clear, card, emptyState, loading, setDefects, defectBadge, defectColor, defectName, defectInfo, idChip, icon,
+  shortTime, fmt, pct, echartsBase, engDetails, MUTED, INK, INK2, HAIRLINE, BAND, WARNING,
 } from '../util.js';
 
 export async function renderLoop(root, app) {
@@ -13,18 +13,22 @@ export async function renderLoop(root, app) {
   const modelCard = card('Model artifacts', { sub: 'versions · gate metrics · active swap' });
   const metricsCard = card('Daily metrics', { sub: 'metrics_daily rollup' });
   const healthCard = card('Analyzer /health', { sub: 'live snapshot (optional)' });
+  healthCard.classList.add('side-panel');
+  const matCard = card('Project maturity', { sub: 'cold-start → warm → hot · training-frame contribution' });
   root.append(
     evCard,
-    h('div', { class: 'grid grid-2', style: { marginTop: '16px' } }, modelCard, healthCard),
+    h('div', { class: 'grid grid-side', style: { marginTop: '16px' } }, modelCard, healthCard),
     h('div', { style: { marginTop: '16px' } }, metricsCard),
+    h('div', { style: { marginTop: '16px' } }, matCard),
   );
-  for (const c of [evCard, modelCard, metricsCard]) clear(c.querySelector('.card-body')).appendChild(loading());
+  for (const c of [evCard, modelCard, metricsCard, matCard]) clear(c.querySelector('.card-body')).appendChild(loading());
 
   const d = await api.timeline(app.project);
   if (d.rp) setDefects(d.rp.defects);
   renderEvents(evCard.querySelector('.card-body'), d.label_events);
   renderModels(modelCard.querySelector('.card-body'), d.model_artifacts);
   renderMetrics(metricsCard.querySelector('.card-body'), d.metrics_daily);
+  renderMaturity(matCard.querySelector('.card-body'), d.maturity, app.project);
   renderHealth(healthCard.querySelector('.card-body'));
 }
 
@@ -53,12 +57,16 @@ function renderEvents(el, events) {
       yAxis: { type: 'category', data: cats, axisLabel: { color: INK2, formatter: (g) => defectName(null, g) }, splitLine: { lineStyle: { color: HAIRLINE } } },
       tooltip: {
         ...echartsBase().tooltip,
+        enterable: true,
         formatter: (p) => {
           const e = p.data.meta;
-          return `<b>item ${e.item_id}</b><br>${transitionText(e.old_label, e.old_group) || '(new)'} → <b>${transitionText(e.new_label, e.new_group)}</b><br><span style="color:${MUTED}">${e.source} · ${shortTime(e.ts)}</span>`;
+          const id = e.ui_url
+            ? `<a href="${e.ui_url}" target="_blank" rel="noopener" style="color:${INK}">item ${e.item_id} ↗</a>`
+            : `item ${e.item_id}`;
+          return `<b>${id}</b><br>${transitionText(e.old_label, e.old_group) || '(new)'} → <b>${transitionText(e.new_label, e.new_group)}</b><br><span style="color:${MUTED}">${e.source} · ${shortTime(e.ts)}</span>`;
         },
       },
-      series: [{ type: 'scatter', symbolSize: 15, data, encode: { x: 0, y: 1 }, itemStyle: { borderColor: '#0d0d0d', borderWidth: 1 } }],
+      series: [{ type: 'scatter', symbolSize: 15, data, encode: { x: 0, y: 1 }, itemStyle: { borderColor: '#ffffff', borderWidth: 1 } }],
     });
   });
   // transition list
@@ -66,7 +74,7 @@ function renderEvents(el, events) {
   for (const e of [...events].reverse().slice(0, 12)) {
     list.appendChild(h('div', { class: 'flex between center', style: { padding: '7px 11px', background: 'var(--surface-2)', border: '1px solid var(--hairline)', borderRadius: '8px' } },
       h('div', { class: 'flex center gap-8 wrap' },
-        h('span', { class: 'mono', style: { fontSize: '11px', color: 'var(--muted)' } }, `item ${e.item_id}`),
+        h('span', { class: 'mono', style: { fontSize: '11px', color: 'var(--muted)' } }, idChip(`item ${e.item_id}`, e.ui_url, '')),
         e.old_label ? defectBadge(e.old_label, e.old_group) : h('span', { class: 'muted' }, '(new)'),
         h('span', { class: 'muted' }, '→'), defectBadge(e.new_label, e.new_group),
         h('span', { class: 'chip', style: { fontSize: '11px' } }, e.source)),
@@ -138,6 +146,157 @@ function renderMetrics(el, metrics) {
       })),
     });
   });
+}
+
+// --------------------------------------------------------------------------- //
+// Project maturity — Cold → Warm → Hot band by the project's training-frame
+// contribution (distinct labeled items), with live counters + honesty guards.
+// Thresholds ride the payload (backend re-declares the spec constants); copy is
+// verbatim from the design brief. Every number here is real DB data.
+// --------------------------------------------------------------------------- //
+const MAT_STAGES = [
+  {
+    key: 'cold', name: 'Cold', short: 'rules decide',
+    decides: 'Rules decide. Stage A exact-hash inherit (needs identical error_hash repeats), '
+      + 'seed catalog (prior ≥ 0.7 auto-applies), rule_cold fallback. The install-wide GBM serves '
+      + 'with install calibration only.',
+    matters: 'Run repeatability (identical error_hash), first human triage, seed KB.',
+  },
+  {
+    key: 'warm', name: 'Warm', short: 'GBM training frame',
+    decides: "The project's labels enter the install-wide GBM training frame (≥ 50). KB modes "
+      + 'accumulate support/purity → confirmed (purity ≥ 0.95, support ≥ 10), unlocking the KB '
+      + 'short-circuit.',
+    matters: 'label_event volume & quality (human > auto), AA enabled (feature snapshots), signature stability.',
+  },
+  {
+    key: 'hot', name: 'Hot', short: 'per-project calibration',
+    decides: 'Per-project isotonic calibration (≥ 300) — probabilities reflect THIS project. '
+      + 'Confirmed modes + dense Stage A.',
+    matters: 'Calibration, confirmed modes, exact-match density.',
+  },
+];
+
+function renderMaturity(el, m, projectId) {
+  clear(el);
+  if (!m) {
+    el.appendChild(emptyState('📊', 'Maturity unavailable',
+      'The timeline payload carried no maturity block for this project.', 'analyzer.label_event'));
+    return;
+  }
+  const warm = m.gbm_min_events, hot = m.calib_min_events;
+  const labeled = m.labeled_items || 0;
+  const stageIdx = { cold: 0, warm: 1, hot: 2 }[m.stage] ?? 0;
+
+  // ---- Stepper (position marked) ----
+  const stepper = h('div', { class: 'stepper' });
+  MAT_STAGES.forEach((s, i) => {
+    const active = i === stageIdx;
+    const range = s.key === 'cold' ? `0–${warm - 1}` : s.key === 'warm' ? `${warm}–${hot - 1}` : `≥ ${hot}`;
+    stepper.appendChild(h('div', { class: 'stage-pill' + (active ? ' active' : '') },
+      h('div', { class: 's-k' }, `${s.name.toUpperCase()} · ${s.short}`),
+      h('div', { class: 's-v' }, `${range} labeled items`),
+      active ? h('div', { class: 'mat-here' }, '● this project') : null,
+      h('div', { class: 's-flow', 'aria-hidden': 'true' }, icon('arrowRight', { size: 15 }))));
+  });
+  el.appendChild(stepper);
+
+  // ---- Progress meter (ticks at Warm=50 and Hot=300) ----
+  const fillPct = Math.min(100, (labeled / hot) * 100);
+  const noun = labeled === 1 ? 'labeled item' : 'labeled items';
+  const toNext = m.stage === 'cold' ? `${warm - labeled} to Warm`
+    : m.stage === 'warm' ? `${hot - labeled} to Hot`
+      : 'Hot band reached';
+  el.appendChild(h('div', { class: 'si-meter', style: { marginBottom: '18px', maxWidth: 'none' } },
+    h('div', { class: 'si-label flex between' },
+      h('span', {}, 'training-frame position'),
+      h('span', { class: 'si-val', style: { textTransform: 'none', letterSpacing: 0 } },
+        `${fmt(labeled)} ${noun} · ${toNext}`)),
+    h('div', { class: 'si-track' },
+      h('div', { class: 'si-fill', style: { width: fillPct + '%', background: matColor(m.stage) } }),
+      h('div', { class: 'si-tick', style: { left: (warm / hot * 100) + '%' } })),
+    h('div', { class: 'si-scale' },
+      h('span', {}, '0'),
+      h('span', {}, `${warm} · Warm`),
+      h('span', {}, `${hot} · Hot`))));
+
+  // ---- Per-stage "who decides / what matters" (active highlighted) ----
+  const cols = h('div', { class: 'grid grid-3', style: { marginBottom: '16px' } });
+  MAT_STAGES.forEach((s, i) => {
+    const active = i === stageIdx;
+    cols.appendChild(h('div', { class: 'mat-stage' + (active ? ' active' : '') },
+      h('div', { class: 'mat-stage-head' },
+        h('span', { class: 'mat-badge', style: { background: matColor(s.key) } }),
+        h('span', { class: 'mat-stage-name' }, s.name),
+        active ? h('span', { class: 'mat-now' }, 'current') : null),
+      h('div', { class: 'mat-decides' }, s.decides),
+      h('div', { class: 'mat-key' }, h('span', { class: 'mat-key-lbl' }, 'Key: '), s.matters)));
+  });
+  el.appendChild(cols);
+
+  // ---- Live counters (real DB, per selected project) ----
+  const cov = m.embedded_pct == null ? '—' : pct(m.embedded_pct, 1);
+  const stats = h('div', { class: 'stat-row', style: { marginBottom: '14px' } },
+    stat(fmt(m.label_events), 'label_events', `${fmt(m.human_events)} human-sourced`),
+    stat(fmt(labeled), 'labeled items', 'distinct · training frame'),
+    stat(`${fmt(m.modes_confirmed)} / ${fmt(m.modes_candidate)}`, 'KB modes', 'confirmed / candidate'),
+    stat(cov, 'embedded coverage', `${fmt(m.embedded)} of ${fmt(m.signatures)} signatures`));
+  el.appendChild(stats);
+
+  // ---- Honesty guards (only when the machinery disagrees with the band) ----
+  const notes = [];
+  if (labeled === 0) {
+    notes.push('No label_event rows for this project yet — Cold with no triage. The install-wide '
+      + 'GBM still serves (install calibration), but this project contributes nothing to the frame.');
+  }
+  if (m.stage === 'hot' && !m.project_calibrator) {
+    notes.push(`${fmt(labeled)} labeled items ≥ ${hot}, but NO per-project isotonic calibrator has `
+      + 'shipped yet (model_artifact has no active calib row for this project) — probabilities are '
+      + 'still install-wide / raw. Hot by volume, not yet by machinery.');
+  }
+  if (m.stage === 'hot' && m.project_calibrator && m.modes_confirmed === 0) {
+    notes.push(`Per-project calibrator active (${m.project_calibrator}), but 0 KB modes are confirmed `
+      + `(${fmt(m.modes_candidate)} candidate) — the KB short-circuit is not unlocked. Modes reach `
+      + 'confirmed at purity ≥ 0.95 & support ≥ 10.');
+  }
+  if (m.stage === 'warm' && m.modes_confirmed === 0 && m.modes_candidate > 0) {
+    notes.push(`${fmt(m.modes_candidate)} KB modes are still candidate (0 confirmed) — no KB `
+      + 'short-circuit yet; decisions run through the install-wide GBM.');
+  }
+  if (notes.length) {
+    el.appendChild(h('div', { class: 'honesty' },
+      h('span', { class: 'h-tag' }, 'reality check'),
+      ...notes.map((t) => h('div', { class: 'note', style: { marginTop: '4px' } }, t))));
+  }
+
+  // ---- Technical Details (provenance + serving machinery) ----
+  el.appendChild(engDetails('maturity',
+    h('div', { class: 'kv' },
+      h('dt', {}, 'band metric'), h('dd', {}, 'distinct labeled items (non-ti) — one training example '
+        + 'per item; raw label_event churn runs higher (an item re-triaged N times is one example)'),
+      h('dt', {}, 'Warm floor'), h('dd', {}, h('span', { class: 'mono' }, `GBM_MIN_EVENTS = ${warm}`),
+        ' — src/analyzer_ng/ml/trainer.py (cold-model floor)'),
+      h('dt', {}, 'Hot floor'), h('dd', {}, h('span', { class: 'mono' }, `CALIB_MIN_EVENTS = ${hot}`),
+        ' — src/analyzer_ng/ml/calibration.py (per-project isotonic)'),
+      h('dt', {}, 'install-wide GBM'), h('dd', {}, m.install_gbm
+        ? h('span', {}, h('span', { class: 'mono' }, m.install_gbm),
+          m.install_gbm_events != null ? ` · trained on ${fmt(m.install_gbm_events)} events` : '')
+        : h('span', { class: 'muted' }, 'none active — cold-start / rule mode')),
+      h('dt', {}, 'project calibrator'), h('dd', {}, m.project_calibrator
+        ? h('span', {}, h('span', { class: 'mono' }, m.project_calibrator),
+          m.project_calibrator_events != null ? ` · ${fmt(m.project_calibrator_events)} events` : '')
+        : h('span', { class: 'muted' }, 'none — serving install-wide / raw calibration')))));
+}
+
+function matColor(stage) {
+  return stage === 'hot' ? 'var(--good)' : stage === 'warm' ? 'var(--band-suggest)' : 'var(--band-abstain)';
+}
+
+function stat(v, l, sub) {
+  return h('div', { class: 'st' },
+    h('div', { class: 'v' }, v),
+    h('div', { class: 'l' }, l),
+    sub ? h('div', { class: 'muted', style: { fontSize: '10.5px', marginTop: '2px' } }, sub) : null);
 }
 
 async function renderHealth(el) {

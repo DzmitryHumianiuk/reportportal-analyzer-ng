@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from psycopg_pool import ConnectionPool
@@ -79,6 +79,9 @@ class StubHandlers:
         return BulkResponse(took=0, errors=False)
 
     def analyze(self, launches: list[Launch]) -> list[AnalysisResult]:
+        return []
+
+    def analyze_item_early(self, launches: list[Launch]) -> list[AnalysisResult]:
         return []
 
     def suggest(self, info: TestItemInfo) -> list[SuggestAnalysisResult]:
@@ -207,7 +210,7 @@ class PipelineHandlers(StubHandlers):
         self._judge_tau: float = 0.75
         # Operator-tunable decision/pipeline knobs (spec 01 §5.2). Defaults equal the
         # code constants so an unbound / defaulted engine is byte-identical.
-        self._engine_tunables: dict[str, float | int] = {}
+        self._engine_tunables: dict[str, float | int | str] = {}
 
     def bind(
         self,
@@ -222,7 +225,8 @@ class PipelineHandlers(StubHandlers):
         sidecar: object | None = None,
         extractor_features: object | None = None,
         judge_tau: float = 0.75,
-        engine_tunables: dict[str, float | int] | None = None,
+        engine_tunables: dict[str, float | int | str] | None = None,
+        retrain_debounce_s: int | None = None,
     ) -> None:
         """Attach the store layer once the PostgreSQL pool is open (spec 01 §6)."""
         self._sidecar = sidecar
@@ -257,11 +261,14 @@ class PipelineHandlers(StubHandlers):
         self._predictor = GbmPredictor(self._model_store)
         # The ship gate (T3.2) closes the loop: a retrained candidate replaces the
         # active model only if it holds up on the chronological eval slice (§10.2).
+        retrainer_kwargs: dict[str, object] = {"gate": make_ship_gate(self._model_store)}
+        if retrain_debounce_s is not None:
+            retrainer_kwargs["min_interval"] = timedelta(seconds=retrain_debounce_s)
         self._retrainer = Retrainer(
             label,
             self._model_store,
             self._predictor,
-            gate=make_ship_gate(self._model_store),
+            **retrainer_kwargs,  # type: ignore[arg-type]
         )
         # Single-flight background runner: triggers (defect_update counter, route,
         # nightly) enqueue here so the heavy fetch+train+ship never blocks an AMQP
@@ -301,6 +308,11 @@ class PipelineHandlers(StubHandlers):
         return self._stats
 
     @property
+    def retrieval(self) -> PgRetrievalStore | None:
+        """The RetrievalStore (drives the nightly label_event orphan reaper)."""
+        return self._retrieval
+
+    @property
     def label(self) -> LabelStore | None:
         """The LabelStore (drives the cold-project check for the LLM sidecar)."""
         return self._label
@@ -309,9 +321,7 @@ class PipelineHandlers(StubHandlers):
         """Version string of the currently served GBM (None when cold)."""
         return self._predictor.active_version() if self._predictor is not None else None
 
-    def _build_engine(
-        self, retrieval: PgRetrievalStore, kb: KBStore, stats: object
-    ) -> None:
+    def _build_engine(self, retrieval: PgRetrievalStore, kb: KBStore, stats: object) -> None:
         assert self._pipeline is not None
         self._engine = AnalysisEngine(
             retrieval=retrieval,
@@ -340,6 +350,13 @@ class PipelineHandlers(StubHandlers):
         if launches:
             obs.set_project(int(launches[0].project))
         return self._engine.analyze(launches)
+
+    def analyze_item_early(self, launches: list[Launch]) -> list[AnalysisResult]:
+        if self._engine is None:
+            return super().analyze_item_early(launches)
+        if launches:
+            obs.set_project(int(launches[0].project))
+        return self._engine.analyze_item_early(launches)
 
     def suggest(self, info: TestItemInfo) -> list[SuggestAnalysisResult]:
         if self._engine is None:
@@ -443,8 +460,8 @@ class PipelineHandlers(StubHandlers):
         normalized: list[tuple[int, str]] = []
         for raw_id, value in request.itemsToUpdate.items():
             issue_type = (
-                value.issueType if isinstance(value, ItemUpdate) else str(value)
-            ).strip().lower()
+                (value.issueType if isinstance(value, ItemUpdate) else str(value)).strip().lower()
+            )
             normalized.append((int(raw_id), issue_type))
 
         existing = self._retrieval.get_items_labels(project, [item_id for item_id, _ in normalized])

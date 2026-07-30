@@ -128,6 +128,8 @@ def test_wired_defaults_equal_code_constants() -> None:
     )  # type: ignore[call-arg]
     assert cfg.analyzer_auto_min_prob == TAU_AUTO
     assert cfg.analyzer_suggest_max == 3  # analysis.SUGGEST_MAX
+    assert cfg.analyzer_suggest_below_enabled is False  # dock off until Bench ng2+
+    assert cfg.analyzer_suggest_below_max == 2  # analysis.SUGGEST_BELOW_MAX
     assert cfg.analyzer_burst_si_share == BURST_X
     assert cfg.analyzer_time_decay == TIME_DECAY_PER_DAY
     assert cfg.analyzer_drain_max_lines == 40  # ml.drain.DEFAULT_MAX_LINES
@@ -346,3 +348,40 @@ def test_load_config_accepts_existing_model_path(
     env.setenv("ANALYZER_EMB_MODEL_PATH", str(tmp_path))
     cfg = load_config()
     assert cfg.analyzer_emb_model_path == str(tmp_path)
+
+
+def test_early_item_analysis_defaults_off(env: pytest.MonkeyPatch) -> None:
+    # docs/EARLY-ITEM-AA.md: ships dark — flag off, deterministic-only policy.
+    _minimal(env)
+    cfg = _cfg()
+    assert cfg.analyzer_early_item_analysis is False
+    assert cfg.analyzer_early_aa_label_policy == "kb_inherit_only"
+
+
+def test_early_item_analysis_env_overrides(env: pytest.MonkeyPatch) -> None:
+    _minimal(env)
+    env.setenv("ANALYZER_EARLY_ITEM_ANALYSIS", "true")
+    env.setenv("ANALYZER_EARLY_AA_LABEL_POLICY", "suggest_only")
+    cfg = _cfg()
+    assert cfg.analyzer_early_item_analysis is True
+    assert cfg.analyzer_early_aa_label_policy == "suggest_only"
+
+
+def test_early_aa_label_policy_rejects_unknown_value(env: pytest.MonkeyPatch) -> None:
+    _minimal(env)
+    env.setenv("ANALYZER_EARLY_AA_LABEL_POLICY", "yolo")
+    with pytest.raises(ValidationError):
+        _cfg()
+
+
+def test_early_pb_gbm_policy_and_threshold(env: pytest.MonkeyPatch) -> None:
+    # v2 (docs/EARLY-ITEM-AA.md): pb-only GBM early labeling behind its own
+    # policy value and a stricter-than-auto confidence bar.
+    _minimal(env)
+    cfg = _cfg()
+    assert cfg.analyzer_early_gbm_pb_min == 0.85
+    env.setenv("ANALYZER_EARLY_AA_LABEL_POLICY", "kb_inherit_and_pb")
+    env.setenv("ANALYZER_EARLY_GBM_PB_MIN", "0.9")
+    cfg = _cfg()
+    assert cfg.analyzer_early_aa_label_policy == "kb_inherit_and_pb"
+    assert cfg.analyzer_early_gbm_pb_min == 0.9

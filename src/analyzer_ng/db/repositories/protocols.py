@@ -21,15 +21,14 @@ from analyzer_ng.db.repositories.models import (
     ModeIn,
     QuerySignature,
     SignatureIn,
+    StoredSignature,
     TestItemIn,
 )
 
 
 class RetrievalStore(Protocol):
     def transaction(self) -> AbstractContextManager[Any]: ...
-    def upsert_items(
-        self, items: Sequence[TestItemIn], *, conn: object | None = None
-    ) -> int: ...
+    def upsert_items(self, items: Sequence[TestItemIn], *, conn: object | None = None) -> int: ...
     def upsert_signatures(
         self, sigs: Sequence[SignatureIn], *, conn: object | None = None
     ) -> int: ...
@@ -39,6 +38,7 @@ class RetrievalStore(Protocol):
     def delete_items(self, project_id: int, item_ids: Sequence[int]) -> int: ...
     def delete_launches(self, project_id: int, launch_ids: Sequence[int]) -> int: ...
     def delete_project(self, project_id: int) -> int: ...
+    def reap_orphan_label_events(self, grace_days: int = 30) -> int: ...
     def delete_by_time_range(
         self,
         project_id: int,
@@ -60,6 +60,9 @@ class RetrievalStore(Protocol):
         k: int = 20,
         filters: CandidateFilters | None = None,
     ) -> list[Candidate]: ...
+    def get_signatures(
+        self, project_id: int, item_ids: Sequence[int]
+    ) -> dict[int, StoredSignature]: ...
 
 
 class KBStore(Protocol):
@@ -130,6 +133,10 @@ class Drain3StateStore(Protocol):
     def save(self, project_id: int, state: bytes, expected_version: int, config: dict) -> bool: ...
     def load_template_texts(self, project_id: int) -> list[str]: ...
     def upsert_templates(self, project_id: int, templates: Sequence[dict]) -> int: ...
+    # Serializes the per-project mine+CAS critical section fleet-wide (advisory
+    # lock); the index pipeline wraps load->mine->save in it so concurrent burst
+    # index batches for one project never collide on the CAS version.
+    def project_lock(self, project_id: int) -> AbstractContextManager[Any]: ...
 
 
 class LlmCacheStore(Protocol):

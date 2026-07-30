@@ -5,6 +5,7 @@ __pycache__/
 venv/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 dist/
 build/
 *.egg-info/
@@ -12,3 +13,25 @@ models/
 tests/golden/**/*.actual.json
 .claude/
 .DS_Store
+CLAUDE.md
+
+# local design deliberations and planning notes (kept out of the repo)
+.notes/
+
+# local scratch: PW screenshots, scenario captures, run logs
+*.jpeg
+*.png
+.playwright-mcp/
+demo-data/upload.log
+
+# secrets: real migration creds (keep only .env.example tracked)
+tools/rp-migrate/.env
+tools/rp-migrate/.env-*
+!tools/rp-migrate/.env.example
+
+deploy/minikube/scripts/.iid
+deploy/minikube/scripts/.iuuid
+deploy/minikube/scripts/.lid
+deploy/minikube/scripts/.luuid
+deploy/minikube/scripts/.nid
+deploy/minikube/scripts/.tok

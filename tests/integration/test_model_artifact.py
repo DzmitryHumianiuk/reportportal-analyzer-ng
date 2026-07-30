@@ -26,7 +26,7 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg_pool import ConnectionPool
 
-from analyzer_ng.core.features import FEATURE_SCHEMA_VER, FEATURES, to_vector
+from analyzer_ng.core.features import FEATURE_SCHEMA_VER, FEATURES
 from analyzer_ng.db.repositories import (
     LabelEventIn,
     PgLabelStore,
@@ -134,8 +134,17 @@ def test_model_artifact_table_and_unique_index_exist(pool: ConnectionPool) -> No
             "WHERE table_schema='analyzer' AND table_name='model_artifact'"
         ).fetchall()
         names = {c[0] for c in cols}
-    assert {"model_id", "kind", "project_id", "version", "feature_schema_ver", "blob",
-            "is_active", "metrics", "trained_at"} <= names
+    assert {
+        "model_id",
+        "kind",
+        "project_id",
+        "version",
+        "feature_schema_ver",
+        "blob",
+        "is_active",
+        "metrics",
+        "trained_at",
+    } <= names
 
 
 def test_ship_persists_and_loads_gbm_plus_calibrators(pool: ConnectionPool) -> None:
@@ -143,11 +152,10 @@ def test_ship_persists_and_loads_gbm_plus_calibrators(pool: ConnectionPool) -> N
     rows = _frame(n=300, seed=1)
     model = train_gbm(rows)
     cals = fit_calibrators(rows)
-    calib_specs = [
-        _spec(KIND_CALIB, pid, "gbm-v1", cal.to_bytes()) for pid, cal in cals.items()
-    ]
-    gbm_id = store.ship(_spec(KIND_GBM, None, "gbm-v1", model.to_bytes(), n_events=len(rows)),
-                        calib_specs)
+    calib_specs = [_spec(KIND_CALIB, pid, "gbm-v1", cal.to_bytes()) for pid, cal in cals.items()]
+    gbm_id = store.ship(
+        _spec(KIND_GBM, None, "gbm-v1", model.to_bytes(), n_events=len(rows)), calib_specs
+    )
     assert gbm_id > 0
 
     rec = store.load_active_gbm()
@@ -187,7 +195,7 @@ def test_predictor_serves_model_loaded_from_real_pg(pool: ConnectionPool) -> Non
         [_spec(KIND_CALIB, pid, "gbm-v1", cal.to_bytes()) for pid, cal in cals.items()],
     )
     predictor = GbmPredictor(store, refresh_interval_s=0.0)
-    out = predictor.predict(to_vector(rows[0]["features"]), project_id=1)
+    out = predictor.predict(rows[0]["features"], project_id=1)
     assert out is not None
     assert out.label in {"pb", "ab", "si", "nd"}
     assert out.model_version == "gbm-v1"
@@ -214,18 +222,34 @@ def _seed_labeled_items(
     the exact shape ``fetch_training_frame`` joins for GBM training."""
     base = ("pb", "ab", "si")
     items = [
-        TestItemIn(item_id=1000 + i, project_id=1, launch_id=9,
-                   issue_type=_LOC[base[i % 3]], test_case_hash=1000 + i)
+        TestItemIn(
+            item_id=1000 + i,
+            project_id=1,
+            launch_id=9,
+            issue_type=_LOC[base[i % 3]],
+            test_case_hash=1000 + i,
+        )
         for i in range(start, start + n)
     ]
     retrieval.upsert_items(items)
     for i in range(start, start + n):
         b = base[i % 3]
-        retrieval.write_suggestion(SuggestionIn(
-            project_id=1, item_id=1000 + i, launch_id=9, predicted_label=_LOC[b],
-            confidence=0.8, features=_features_for(b, rng), model_ver="rc;fs=1;emb=none"))
-        labels.append_event(LabelEventIn(
-            project_id=1, item_id=1000 + i, new_label=_LOC[b], source="rp_defect_update"))
+        retrieval.write_suggestion(
+            SuggestionIn(
+                project_id=1,
+                item_id=1000 + i,
+                launch_id=9,
+                predicted_label=_LOC[b],
+                confidence=0.8,
+                features=_features_for(b, rng),
+                model_ver="rc;fs=1;emb=none",
+            )
+        )
+        labels.append_event(
+            LabelEventIn(
+                project_id=1, item_id=1000 + i, new_label=_LOC[b], source="rp_defect_update"
+            )
+        )
 
 
 def test_production_wiring_retrains_after_early_cold_feedback(pool: ConnectionPool) -> None:
@@ -283,14 +307,19 @@ def test_training_frame_returns_stored_snapshot(pool: ConnectionPool) -> None:
     retrieval = PgRetrievalStore(pool)
     labels = PgLabelStore(pool)
     # Seed an item, a suggestion (feature snapshot), then a label_event for it.
-    retrieval.upsert_items([
-        TestItemIn(item_id=77, project_id=1, launch_id=9, issue_type="ab001", test_case_hash=555)
-    ])
+    retrieval.upsert_items(
+        [TestItemIn(item_id=77, project_id=1, launch_id=9, issue_type="ab001", test_case_hash=555)]
+    )
     feats = _features_for("ab", random.Random(0))
     retrieval.write_suggestion(
         SuggestionIn(
-            project_id=1, item_id=77, launch_id=9, predicted_label="ab001",
-            confidence=0.8, features=feats, model_ver="rule_cold;fs=1;emb=none",
+            project_id=1,
+            item_id=77,
+            launch_id=9,
+            predicted_label="ab001",
+            confidence=0.8,
+            features=feats,
+            model_ver="rule_cold;fs=1;emb=none",
         )
     )
     labels.append_event(
@@ -301,3 +330,77 @@ def test_training_frame_returns_stored_snapshot(pool: ConnectionPool) -> None:
     assert row["new_label"] == "ab001"
     assert row["features"]  # the stored snapshot is present (training reads only this)
     assert row["features"]["hist_ab"] == feats["hist_ab"]
+
+
+def test_training_frame_refuses_early_snapshots(pool: ConnectionPool) -> None:
+    """docs/EARLY-ITEM-AA.md: a ``source='early'`` row is a singleton-context
+    snapshot (group_dominance frozen at 1.0, si_prior at 0.0) and must never
+    become training input, even when it is the item's newest row."""
+    retrieval = PgRetrievalStore(pool)
+    labels = PgLabelStore(pool)
+    retrieval.upsert_items(
+        [TestItemIn(item_id=78, project_id=1, launch_id=9, issue_type="pb001", test_case_hash=556)]
+    )
+    launch_feats = _features_for("pb", random.Random(1))
+    retrieval.write_suggestion(
+        SuggestionIn(
+            project_id=1,
+            item_id=78,
+            launch_id=9,
+            predicted_label="pb001",
+            confidence=0.8,
+            features=launch_feats,
+            model_ver="gbm-x;fs=1;emb=none",
+        )
+    )
+    # The EARLY row is written AFTER the launch-scoped one, so without the guard
+    # the newest-snapshot lookup would pick it.
+    early_feats = dict(launch_feats)
+    early_feats["group_dominance"] = 1.0  # the degenerate singleton constant
+    retrieval.write_suggestion(
+        SuggestionIn(
+            project_id=1,
+            item_id=78,
+            launch_id=9,
+            predicted_label="pb001",
+            confidence=0.8,
+            features=early_feats,
+            model_ver="gbm-x;fs=1;emb=none",
+            source="early",
+        )
+    )
+    labels.append_event(
+        LabelEventIn(project_id=1, item_id=78, new_label="pb001", source="rp_defect_update")
+    )
+    frame = labels.fetch_training_frame(project_id=1)
+    row = next(r for r in frame if r["item_id"] == 78)
+    # The launch-scoped snapshot won, not the newer early one.
+    assert row["features"]["group_dominance"] == launch_feats["group_dominance"]
+
+
+def test_training_frame_early_only_item_has_no_snapshot(pool: ConnectionPool) -> None:
+    """An item labeled before any launch-scoped row exists contributes no
+    feature snapshot at all — better no example than a degenerate one."""
+    retrieval = PgRetrievalStore(pool)
+    labels = PgLabelStore(pool)
+    retrieval.upsert_items(
+        [TestItemIn(item_id=79, project_id=1, launch_id=9, issue_type="pb001", test_case_hash=557)]
+    )
+    retrieval.write_suggestion(
+        SuggestionIn(
+            project_id=1,
+            item_id=79,
+            launch_id=9,
+            predicted_label="pb001",
+            confidence=0.8,
+            features=_features_for("pb", random.Random(2)),
+            model_ver="gbm-x;fs=1;emb=none",
+            source="early",
+        )
+    )
+    labels.append_event(
+        LabelEventIn(project_id=1, item_id=79, new_label="pb001", source="rp_defect_update")
+    )
+    frame = labels.fetch_training_frame(project_id=1)
+    row = next(r for r in frame if r["item_id"] == 79)
+    assert row["features"] is None

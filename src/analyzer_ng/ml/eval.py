@@ -170,9 +170,7 @@ def _ece(preds: list[Prediction], bins: int = ECE_BINS) -> float:
     total = 0.0
     for b in range(bins):
         lo, hi = b / bins, (b + 1) / bins
-        in_bin = [
-            p for p in preds if (lo <= p.p_star < hi) or (b == bins - 1 and p.p_star == hi)
-        ]
+        in_bin = [p for p in preds if (lo <= p.p_star < hi) or (b == bins - 1 and p.p_star == hi)]
         if not in_bin:
             continue
         conf = sum(p.p_star for p in in_bin) / len(in_bin)

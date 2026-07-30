@@ -13,8 +13,12 @@ import pytest
 from _llm_fakes import FakeRoleStateStore
 
 from analyzer_ng.llm.eval import (
+    AUTO_DISABLE_ABSOLUTE_FLOOR,
     AUTO_DISABLE_GAP,
+    AUTO_DISABLE_MIN_CLASSICAL_N,
+    AUTO_DISABLE_MIN_LLM_N,
     AUTO_DISABLE_MIN_N,
+    AUTO_DISABLE_PRECISION_FLOOR,
     LlmEvalJob,
     RoleComparison,
     evaluate_role,
@@ -100,6 +104,71 @@ def test_role_not_disabled_when_llm_better() -> None:
 def test_constants_match_spec() -> None:
     assert AUTO_DISABLE_MIN_N == 50
     assert AUTO_DISABLE_GAP == 0.02
+    assert AUTO_DISABLE_MIN_CLASSICAL_N == 50
+    assert AUTO_DISABLE_PRECISION_FLOOR == 0.95
+    assert AUTO_DISABLE_MIN_LLM_N == 50
+    assert AUTO_DISABLE_ABSOLUTE_FLOOR == 0.80
+
+
+# ---- Guards against a degenerate classical arm ---- #
+def test_role_not_disabled_when_classical_arm_below_min() -> None:
+    # Live incident (project 7): rubric 119/124 vs rule_cold 12/12. A perfect
+    # 12-case classical arm has zero Wilson upside width (p̂=1 → upper=1), so the
+    # MOVER bound treated it as certainty and killed a 96 %-precision role. A
+    # classical arm below the min size must not bind the comparison.
+    ev = evaluate_role(7, "coldstart", _cmp(124, 119, 124, 12, 12))
+    assert ev.disabled is False
+    assert ev.reason == "classical_arm_below_min"
+
+
+def test_role_not_disabled_above_precision_floor() -> None:
+    # Both arms large, classical perfect: 96 % LLM precision loses the relative
+    # comparison but clears the absolute floor → keep the role on.
+    ev = evaluate_role(1, "coldstart", _cmp(100, 96, 100, 100, 100))
+    assert ev.disabled is False
+    assert ev.reason == "llm_above_precision_floor"
+
+
+def test_role_still_disabled_when_bad_with_large_arms() -> None:
+    # The real failure mode (LLM genuinely worse at scale) must still trip.
+    ev = evaluate_role(1, "coldstart", _cmp(60, 42, 60, 48, 60))
+    assert ev.disabled is True
+    assert ev.reason == "auto_disabled_precision"
+
+
+# ---- Absolute kill-switch (independent of the classical arm) ---- #
+def test_bad_role_disabled_by_absolute_floor_despite_tiny_classical_arm() -> None:
+    # 30 % precision over n=200: before the absolute floor, the tiny classical
+    # arm guard was the *only* verdict (classical_arm_below_min) and the role
+    # ran forever. Wilson upper of 60/200 ≈ 0.367, well under 0.80.
+    ev = evaluate_role(1, "coldstart", _cmp(200, 60, 200, 12, 12))
+    assert ev.disabled is True
+    assert ev.reason == "llm_below_absolute_floor"
+
+
+def test_healthy_role_untouched_by_absolute_floor() -> None:
+    # The live-incident rubric (119/124 ≈ 96 %): its Wilson upper is far above
+    # 0.80, so the absolute check passes through to the classical-arm guard.
+    ev = evaluate_role(7, "coldstart", _cmp(124, 119, 124, 12, 12))
+    assert ev.disabled is False
+    assert ev.reason == "classical_arm_below_min"
+
+
+def test_absolute_floor_needs_min_llm_arm() -> None:
+    # A bad role one case short of the min arm (n=49, upper ≈ 0.45) is not
+    # condemned by the absolute check — the small-N guards keep it in review.
+    ev = evaluate_role(1, "coldstart", _cmp(49, 15, 49, 12, 12))
+    assert ev.disabled is False
+    assert ev.reason == "n_below_min"
+
+
+def test_absolute_floor_boundary_is_strict(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Upper bound exactly at the floor must NOT disable (strict <). No integer
+    # (s, n) lands Wilson's upper exactly on 0.80, so pin the interval there.
+    monkeypatch.setattr("analyzer_ng.llm.eval.wilson_interval", lambda s, n, z=1.96: (0.5, 0.80))
+    ev = evaluate_role(1, "coldstart", _cmp(200, 120, 200, 12, 12))
+    assert ev.disabled is False
+    assert ev.reason != "llm_below_absolute_floor"
 
 
 # ---- Job: per-project isolation + metrics ---- #
@@ -192,13 +261,15 @@ def test_disable_writes_stats_and_reason() -> None:
             )
             super().set_state(project_id, role, enabled=enabled, reason=reason, stats=stats)
 
-    groups = {(9, "coldstart"): _cmp(80, 48, 80, 64, 80)}
+    # 42/60: Wilson upper ≈ 0.801, just clear of the absolute floor, so only
+    # the relative comparison disables — the reason written must be relative.
+    groups = {(9, "coldstart"): _cmp(60, 42, 60, 48, 60)}
     LlmEvalJob(_FakeSource(groups), RecordingState()).run()
     assert len(recorded) == 1
     rec = recorded[0]
     assert rec["enabled"] is False
     assert rec["reason"] == "auto_disabled_precision"
-    assert rec["stats"]["n"] == 80
-    assert rec["stats"]["precision_llm"] == pytest.approx(0.60)
+    assert rec["stats"]["n"] == 60
+    assert rec["stats"]["precision_llm"] == pytest.approx(0.70)
     assert rec["stats"]["precision_classical"] == pytest.approx(0.80)
     assert math.isfinite(rec["stats"]["diff_lower"])

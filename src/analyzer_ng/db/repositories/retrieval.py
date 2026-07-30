@@ -30,11 +30,13 @@ from analyzer_ng.db.repositories.models import (
     CandidateFilters,
     QuerySignature,
     SignatureIn,
+    StoredSignature,
     SuggestionIn,
     TestItemIn,
 )
 from analyzer_ng.db.repositories.protocols import KBStore
 from analyzer_ng.db.repositories.queries import (
+    SEARCH_TI_HYBRID_SQL,
     SESSION_TUNING,
     STAGE_B_HYBRID_SQL,
     bind_numbered,
@@ -140,8 +142,8 @@ class PgRetrievalStore(StoreBase):
             INSERT INTO analyzer.failure_signature
                 (project_id, item_id, exception_fp, error_hash, top_frames, template_ids,
                  exc_text, msg_text, frames_text, tmpl_text, only_numbers, status_codes,
-                 urls, paths, emb, emb_model_ver)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 urls, paths, emb, emb_model_ver, error_log_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (project_id, item_id) DO UPDATE SET
                 exception_fp = EXCLUDED.exception_fp,
                 error_hash   = EXCLUDED.error_hash,
@@ -156,7 +158,10 @@ class PgRetrievalStore(StoreBase):
                 urls         = EXCLUDED.urls,
                 paths        = EXCLUDED.paths,
                 emb          = EXCLUDED.emb,
-                emb_model_ver = EXCLUDED.emb_model_ver
+                emb_model_ver = EXCLUDED.emb_model_ver,
+                -- keep a real log id if a re-index arrives without one; bare column =
+                -- the existing target row (ON CONFLICT), EXCLUDED = the proposed row.
+                error_log_id = COALESCE(EXCLUDED.error_log_id, failure_signature.error_log_id)
             """,
             [
                 (
@@ -176,6 +181,7 @@ class PgRetrievalStore(StoreBase):
                     s.paths,
                     halfvec_literal(s.emb) if s.emb is not None else None,
                     s.emb_model_ver,
+                    s.error_log_id,
                 )
                 for s in sigs
             ],
@@ -247,8 +253,7 @@ class PgRetrievalStore(StoreBase):
             bound += f" AND {column} >= %s"
             del_params = (project_id, before, after)
         subq = (
-            "item_id IN (SELECT item_id FROM analyzer.test_item "
-            f"WHERE project_id=%s AND {bound})"
+            f"item_id IN (SELECT item_id FROM analyzer.test_item WHERE project_id=%s AND {bound})"
         )
         with self._conn() as conn, conn.transaction():
             # _purge_items prefixes the predicate with its own `project_id=%s`, so the
@@ -298,7 +303,39 @@ class PgRetrievalStore(StoreBase):
             return cur.rowcount
 
     def delete_project(self, project_id: int) -> int:
-        # Children first; the project row (with its FK cascades) last.
+        """Purge a project's DERIVED data, preserving the ``label_event`` log.
+
+        RP's project-wide "Generate index" is a delete->rebuild: it drives this
+        same ``delete`` route before re-publishing every launch. So this must clear
+        only data that reindexing regenerates and must KEEP ``label_event`` — the
+        append-only learning log (spec 02 §2.7) that feeds GBM training and KB
+        purity. Wiping it every reindex would silently destroy the project's
+        learning history; the re-indexed items come back labeled via the index
+        payload, but the training stream would be gone. ``label_event`` has no FK
+        to ``project``, so events survive even the project-row delete below and
+        re-attach naturally to the rebuilt items via their stable ``item_id`` (the
+        item/launch/time-range deletes already preserve it — see ``_purge_items``).
+
+        ``test_history_stats`` IS wiped: it is derived from indexing (window run/
+        failure counters) and is rebuilt incrementally as the launches re-index,
+        so keeping it would double-count. All other tables here are derived
+        (signatures, templates, drain state, modes, suggestions, groups, caches,
+        daily metrics) and regenerate on rebuild.
+
+        Orphan cleanup (tech-debt #6): a genuine RP *project deletion* also uses
+        this route, so it leaves ``label_event`` rows with no surviving
+        ``test_item``. Those are swept by the nightly reaper
+        (:meth:`reap_orphan_label_events`) once they have been orphaned for longer
+        than the grace window — safe because a reindex re-creates ``test_item``
+        within minutes, long before the grace elapses, so live learning history is
+        never purged. RP sends no distinct "deleted forever" signal (verified
+        against the legacy analyzer: its ``delete`` route maps to
+        ``delete_index`` for both reindex and true deletion), so a time-based
+        reaper is the only path that cannot destroy history on a reindex.
+        """
+        # Children first; the project row last. label_event is intentionally
+        # absent (preserved); it has no FK to project so the project delete leaves
+        # it in place.
         tables = (
             "mode_membership",
             "failure_mode",
@@ -308,7 +345,6 @@ class PgRetrievalStore(StoreBase):
             "test_item",
             "suggestion",
             "launch_group",
-            "label_event",
             "test_history_stats",
             "llm_cache",
             "metrics_daily",
@@ -323,6 +359,92 @@ class PgRetrievalStore(StoreBase):
                 conn.execute(f"DELETE FROM analyzer.{table} WHERE project_id=%s", (project_id,))
             conn.execute("DELETE FROM analyzer.project WHERE project_id=%s", (project_id,))
         return int(count)
+
+    def reap_orphan_label_events(self, grace_days: int = 30) -> int:
+        """GC ``label_event`` rows orphaned by a genuine deletion (tech-debt #6).
+
+        Every delete path preserves ``label_event`` so a reindex (RP's delete->
+        rebuild "Generate index") never loses learning history. This nightly reaper
+        reclaims the rows a *genuine* deletion leaves behind, WITHOUT ever purging a
+        row that a reindex will re-attach. Grace is counted from when the item was
+        first *observed* orphaned (the ``label_event_orphan`` tombstone), never from
+        ``label_event.ts`` — an old-but-live label whose ``test_item`` momentarily
+        vanishes mid-reindex must not be eligible.
+
+        Three set-based steps in one transaction:
+
+        * **mark**   — tombstone every ``(project_id,item_id)`` in ``label_event``
+          that currently has no ``test_item`` (idempotent; ``first_orphaned_at``
+          stays put on re-observation).
+        * **unmark** — drop tombstones whose ``test_item`` reappeared (a reindex
+          re-created it — typically within minutes, so by the next nightly pass).
+        * **sweep**  — delete ``label_event`` rows (and their tombstone) only where
+          the tombstone is older than ``grace_days`` AND still no ``test_item``
+          exists (re-checked here as a belt-and-suspenders guard).
+
+        A normal reindex is cleared by *unmark* long before *sweep* can see it, so
+        live history is never destroyed. Returns the number of ``label_event`` rows
+        purged. ``grace_days <= 0`` disables the sweep (mark/unmark still run) so an
+        operator can never accidentally set an aggressive grace that reaps history.
+        """
+        with self._conn() as conn, conn.transaction():
+            # 1. mark — newly-orphaned items get a tombstone; existing ones keep
+            #    their original first_orphaned_at (ON CONFLICT DO NOTHING).
+            conn.execute(
+                """
+                INSERT INTO analyzer.label_event_orphan (project_id, item_id)
+                SELECT DISTINCT le.project_id, le.item_id
+                FROM analyzer.label_event le
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM analyzer.test_item ti
+                    WHERE ti.project_id = le.project_id AND ti.item_id = le.item_id
+                )
+                ON CONFLICT (project_id, item_id) DO NOTHING
+                """
+            )
+            # 2. unmark — the item was re-indexed (test_item exists again): it was a
+            #    reindex, not a deletion. Clear the tombstone so its grace never runs.
+            conn.execute(
+                """
+                DELETE FROM analyzer.label_event_orphan o
+                WHERE EXISTS (
+                    SELECT 1 FROM analyzer.test_item ti
+                    WHERE ti.project_id = o.project_id AND ti.item_id = o.item_id
+                )
+                """
+            )
+            if grace_days <= 0:
+                return 0
+            # 3. sweep — purge label_event for items orphaned past the grace and
+            #    STILL absent from test_item. The NOT EXISTS re-check makes a project
+            #    reindexed on the grace boundary (after unmark, before this delete)
+            #    safe even within a single pass.
+            purged = conn.execute(
+                """
+                DELETE FROM analyzer.label_event le
+                USING analyzer.label_event_orphan o
+                WHERE le.project_id = o.project_id AND le.item_id = o.item_id
+                  AND o.first_orphaned_at < now() - make_interval(days => %s)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM analyzer.test_item ti
+                      WHERE ti.project_id = o.project_id AND ti.item_id = o.item_id
+                  )
+                """,
+                (grace_days,),
+            ).rowcount
+            # Drop the now-purged items' tombstones (same predicate).
+            conn.execute(
+                """
+                DELETE FROM analyzer.label_event_orphan o
+                WHERE o.first_orphaned_at < now() - make_interval(days => %s)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM analyzer.test_item ti
+                      WHERE ti.project_id = o.project_id AND ti.item_id = o.item_id
+                  )
+                """,
+                (grace_days,),
+            )
+            return int(purged)
 
     @staticmethod
     def _purge_items(conn, project_id: int, predicate: str, params: tuple) -> None:
@@ -379,6 +501,78 @@ class PgRetrievalStore(StoreBase):
         stage_b = self._stage_b(project_id, q, k, filters)
         return (stage_a + stage_b)[: k + 10]
 
+    def search_ti_candidates(
+        self,
+        project_id: int,
+        q: QuerySignature,
+        k: int,
+        filtered_launch_ids: Sequence[int],
+        self_item_id: int,
+    ) -> list[Candidate]:
+        """Hybrid retrieval of similar still-uninvestigated (TI) items (spec §8.2).
+
+        Serves the ``search`` route ("Similar 'To Investigate' in the launch"). Same
+        lexical+dense RRF fusion as :meth:`find_candidates`' stage B, but the target
+        set is TI-only, scoped to ``filtered_launch_ids`` (RP's ``filteredLaunchIds``;
+        empty means no launch restriction) and with the query item excluded. Each
+        returned :class:`Candidate` carries ``relevant_log_id`` — the matched item's
+        real RP log id — so the reply's ``logId`` is one RP can load (a NULL becomes
+        ``None`` here; the caller coalesces to 0).
+        """
+        qvec = halfvec_literal(q.emb if q.emb is not None else _ZERO_VEC)
+        sql, params = bind_numbered(
+            SEARCH_TI_HYBRID_SQL,
+            [
+                project_id,
+                q.emb_model_ver,
+                " ".join(q.salient_terms),
+                qvec,
+                " ".join(q.exception_names),
+                bigint_array_literal(q.template_ids),
+                k,
+                bigint_array_literal(filtered_launch_ids),
+                self_item_id,
+            ],
+        )
+        with self._conn() as conn, conn.transaction():
+            for stmt in SESSION_TUNING:
+                conn.execute(stmt)
+            rows = conn.execute(sql, params).fetchall()
+
+        out: list[Candidate] = []
+        for r in rows:
+            (
+                item_id,
+                sparse_rank,
+                dense_rank,
+                lex_score,
+                cosine,
+                rrf_score,
+                launch_id,
+                launch_number,
+                error_log_id,
+            ) = r
+            launch_distance = (
+                abs(q.launch_number - launch_number)
+                if q.launch_number is not None and launch_number is not None
+                else None
+            )
+            out.append(
+                Candidate(
+                    item_id=item_id,
+                    mode_id=None,
+                    dense_rank=dense_rank,
+                    sparse_rank=sparse_rank,
+                    rrf_score=float(rrf_score),
+                    cosine=cosine,
+                    lex_score=lex_score,
+                    launch_distance=launch_distance,
+                    launch_id=launch_id,
+                    relevant_log_id=error_log_id,
+                )
+            )
+        return out
+
     def find_hash_matches(self, project_id: int, error_hash: int, limit: int = 10) -> list[dict]:
         """Stage-A exact-error_hash matches enriched with label provenance (spec §6.1).
 
@@ -393,6 +587,7 @@ class PgRetrievalStore(StoreBase):
                 """
                 SELECT ti.item_id, ti.issue_type, ti.issue_type_group, ti.is_auto_analyzed,
                        ti.launch_id, ti.launch_name,
+                       fs.exception_fp, fs.status_codes, fs.msg_text,
                        le.source AS label_source, le.ts AS label_ts
                 FROM analyzer.failure_signature fs
                 JOIN analyzer.test_item ti USING (project_id, item_id)
@@ -412,6 +607,34 @@ class PgRetrievalStore(StoreBase):
         for r in rows:
             r["label_source"] = _LABEL_SOURCE_MAP.get(r["label_source"])
         return rows
+
+    def get_signatures(
+        self, project_id: int, item_ids: Sequence[int]
+    ) -> dict[int, StoredSignature]:
+        """Read persisted ``failure_signature`` identities by item id (spec §6.1).
+
+        The canonical identity of an already-indexed item — its ``error_hash`` /
+        ``exception_fp`` / ``template_ids`` / ``top_frames`` / ``status_codes`` /
+        ``msg_text`` as written at index time (in that index's Drain3 state). The
+        read path uses these instead of recomputing against the drifted read-only
+        Drain clone, so every hash-identity comparison stays stored-vs-stored.
+        Missing item ids are simply absent from the returned mapping (never indexed).
+        """
+        if not item_ids:
+            return {}
+        with self._conn() as conn:
+            cur = conn.cursor(row_factory=dict_row)
+            cur.execute(
+                """
+                SELECT project_id, item_id, exception_fp, error_hash, top_frames,
+                       template_ids, exc_text, msg_text, status_codes, emb_model_ver
+                FROM analyzer.failure_signature
+                WHERE project_id = %s AND item_id = ANY(%s)
+                """,
+                (project_id, list(item_ids)),
+            )
+            rows = cur.fetchall()
+        return {int(r["item_id"]): StoredSignature(**r) for r in rows}
 
     def test_case_first_seen(self, project_id: int, test_case_hash: int) -> datetime | None:
         """Earliest observation of a test case (feeds ``test_age_days``, §6.4).
@@ -461,8 +684,9 @@ class PgRetrievalStore(StoreBase):
                 """
                 INSERT INTO analyzer.suggestion
                     (project_id, item_id, launch_id, group_id, predicted_label, confidence,
-                     matched_mode_id, matched_item_id, features, model_ver, llm_used)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     matched_mode_id, matched_item_id, features, model_ver, llm_used,
+                     explanation, method, abstain_reason, source)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING suggestion_id
                 """,
                 (
@@ -477,6 +701,10 @@ class PgRetrievalStore(StoreBase):
                     Jsonb(sug.features),
                     sug.model_ver,
                     sug.llm_used,
+                    sug.explanation,
+                    sug.method,
+                    sug.abstain_reason,
+                    sug.source,
                 ),
             )
             return int(require_row(cur)[0])
@@ -529,6 +757,41 @@ class PgRetrievalStore(StoreBase):
                 (project_id, list(item_ids)),
             )
             return {int(r["item_id"]): r for r in cur.fetchall()}
+
+    def latest_rubric_provisional(self, project_id: int, item_id: int) -> dict | None:
+        """The item's outstanding LLM cold-start rubric hypothesis, or ``None``
+        (product ext 2026-07-20). Read-path source for the Make Decision rubric row.
+
+        Returns a rubric provisional — ``model_ver`` ``rubric+…`` AND a non-empty
+        ``explanation`` — only when it is the item's most recent *meaningful* decision.
+        Classical **abstain** rows (``predicted_label='ti'`` written by a non-rubric
+        model) are ignored: every ``suggest`` call persists one such abstain row for
+        the very item it is answering *before* this read runs, so counting it would
+        always mask the rubric. A genuine confident classical/auto answer
+        (``predicted_label <> 'ti'``) that is newer than the rubric DOES win — it
+        becomes the top row and, not being a ``rubric+`` row, yields ``None`` (the
+        rubric hypothesis never displaces a real evidence-backed label).
+        """
+        with self._conn() as conn:
+            cur = conn.cursor(row_factory=dict_row)
+            cur.execute(
+                """
+                SELECT predicted_label, confidence, explanation, model_ver
+                FROM analyzer.suggestion
+                WHERE project_id = %s AND item_id = %s
+                  AND NOT (predicted_label = 'ti' AND model_ver NOT LIKE 'rubric+%%')
+                ORDER BY created_at DESC, suggestion_id DESC
+                LIMIT 1
+                """,
+                (project_id, item_id),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        model_ver = row.get("model_ver") or ""
+        if not model_ver.startswith("rubric+") or not (row.get("explanation") or "").strip():
+            return None
+        return row
 
     def latest_judge(self, project_id: int, item_id: int) -> dict | None:
         """The freshest judge verdict for an item (spec 04 §4.3 read-path surfacing).
@@ -611,6 +874,8 @@ class PgRetrievalStore(StoreBase):
             label_source,
             label_ts,
             mode_id,
+            msg_text,
+            exc_text,
         ) = r
         launch_distance = (
             abs(q.launch_number - launch_number)
@@ -634,4 +899,6 @@ class PgRetrievalStore(StoreBase):
             same_exception_fp=exception_fp == q.exception_fp,
             launch_distance=launch_distance,
             launch_id=launch_id,
+            msg_text=msg_text or "",
+            exc_text=exc_text or "",
         )

@@ -25,15 +25,27 @@ class FakeProvider:
     emb_model_ver = None
     gbm_model_ver = None
 
-    def __init__(self, *, ready: bool, pg: bool, amqp: bool, metrics: dict | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        ready: bool,
+        pg: bool,
+        amqp: bool,
+        metrics: dict | None = None,
+        llm: dict | None = None,
+    ) -> None:
         self._ready = ready
         self._pg = pg
         self._amqp = amqp
         self._metrics = Metrics()
         self._summary = metrics
+        self._llm = llm if llm is not None else {"enabled": False}
 
     def metrics_summary(self) -> dict | None:
         return self._summary
+
+    def llm_health(self) -> dict[str, Any]:
+        return self._llm
 
     def is_ready(self) -> bool:
         return self._ready
@@ -80,7 +92,35 @@ def test_health_reports_ready_pg_amqp() -> None:
         "gbm_model_ver": None,
         "version": "9.9.9",
         "metrics": None,
+        "llm": {"enabled": False},
     }
+
+
+def test_health_surfaces_llm_block_when_enabled() -> None:
+    # tech-debt #4: the sidecar liveness block is additive and includes the live
+    # breaker_state so the Inspector no longer has to infer LLM health from events.
+    llm = {
+        "enabled": True,
+        "available": True,
+        "model": "qwen3:4b-q4_K_M",
+        "reason": None,
+        "breaker_state": "closed",
+    }
+    provider = FakeProvider(ready=True, pg=True, amqp=True, llm=llm)
+    resp = TestClient(create_app(provider)).get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["llm"] == llm
+
+
+def test_health_llm_block_defaults_disabled_for_legacy_provider() -> None:
+    # A provider without llm_health (older/fake) must still yield a valid, additive
+    # block that claims nothing beyond enabled:false — top-level fields unchanged.
+    class LegacyProvider(FakeProvider):
+        llm_health = None  # type: ignore[assignment]
+
+    resp = TestClient(create_app(LegacyProvider(ready=True, pg=True, amqp=True))).get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["llm"] == {"enabled": False}
 
 
 def test_health_exposes_metrics_daily_summary() -> None:

@@ -1,15 +1,21 @@
 // App shell: project selector, live counters, tab routing, auto-refresh.
+// Shareable permalinks: the address-bar hash mirrors the current view + project
+// (+ per-view selection). See applyHashState / serializeHash / updateHash.
 import { api } from './api.js';
-import { h, clear, toast, loading, emptyState, setDefects } from './util.js';
-import { renderJourney } from './views/journey.js';
+import { h, clear, toast, loading, emptyState, setDefects, readHashParams, writeHashParams } from './util.js';
+import { renderJourney, setJourneyState } from './views/journey.js';
 import { renderDrain } from './views/drain.js';
 import { renderModes } from './views/modes.js';
-import { renderGroups } from './views/groups.js';
+import { renderGroups, setGroupsState } from './views/groups.js';
 import { renderLoop } from './views/loop.js';
+import { renderSignatures, setSignaturesState } from './views/signatures.js';
+import { renderLlm, setLlmState } from './views/llm.js';
+import { renderRubric, setRubricState } from './views/rubric.js';
 
 const VIEWS = {
   journey: renderJourney, drain: renderDrain, modes: renderModes,
-  groups: renderGroups, loop: renderLoop,
+  groups: renderGroups, loop: renderLoop, signatures: renderSignatures, llm: renderLlm,
+  rubric: renderRubric,
 };
 
 export const state = {
@@ -19,6 +25,45 @@ export const state = {
   rp: null,
   _timer: null,
 };
+
+// Loaded project list (for id ↔ RP-name resolution on permalink parse).
+let PROJECTS = [];
+// Per-view selection mirrored into the hash. `launch`/`item` = journey;
+// `glaunch` = groups' launch; `q`/`conflicts`/`hash` = signatures.
+const linkState = { launch: null, item: null, glaunch: null, q: '', conflicts: false, hash: null, lrole: null, loutcome: null };
+
+const num = (v) => {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+// Resolve a `project` hash value (id or RP name) → project_id, or null.
+function resolveProject(val) {
+  const s = String(val);
+  const byId = PROJECTS.find((p) => String(p.project_id) === s);
+  if (byId) return byId.project_id;
+  const low = s.toLowerCase();
+  const byName = PROJECTS.find((p) => (p.project_name || '').toLowerCase() === low);
+  return byName ? byName.project_id : null;
+}
+
+// Serialize only the params relevant to the active view (stale ones are pruned).
+function serializeHash() {
+  const p = { view: state.view, project: state.project };
+  if (state.view === 'journey') { p.launch = linkState.launch; p.item = linkState.item; }
+  else if (state.view === 'signatures') { p.q = linkState.q || null; p.conflicts = linkState.conflicts ? '1' : null; p.hash = linkState.hash; }
+  else if (state.view === 'groups') { p.launch = linkState.glaunch; }
+  else if (state.view === 'llm') { p.lrole = linkState.lrole; p.loutcome = linkState.loutcome; }
+  else if (state.view === 'rubric') { p.rule = linkState.rule; }
+  writeHashParams(p);
+}
+
+// Views call this on navigation to reflect their selection in the URL.
+export function updateHash(patch) {
+  Object.assign(linkState, patch);
+  serializeHash();
+}
 
 const viewEl = document.getElementById('view');
 const tabsEl = document.getElementById('tabs');
@@ -31,6 +76,7 @@ async function boot() {
   wireAutorefresh();
   try {
     const { projects } = await api.projects();
+    PROJECTS = projects;
     if (!projects.length) {
       clear(viewEl).appendChild(emptyState('🗄️', 'No projects found',
         'The analyzer database has no project rows. Ingest at least one launch through the analyzer, then reload.',
@@ -45,20 +91,61 @@ async function boot() {
       selectEl.appendChild(h('option', { value: p.project_id },
         `${name} · ${p.item_count} items · ${p.launch_count} launches`));
     }
-    state.project = projects[0].project_id;
-    selectEl.value = state.project;
-    selectEl.addEventListener('change', async () => {
-      state.project = Number(selectEl.value);
-      await loadRp();
-      refreshCounters();
-      mount();
-    });
-    await loadRp();
-    setView(location.hash.replace('#', '') || 'journey');
-    await refreshCounters();
+    selectEl.addEventListener('change', onProjectChange);
+    // Restore everything from the permalink hash (or defaults when absent).
+    await applyHashState(readHashParams(), { initial: true });
+    // Browser back/forward + manual hash edits re-apply (replaceState never fires this).
+    window.addEventListener('hashchange', () => { applyHashState(readHashParams(), {}); });
   } catch (e) {
     clear(viewEl).appendChild(emptyState('🚫', 'Cannot reach the inspector API', String(e.message || e), 'GET /api/projects'));
   }
+}
+
+// Restore project + view + per-view selection from parsed hash params, then mount.
+// Graceful: unknown project/view → defaults; nonexistent launch/item ids fall
+// back to first inside the view (honest empty state, never a crash).
+async function applyHashState(hp, opts) {
+  let projId = state.project ?? PROJECTS[0].project_id;
+  if (hp.project) { const r = resolveProject(hp.project); if (r != null) projId = r; }
+  const projectChanged = projId !== state.project;
+  state.project = projId;
+  selectEl.value = String(projId);
+
+  const view = VIEWS[hp.view] ? hp.view : 'journey';
+  linkState.item = num(hp.item);
+  linkState.q = hp.q || '';
+  linkState.conflicts = hp.conflicts === '1';
+  linkState.hash = hp.hash || null;
+  linkState.launch = view === 'groups' ? null : num(hp.launch);
+  linkState.glaunch = view === 'groups' ? (hp.launch || null) : null;
+  linkState.lrole = hp.lrole || null;
+  linkState.loutcome = hp.loutcome || null;
+  linkState.rule = view === 'rubric' ? (hp.rule || null) : null;
+  setJourneyState({ launch: linkState.launch, item: linkState.item });
+  setSignaturesState({ q: linkState.q, conflicts: linkState.conflicts, expanded: linkState.hash });
+  setGroupsState({ launch: linkState.glaunch });
+  setLlmState({ role: linkState.lrole, outcome: linkState.loutcome });
+  setRubricState({ rule: linkState.rule });
+
+  if (projectChanged || opts.initial) await loadRp();
+  state.view = view;
+  [...tabsEl.querySelectorAll('.tab')].forEach((t) => t.classList.toggle('active', t.dataset.view === view));
+  serializeHash();
+  mount();
+  if (projectChanged || opts.initial) await refreshCounters();
+}
+
+async function onProjectChange() {
+  state.project = Number(selectEl.value);
+  // id-specific selections do not carry across projects; free-text filter does.
+  setJourneyState({ launch: null, item: null });
+  setGroupsState({ launch: null });
+  setSignaturesState({ q: linkState.q, conflicts: linkState.conflicts, expanded: null });
+  linkState.launch = linkState.item = linkState.glaunch = linkState.hash = null;
+  await loadRp();
+  serializeHash();
+  mount();
+  await refreshCounters();
 }
 
 // Load the per-project ReportPortal name map (real project/defect names+colors)
@@ -94,9 +181,9 @@ function wireTabs() {
 function setView(view) {
   if (!VIEWS[view]) view = 'journey';
   state.view = view;
-  location.hash = view;
   [...tabsEl.querySelectorAll('.tab')].forEach((t) =>
     t.classList.toggle('active', t.dataset.view === view));
+  serializeHash();
   mount();
 }
 
@@ -141,10 +228,5 @@ function wireAutorefresh() {
     }
   });
 }
-
-window.addEventListener('hashchange', () => {
-  const v = location.hash.replace('#', '');
-  if (v && v !== state.view) setView(v);
-});
 
 boot();

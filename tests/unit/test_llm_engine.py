@@ -43,7 +43,11 @@ def _cache_key(role, inp: dict) -> str:
 
 
 _GOOD_EXPLAINER = json.dumps(
-    {"explanation": "matched", "quoted_lines": ["java.net.ConnectException: Connection refused"]}
+    {
+        "explanation": "matched",
+        "quoted_log_lines": ["java.net.ConnectException: Connection refused"],
+        "quoted_fact_values": [],
+    }
 )
 
 
@@ -101,7 +105,9 @@ def test_schema_fail_retries_once_then_drops() -> None:
 
 def test_validation_fail_then_success_on_retry() -> None:
     role, inp = ExplainerRole(), _explainer_input()
-    bad = json.dumps({"explanation": "x", "quoted_lines": ["fabricated line"]})
+    bad = json.dumps(
+        {"explanation": "x", "quoted_log_lines": ["fabricated line"], "quoted_fact_values": []}
+    )
     mock = MockOllama([bad, _GOOD_EXPLAINER])
     cache, events = FakeCacheStore(), FakeEventStore()
     result = _engine(mock, cache, events).run(role, project_id=1, item_id=10, inp=inp)

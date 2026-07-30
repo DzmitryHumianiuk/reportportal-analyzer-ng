@@ -7,8 +7,12 @@ Turns an ``index`` request (a ``list[Launch]``) into persisted rows:
       ->  incremental test_history_stats
 
 Drain3 is single-writer per project via the spec-02 CAS contract: state is loaded,
-the batch is mined, and the snapshot is saved with an optimistic-concurrency check;
-a lost race reloads, re-mines, and retries (bounded). Embedding is optional — when
+the batch is mined, and the snapshot is saved with an optimistic-concurrency check.
+The load->mine->save critical section is serialized per project by a fleet-wide
+Postgres advisory lock (``Drain3StateStore.project_lock``) so a burst of concurrent
+``index`` messages for ONE project (RP's project-wide "Generate index") can't race
+the CAS and drop launches; a lost race still reloads, re-mines, and retries with
+jittered backoff (bounded) as a belt for lock-less stores. Embedding is optional — when
 no embedder is bound the index soft-degrades to lexical-only (``emb=NULL``,
 ``emb_model_ver=0``), as CONTEXT's risk note requires.
 """
@@ -16,8 +20,11 @@ no embedder is bound the index soft-degrades to lexical-only (``emb=NULL``,
 from __future__ import annotations
 
 import logging
+import random
 import time
 from collections import defaultdict
+from collections.abc import Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -25,6 +32,7 @@ from analyzer_ng.amqp.models import (
     ERROR_LOGGING_LEVEL,
     BulkResponse,
     Launch,
+    Log,
     LogExceptionResult,
     TestItem,
 )
@@ -38,7 +46,14 @@ from analyzer_ng.preprocessing import pipeline as pp
 
 logger = logging.getLogger(__name__)
 
-DRAIN_CAS_RETRIES = 3
+DRAIN_CAS_RETRIES = 5
+# Jittered backoff between lost-CAS retries (§2.3). With the per-project advisory
+# lock the mine+CAS section is serialized so a conflict should not occur; this is
+# the belt for stores that do not expose ``project_lock`` (e.g. a lone unlocked
+# worker), letting a retry re-mine against genuinely newer state instead of
+# hot-looping on the same stale version.
+_CAS_BACKOFF_BASE_S = 0.02
+_CAS_BACKOFF_JITTER_S = 0.03
 
 
 @dataclass(frozen=True)
@@ -58,6 +73,20 @@ class ItemAnalysis:
     log_count: int
     start_time: datetime | None
     clean_msg: str  # unmasked cleaned primary text (seed matching + clusterMessage)
+
+
+def _time_ordered_logs(logs: Sequence[Log]) -> list[Log]:
+    """Return the item's logs in chronological order (by ``logTime``).
+
+    RP's service-api forwards a test item's logs as an unordered ``Set``
+    (``IndexTestItem.logs``), so the wire array order is not guaranteed chronological.
+    The near-error context discriminant (ADV-1 / S16) depends on the WARN lines
+    *preceding* the first ERROR — :func:`~analyzer_ng.preprocessing.pipeline.extract_context_lines`
+    reads them positionally — so re-establish order from ``logTime`` before processing
+    rather than trusting the wire order. The sort is stable: logs with equal timestamps
+    keep their wire order (RP stamps distinct ``logTime`` per log; only synthetic
+    payloads with defaulted timestamps tie)."""
+    return sorted(logs, key=lambda log: tuple(log.logTime))
 
 
 def _ts7_to_datetime(ts: object) -> datetime | None:
@@ -124,9 +153,7 @@ class IndexPipeline:
                 errors = True
 
         took_ms = int((time.monotonic() - started) * 1000)
-        return BulkResponse(
-            took=took_ms, errors=errors, items=[], logResults=log_results, status=0
-        )
+        return BulkResponse(took=took_ms, errors=errors, items=[], logResults=log_results, status=0)
 
     # ------------------------------------------------------------------ #
     def _index_project(
@@ -135,7 +162,13 @@ class IndexPipeline:
         entries: list[tuple[Launch, TestItem]],
         log_results: list[LogExceptionResult],
     ) -> None:
-        items, sigs, stats_bumps = self._mine_and_build(project_id, entries)
+        # Serialize the load->mine->CAS-write critical section per project so a
+        # burst of concurrent ``index`` messages for ONE project (RP's project-wide
+        # "Generate index") can't collide on the Drain3 optimistic-concurrency
+        # version and drop launches after exhausting CAS retries. The lock spans
+        # only the mine+persist section; different projects never contend.
+        with self._project_lock(project_id):
+            items, sigs, stats_bumps = self._mine_and_build(project_id, entries)
 
         # spec 02 §2.10: test_item + failure_signature + test_history_stats commit in
         # ONE transaction, so a mid-write failure leaves nothing persisted for the
@@ -208,6 +241,11 @@ class IndexPipeline:
                 attempt + 1,
                 self._cas_retries,
             )
+            if attempt < self._cas_retries - 1:
+                # Jittered backoff so a lost race re-mines against genuinely newer
+                # state instead of hot-looping (the advisory lock normally makes
+                # this unreachable — see _CAS_BACKOFF_* notes).
+                time.sleep(_CAS_BACKOFF_BASE_S + random.uniform(0, _CAS_BACKOFF_JITTER_S))
         raise RuntimeError(
             f"Drain3 state persistence failed for project {project_id} "
             f"after {self._cas_retries} attempts"
@@ -216,12 +254,24 @@ class IndexPipeline:
     def _process_item(
         self, manager: DrainManager, launch: Launch, item: TestItem
     ) -> tuple[TestItemIn, SignatureIn, datetime]:
-        logs = [pp.LogInput(message=log.message, log_level=log.logLevel) for log in item.logs]
+        ordered_logs = _time_ordered_logs(item.logs)
+        logs = [pp.LogInput(message=log.message, log_level=log.logLevel) for log in ordered_logs]
         kept = pp.filter_item_logs(logs, max_logs=self._max_logs)
         result = pp.build_item_signature(item.testItemName, logs, manager, in_app_prefixes=None)
 
         issue_type = (item.issueType or "").strip().lower() or None
         test_case_hash = item.testCaseHash or None
+        # RP log id of the item's first ERROR-level log (spec §8.2): the similar-TI
+        # search reply must carry a real RP log id, and this is the only place the
+        # raw wire log ids are still in hand. Mirrors filter_item_logs' level gate.
+        error_log_id = next(
+            (
+                log.logId
+                for log in ordered_logs
+                if log.logLevel >= ERROR_LOGGING_LEVEL and log.message.strip()
+            ),
+            None,
+        )
         start_time = _ts7_to_datetime(item.startTime)
         log_times = [t for t in (_ts7_to_datetime(log.logTime) for log in item.logs) if t]
         log_time_max = max(log_times) if log_times else None
@@ -261,6 +311,7 @@ class IndexPipeline:
             status_codes=list(result.status_codes),
             emb=emb,
             emb_model_ver=emb_ver,
+            error_log_id=error_log_id,
         )
         ts = log_time_max or start_time or datetime.now(UTC)
         return item_in, sig_in, ts
@@ -268,6 +319,16 @@ class IndexPipeline:
     def _load_template_texts(self, project_id: int) -> list[str]:
         loader = getattr(self._drain_store, "load_template_texts", None)
         return list(loader(project_id)) if loader is not None else []
+
+    def _project_lock(self, project_id: int) -> AbstractContextManager[object]:
+        """Per-project mine+CAS serialization guard (spec 02 §2.3).
+
+        Delegates to the store's ``project_lock`` (a fleet-wide Postgres advisory
+        lock) when available; a store without it degrades to the CAS-retry belt
+        alone (``nullcontext``), preserving the prior behavior for lock-less fakes.
+        """
+        lock = getattr(self._drain_store, "project_lock", None)
+        return lock(project_id) if lock is not None else nullcontext()
 
     # ------------------------------------------------------------------ #
     # Read-path signature building (analyze/suggest/cluster/search, T2.3)
@@ -281,6 +342,15 @@ class IndexPipeline:
         analyze/suggest paths mine template *hashes* deterministically (content
         hashes, so they align with indexed signatures) without creating new
         persisted templates.
+
+        DRIFT HAZARD (spec 03 §6.1): the read-only clone reflects the miner's state
+        *now*, which has moved on from the state each history row was indexed under
+        as intervening logs re-clustered its templates. So the ``error_hash`` /
+        ``template_ids`` recomputed here can differ from the persisted values for the
+        very same item. They are safe for grouping cohesion and embedding (compared
+        only against same-batch peers), but any comparison against *stored* history
+        must use the persisted identity instead — see
+        :meth:`AnalysisEngine._resolve_identity`.
         """
         manager, _version = load_manager(
             self._drain_store,
@@ -295,7 +365,8 @@ class IndexPipeline:
         return out
 
     def _build_one(self, manager: DrainManager, launch: Launch, item: TestItem) -> ItemAnalysis:
-        logs = [pp.LogInput(message=log.message, log_level=log.logLevel) for log in item.logs]
+        ordered_logs = _time_ordered_logs(item.logs)
+        logs = [pp.LogInput(message=log.message, log_level=log.logLevel) for log in ordered_logs]
         kept = pp.filter_item_logs(logs, max_logs=self._max_logs)
         result = pp.build_item_signature(item.testItemName, logs, manager, in_app_prefixes=None)
         clean_msg = "\n".join(pp.clean_log(m).msg for m in kept if m.strip())

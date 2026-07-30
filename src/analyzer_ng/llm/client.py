@@ -36,6 +36,12 @@ class ChatResponse:
     content: str  # assistant text, ``<think>`` block already stripped
     tool_calls: list[Any] | None  # any tool_calls ⇒ role treats as schema failure (§5.3)
     latency_ms: int
+    # Why generation stopped, normalized to the OpenAI vocabulary ("stop" |
+    # "length" | ...). ``"length"`` means the num_predict/max_tokens cap was hit —
+    # the sole reliable signal that a schema-valid body may be a *masked* mid-field
+    # truncation (constrained decoding closes the open string + trailing fields so
+    # validation still passes). ``None`` when the server did not surface it.
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -77,7 +83,21 @@ class OllamaClient:
 
     # -- probe ------------------------------------------------------------- #
     def probe(self) -> ProbeResult:
-        """Reachability + model-presence check. Never pulls (§1.3)."""
+        """Reachability + model-presence check. Never pulls (§1.3).
+
+        Follows the configured API dialect: native Ollama servers are probed via
+        ``/api/version`` + ``/api/tags``; OpenAI-compatible servers (llama.cpp
+        ``llama-server``, vLLM, …) via the standard ``/v1/models`` listing —
+        those servers do not implement the Ollama management endpoints."""
+        if self._api == "openai":
+            try:
+                resp = self._client.get("/v1/models")
+                resp.raise_for_status()
+                names = {str(m.get("id", "")) for m in resp.json().get("data", [])}
+            except (httpx.HTTPError, ValueError):
+                return ProbeResult(reachable=False, model_present=False)
+            present = self._model in names or f"{self._model}:latest" in names
+            return ProbeResult(reachable=True, model_present=present, version=None)
         try:
             ver = self._client.get("/api/version")
             ver.raise_for_status()
@@ -92,13 +112,15 @@ class OllamaClient:
         return ProbeResult(reachable=True, model_present=present, version=version)
 
     def warmup(self) -> None:
-        """One tiny chat to load weights (§1.3). Raises on transport failure."""
-        self._post_native(
-            messages=[{"role": "user", "content": "ping"}],
-            schema=None,
-            num_predict=1,
-            seed=7,
-        )
+        """One tiny chat to load weights (§1.3). Raises on transport failure.
+
+        Dispatches through the configured API dialect like :meth:`chat` — a
+        native ``/api/chat`` warmup against an OpenAI-only server would 404."""
+        messages = [{"role": "user", "content": "ping"}]
+        if self._api == "openai":
+            self._post_openai(messages, schema=None, num_predict=1, seed=7)
+        else:
+            self._post_native(messages, schema=None, num_predict=1, seed=7)
 
     # -- chat -------------------------------------------------------------- #
     def chat(
@@ -112,8 +134,11 @@ class OllamaClient:
     ) -> ChatResponse:
         """One constrained-decoding chat turn. Raises :class:`LlmTransportError`."""
         system_prompt = system
-        if self._api == "ollama" and _is_qwen3(self._model):
-            # §2.3 belt-and-braces soft switch, qwen3 family only.
+        if _is_qwen3(self._model):
+            # §2.3 belt-and-braces soft switch, qwen3 family only. Applied in BOTH
+            # dialects: the /no_think toggle is honored by the qwen3 chat template
+            # itself, and an OpenAI-compatible server (llama.cpp --jinja) would
+            # otherwise burn the small num_predict budgets on <think> tokens.
             system_prompt = f"{system}\n/no_think"
         messages = [
             {"role": "system", "content": system_prompt},
@@ -156,7 +181,10 @@ class OllamaClient:
         if not isinstance(message, dict) or "content" not in message:
             raise LlmTransportError("malformed /api/chat body: no message.content")
         content = _strip_think(str(message.get("content", "")))
-        return ChatResponse(content, message.get("tool_calls"), latency_ms)
+        # Ollama surfaces the stop cause as ``done_reason`` ("stop" | "length" | …),
+        # already sharing the OpenAI vocabulary.
+        finish_reason = payload.get("done_reason")
+        return ChatResponse(content, message.get("tool_calls"), latency_ms, finish_reason)
 
     def _post_openai(
         self,
@@ -182,9 +210,12 @@ class OllamaClient:
             resp = self._client.post("/v1/chat/completions", json=body)
             resp.raise_for_status()
             payload = resp.json()
-            choice = payload["choices"][0]["message"]
+            choice_obj = payload["choices"][0]
+            choice = choice_obj["message"]
         except (httpx.HTTPError, ValueError, KeyError, IndexError) as exc:
             raise LlmTransportError(str(exc)) from exc
         latency_ms = int((time.monotonic() - started) * 1000)
         content = _strip_think(str(choice.get("content") or ""))
-        return ChatResponse(content, choice.get("tool_calls"), latency_ms)
+        # llama.cpp / vLLM report ``finish_reason`` on the choice ("stop" | "length").
+        finish_reason = choice_obj.get("finish_reason")
+        return ChatResponse(content, choice.get("tool_calls"), latency_ms, finish_reason)

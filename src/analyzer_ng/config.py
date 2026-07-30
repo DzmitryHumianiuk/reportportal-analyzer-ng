@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import quote
 
 from pydantic import BeforeValidator, Field, ValidationError, field_validator, model_validator
@@ -129,8 +129,42 @@ class AppConfig(BaseSettings):
     # build (asserted by tests/unit/test_config.py::test_wired_defaults_equal_constants).
     analyzer_auto_min_prob: UnitInterval = 0.75  # == decision.TAU_AUTO
     analyzer_suggest_max: int = 3  # == analysis.SUGGEST_MAX
+    # Declined-dock (below-band) suggest rows: OFF by default — a band-unaware UI
+    # would render a declined candidate as an endorsed suggestion card. Flip only
+    # where the Bench (service-ui ng2+) is live. Cap enforced at 3 in the engine.
+    analyzer_suggest_below_enabled: bool = False  # == analysis default (off)
+    analyzer_suggest_below_max: int = 2  # == analysis.SUGGEST_BELOW_MAX
     analyzer_burst_si_share: UnitInterval = 0.4  # == grouping.BURST_X
     analyzer_time_decay: UnitInterval = 2.0 ** (-1.0 / 90.0)  # == features.TIME_DECAY_PER_DAY
+    # Early per-item auto-analysis (docs/EARLY-ITEM-AA.md). Ships dark: the route
+    # answers an empty list until the master switch is on. The label policy caps
+    # what the early pass may auto-apply — the consilium ruling is that only
+    # deterministic decisions (Stage-A hash inherit, KB short-circuit) may label
+    # before launch finish; ``suggest_only`` is the even-darker first step where
+    # nothing auto-labels and every decision is stored and enriched only.
+    analyzer_early_item_analysis: LegacyBool = False
+    # kb_inherit_and_pb additionally lets a GBM 'pb' decision label early when it
+    # clears analyzer_early_gbm_pb_min (stricter than the normal auto band).
+    # Replay evidence: at the singleton corner only si flips; pb holds. si and
+    # every other group never label early from the GBM.
+    analyzer_early_aa_label_policy: Literal[
+        "kb_inherit_only", "suggest_only", "kb_inherit_and_pb"
+    ] = "kb_inherit_only"
+    analyzer_early_gbm_pb_min: UnitInterval = 0.85
+    # Operator-tunable retrain debounce window, in seconds (spec §6.5). This is the
+    # PRIMARY throttle on how often a *shipped* model may be replaced; a ship-gate
+    # rejection no longer counts against it (retrain.last_shipped_at anchor). The default
+    # 1800s (30 min) is intentionally shorter than the library constant
+    # retrain.MIN_RETRAIN_INTERVAL (1 h) so operators recover faster from a bad/rejected
+    # ship without waiting a full hour; raise it to throttle harder.
+    analyzer_retrain_debounce_s: int = 1800
+    # Grace (days) before the nightly label_event orphan reaper purges a genuinely
+    # deleted item's learning-log rows (tech-debt #6). Counted from when the reaper
+    # first observed the item orphaned, NOT from the label timestamp, so a reindex —
+    # which re-creates test_item within minutes — clears the tombstone long before
+    # the grace elapses and live history is never reaped. 30d is deliberately far
+    # longer than any real reindex. Set <= 0 to disable the sweep entirely.
+    analyzer_label_event_orphan_grace_days: int = 30
     # Optional LLM sidecar (spec 04 §1.2). All read once at startup; per-project
     # runtime disable lives in llm_role_state (spec 04 §6). With the master switch
     # off (the default) no code path touches the llm/ package beyond reading it.

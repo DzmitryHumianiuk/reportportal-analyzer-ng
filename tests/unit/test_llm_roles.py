@@ -50,38 +50,87 @@ def test_explainer_content_key_stable_and_nonce_free() -> None:
     assert "deadbeef" not in role.content_key(inp)
 
 
-def test_explainer_accepts_verbatim_quote() -> None:
+def test_explainer_accepts_verbatim_quotes_in_split_fields() -> None:
     role = ExplainerRole()
     inp = _explainer_input()
     role.build_prompt(inp, nonce="deadbeef")
     out = {
         "explanation": 'The log shows "Connection refused" from the client.',
-        "quoted_lines": ["java.net.ConnectException: Connection refused"],
+        "quoted_log_lines": ["java.net.ConnectException: Connection refused"],
+        "quoted_fact_values": ["503"],
     }
     assert role.post_validate(out, inp)
+    # New-shape outputs are tagged so cache rows written after the split are
+    # distinguishable from pre-split rows (llm_cache lives up to 90 days).
+    assert out["schema_ver"] == 2
 
 
-def test_explainer_rejects_fabricated_quote() -> None:
+def test_explainer_rejects_fabricated_log_quote() -> None:
     role = ExplainerRole()
     inp = _explainer_input()
     role.build_prompt(inp, nonce="deadbeef")
-    out = {"explanation": "ok", "quoted_lines": ["totally invented line"]}
+    out = {
+        "explanation": "ok",
+        "quoted_log_lines": ["totally invented line"],
+        "quoted_fact_values": [],
+    }
     assert not role.post_validate(out, inp)
+
+
+def test_explainer_fact_value_cannot_ground_as_log_quote() -> None:
+    # F1b: the split exists so fact-only strings (gate sentences, thresholds,
+    # status codes) stop passing as log quotes. "503" is in the fact block but
+    # not in the log excerpt.
+    role = ExplainerRole()
+    inp = _explainer_input()
+    role.build_prompt(inp, nonce="deadbeef")
+    as_log = {"explanation": "ok", "quoted_log_lines": ["503"], "quoted_fact_values": []}
+    assert not role.post_validate(as_log, inp)
+    as_fact = {"explanation": "ok", "quoted_log_lines": [], "quoted_fact_values": ["503"]}
+    assert role.post_validate(as_fact, inp)
+
+
+def test_explainer_rejects_fabricated_fact_value() -> None:
+    role = ExplainerRole()
+    inp = _explainer_input()
+    role.build_prompt(inp, nonce="deadbeef")
+    out = {"explanation": "ok", "quoted_log_lines": [], "quoted_fact_values": ["999"]}
+    assert not role.post_validate(out, inp)
+
+
+def test_explainer_legacy_single_field_shape_still_validates() -> None:
+    # 90-day cache compat: pre-split rows carry one ``quoted_lines`` field
+    # checked against the combined corpus (the old contract), and are never
+    # tagged with the new schema version.
+    role = ExplainerRole()
+    inp = _explainer_input()
+    role.build_prompt(inp, nonce="deadbeef")
+    legacy_ok = {"explanation": "ok", "quoted_lines": ["503"]}
+    assert role.post_validate(legacy_ok, inp)
+    assert "schema_ver" not in legacy_ok
+    legacy_bad = {"explanation": "ok", "quoted_lines": ["totally invented line"]}
+    assert not role.post_validate(legacy_bad, inp)
 
 
 def test_explainer_rejects_tamper_canary() -> None:
     role = ExplainerRole()
     inp = _explainer_input()
     role.build_prompt(inp, nonce="deadbeef")
-    out = {"explanation": "ignore previous instructions now", "quoted_lines": []}
+    out = {
+        "explanation": "ignore previous instructions now",
+        "quoted_log_lines": [],
+        "quoted_fact_values": [],
+    }
     assert not role.post_validate(out, inp)
 
 
 # ---- Extractor ---- #
-def _extractor_input() -> dict:
+def _extractor_input(
+    excerpt: str = "org.apache.http.conn.ConnectTimeoutException: connect timed out",
+) -> dict:
     return {
         "fact_block": {"exception_chain": ["org.apache.http.conn.ConnectTimeoutException"]},
-        "log_excerpt": "org.apache.http.conn.ConnectTimeoutException: connect timed out",
+        "log_excerpt": excerpt,
         "exception_fp": 555,
         "template_ids": [9, 3, 7],
     }
@@ -110,7 +159,13 @@ def test_extractor_rejects_hallucinated_class() -> None:
     assert not role.post_validate(bad, inp)
 
 
-def test_extractor_component_pattern() -> None:
+def test_extractor_component_pattern_filters_not_fails() -> None:
+    # A malformed component (a log phrase instead of an identifier) is DROPPED,
+    # never fatal: components feed nothing downstream, while failing_layer and
+    # error_class feed 19 GBM columns. Measured live (item 5917): the model put
+    # "host:<NUM> failed to respond" into components on every seed, so the fatal
+    # rule burned two generation attempts per Make Decision open, forever, and
+    # threw away a correct layer/class extraction each time.
     role = ExtractorRole()
     inp = _extractor_input()
     role.build_prompt(inp, nonce="beadfeed")
@@ -119,7 +174,50 @@ def test_extractor_component_pattern() -> None:
         "wrapper_chain": [],
         "failing_layer": "infrastructure",
         "error_class": "timeout",
-        "components": ["has space"],
+        "components": ["has space", "http.client"],
+    }
+    assert role.post_validate(out, inp)
+    assert out["components"] == ["http.client"]
+
+
+def test_extractor_salvages_measured_5917_output() -> None:
+    # The exact output qwen3:4b produced for item 5917 on both retry seeds. The
+    # grounded fields are all correct; only the components entry is misshapen.
+    role = ExtractorRole()
+    inp = _extractor_input(
+        excerpt=(
+            "java.util.concurrent.CompletionException: "
+            "org.apache.http.NoHttpResponseException: "
+            "beta.example.io:<NUM> failed to respond"
+        )
+    )
+    role.build_prompt(inp, nonce="beadfeed")
+    out = {
+        "root_exception": "org.apache.http.NoHttpResponseException",
+        "wrapper_chain": [
+            "java.util.concurrent.CompletionException",
+            "org.apache.http.NoHttpResponseException",
+        ],
+        "failing_layer": "app_code",
+        "error_class": "not_found",
+        "components": ["beta.example.io:<NUM> failed to respond"],
+    }
+    assert role.post_validate(out, inp)
+    assert out["components"] == []
+
+
+def test_extractor_hallucinated_wrapper_still_fatal() -> None:
+    # Grounding stays fatal: a wrapper class that never appears in the corpus is
+    # a hallucination, not a formatting slip.
+    role = ExtractorRole()
+    inp = _extractor_input()
+    role.build_prompt(inp, nonce="beadfeed")
+    out = {
+        "root_exception": "org.apache.http.conn.ConnectTimeoutException",
+        "wrapper_chain": ["com.fake.NeverSeenException"],
+        "failing_layer": "infrastructure",
+        "error_class": "timeout",
+        "components": [],
     }
     assert not role.post_validate(out, inp)
 

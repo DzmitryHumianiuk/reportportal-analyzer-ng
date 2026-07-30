@@ -1,0 +1,3378 @@
+{
+  "generated_by": "demo-data/generate.py",
+  "seed": 20260717,
+  "note": "Per-probe expected analyzer outcome. Join to suggestion rows via item attributes scenario:Sxx / adv_case + archetype id. ground_truth 'ti' means the correct outcome is abstain.",
+  "probe_count": 217,
+  "probe_count_by_project": {
+    "webshop-ui": 147,
+    "payments-services": 43,
+    "frontend-apps": 27
+  },
+  "probes": [
+    {
+      "archetype_id": "JAVA-SEL-01",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Tax & totals. Recalculate VAT on mixed cart",
+      "scenario": [
+        "S09"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-01",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Tax & totals. Recalculate VAT on mixed cart",
+      "scenario": [
+        "S09"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-01",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Tax & totals. Recalculate VAT on mixed cart",
+      "scenario": [
+        "S09"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-02",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Catalog. Product tiles. Bulk-edit visibility flags",
+      "scenario": [
+        "S12"
+      ],
+      "adv_case": null,
+      "ground_truth": "ab",
+      "expected_action": "auto",
+      "expected_label": "ab",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-02",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Catalog. Product tiles. Bulk-edit visibility flags",
+      "scenario": [
+        "S12"
+      ],
+      "adv_case": null,
+      "ground_truth": "ab",
+      "expected_action": "auto",
+      "expected_label": "ab",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-02",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Catalog. Category settings. Update sort order and persist",
+      "scenario": [
+        "S12"
+      ],
+      "adv_case": null,
+      "ground_truth": "ab",
+      "expected_action": "auto",
+      "expected_label": "ab",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-02",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Catalog. Category settings. Update sort order and persist",
+      "scenario": [
+        "S12"
+      ],
+      "adv_case": null,
+      "ground_truth": "ab",
+      "expected_action": "auto",
+      "expected_label": "ab",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "S05"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "S05"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "S05"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "S05"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "S05"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "S05"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "S05"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "S05"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "S05"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "S05"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "S05"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "S05"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-05",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "scenario": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-05",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "scenario": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-05",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "scenario": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-06",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "scenario": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-06",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "scenario": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-06",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "scenario": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-07",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "scenario": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-07",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "scenario": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-07",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order history. Load recent orders table",
+      "scenario": [
+        "S16"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-08",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
+      "scenario": [
+        "S15"
+      ],
+      "adv_case": "ADV-2",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-08",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
+      "scenario": [
+        "S15"
+      ],
+      "adv_case": "ADV-2",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-08",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
+      "scenario": [
+        "S15"
+      ],
+      "adv_case": "ADV-2",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-08",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
+      "scenario": [
+        "S15"
+      ],
+      "adv_case": "ADV-2",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-08",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
+      "scenario": [
+        "S15"
+      ],
+      "adv_case": "ADV-2",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-08",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Stock reservation. Reserve stock from inventory snapshot",
+      "scenario": [
+        "S15"
+      ],
+      "adv_case": "ADV-2",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-09",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Payment. Submit order with saved card",
+      "scenario": [
+        "S18"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-09",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Payment. Submit order with saved card",
+      "scenario": [
+        "S18"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-09",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Payment. Submit order with saved card",
+      "scenario": [
+        "S18"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-09",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Payment. Submit order with saved card",
+      "scenario": [
+        "S18"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-10",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order placement. Place order with bulk discount",
+      "scenario": [
+        "S19"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-10",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order placement. Place order with bulk discount",
+      "scenario": [
+        "S19"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-10",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order placement. Place order with bulk discount",
+      "scenario": [
+        "S19"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-10",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order placement. Place order with bulk discount",
+      "scenario": [
+        "S19"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-11",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order placement. Place order with bulk discount",
+      "scenario": [
+        "S19"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-11",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order placement. Place order with bulk discount",
+      "scenario": [
+        "S19"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-11",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order placement. Place order with bulk discount",
+      "scenario": [
+        "S19"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-12",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Cart. Apply percentage discount to cart",
+      "scenario": [
+        "S37"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-12",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Account. Session. Reject expired session cookie",
+      "scenario": [
+        "S37"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-12",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Cart. Apply percentage discount to cart",
+      "scenario": [
+        "S37"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-12",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Account. Session. Reject expired session cookie",
+      "scenario": [
+        "S37"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-12",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Cart. Apply percentage discount to cart",
+      "scenario": [
+        "S37"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-12",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Account. Session. Reject expired session cookie",
+      "scenario": [
+        "S37"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-12",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Cart. Apply percentage discount to cart",
+      "scenario": [
+        "S37"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-12",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Account. Session. Reject expired session cookie",
+      "scenario": [
+        "S37"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-12",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Cart. Apply percentage discount to cart",
+      "scenario": [
+        "S37"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-12",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Account. Session. Reject expired session cookie",
+      "scenario": [
+        "S37"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-12",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Cart. Apply percentage discount to cart",
+      "scenario": [
+        "S37"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-12",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Account. Session. Reject expired session cookie",
+      "scenario": [
+        "S37"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-13",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Gift wrapping. Apply gift-wrap surcharge",
+      "scenario": [
+        "S03"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-13",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Gift wrapping. Apply gift-wrap surcharge",
+      "scenario": [
+        "S03"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-13",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Gift wrapping. Apply gift-wrap surcharge",
+      "scenario": [
+        "S03"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-13",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Gift wrapping. Apply gift-wrap surcharge",
+      "scenario": [
+        "S03"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-13",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Gift wrapping. Apply gift-wrap surcharge",
+      "scenario": [
+        "S03"
+      ],
+      "adv_case": "ADV-4",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-14",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Coupons. Stack multiple coupons on order",
+      "scenario": [
+        "S01"
+      ],
+      "adv_case": "ADV-7",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-14",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Coupons. Stack multiple coupons on order",
+      "scenario": [
+        "S01"
+      ],
+      "adv_case": "ADV-7",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-14",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Coupons. Stack multiple coupons on order",
+      "scenario": [
+        "S01"
+      ],
+      "adv_case": "ADV-7",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-15",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Export. Download order history CSV",
+      "scenario": [
+        "S04"
+      ],
+      "adv_case": "ADV-7",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-15",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Export. Download order history CSV",
+      "scenario": [
+        "S04"
+      ],
+      "adv_case": "ADV-7",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-15",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Export. Download order history CSV",
+      "scenario": [
+        "S04"
+      ],
+      "adv_case": "ADV-7",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-16",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Cart. Recalculate total after coupon removal",
+      "scenario": [
+        "S23"
+      ],
+      "adv_case": "ADV-7",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-16",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Cart. Recalculate total after coupon removal",
+      "scenario": [
+        "S23"
+      ],
+      "adv_case": "ADV-7",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-17",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Inventory. Confirm stock before payment",
+      "scenario": [
+        "S23"
+      ],
+      "adv_case": "ADV-7",
+      "ground_truth": "si",
+      "expected_action": "suggest",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-17",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Inventory. Confirm stock before payment",
+      "scenario": [
+        "S23"
+      ],
+      "adv_case": "ADV-7",
+      "ground_truth": "si",
+      "expected_action": "suggest",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-17",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Inventory. Confirm stock before payment",
+      "scenario": [
+        "S23"
+      ],
+      "adv_case": "ADV-7",
+      "ground_truth": "si",
+      "expected_action": "suggest",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-18",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Pricing. Price cart with mixed currency",
+      "scenario": [
+        "S24"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-18",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Loyalty. Apply premium-tier benefits",
+      "scenario": [
+        "S24"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-18",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Pricing. Price cart with mixed currency",
+      "scenario": [
+        "S24"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-18",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Loyalty. Apply premium-tier benefits",
+      "scenario": [
+        "S24"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-19",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Payment. Card declined shows validation message",
+      "scenario": [
+        "S20",
+        "S26"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-19",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Bezahlung. Abgelehnte Karte zeigt Hinweis",
+      "scenario": [
+        "S20",
+        "S26"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-19",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Оплата. Отклонённая карта показывает сообщение",
+      "scenario": [
+        "S20",
+        "S26"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-19",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. 支払い. 拒否されたカードでメッセージ表示",
+      "scenario": [
+        "S20",
+        "S26"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-19",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Payment. Card declined shows validation message",
+      "scenario": [
+        "S20",
+        "S26"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-19",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Bezahlung. Abgelehnte Karte zeigt Hinweis",
+      "scenario": [
+        "S20",
+        "S26"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-19",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Оплата. Отклонённая карта показывает сообщение",
+      "scenario": [
+        "S20",
+        "S26"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-19",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. 支払い. 拒否されたカードでメッセージ表示",
+      "scenario": [
+        "S20",
+        "S26"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-20",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Payment. Click place-order button",
+      "scenario": [
+        "S21"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-20",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Payment. Click place-order button",
+      "scenario": [
+        "S21"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-20",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Payment. Click place-order button",
+      "scenario": [
+        "S21"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-20",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Payment. Click place-order button",
+      "scenario": [
+        "S21"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-21",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Totals. Localized grand total for RTL storefront",
+      "scenario": [
+        "S21"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-21",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Totals. Localized grand total for RTL storefront",
+      "scenario": [
+        "S21"
+      ],
+      "adv_case": "ADV-6",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-22",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Account. Profile. Page title matches expected",
+      "scenario": [
+        "S22"
+      ],
+      "adv_case": "ADV-5",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-22",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Account. Profile. Page title matches expected",
+      "scenario": [
+        "S22"
+      ],
+      "adv_case": "ADV-5",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-22",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Confirmation. Order summary text matches",
+      "scenario": [
+        "S22"
+      ],
+      "adv_case": "ADV-5",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-22",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Confirmation. Order summary text matches",
+      "scenario": [
+        "S22"
+      ],
+      "adv_case": "ADV-5",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-23",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Settings. Save shipping profile",
+      "scenario": [
+        "S29"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-23",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Settings. Save shipping profile",
+      "scenario": [
+        "S29"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-23",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Settings. Save shipping profile",
+      "scenario": [
+        "S29"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-23",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Settings. Save shipping profile",
+      "scenario": [
+        "S29"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-24",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Address. Validate shipping address",
+      "scenario": [
+        "S13"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-24",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Address. Validate shipping address",
+      "scenario": [
+        "S13"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-24",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Address. Validate shipping address",
+      "scenario": [
+        "S13"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-25",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Payment. Handle declined payment gracefully",
+      "scenario": [
+        "S14"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-25",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Payment. Handle declined payment gracefully",
+      "scenario": [
+        "S14"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "ab",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-26",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Stock. Available quantity matches warehouse",
+      "scenario": [
+        "S17"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-26",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Stock. Available quantity matches warehouse",
+      "scenario": [
+        "S17"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-27",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Wishlist. Move item to cart",
+      "scenario": [
+        "S11",
+        "S32"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-27",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Wishlist. Move item to cart",
+      "scenario": [
+        "S11",
+        "S32"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-28",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Export. Legacy PDF invoice download",
+      "scenario": [
+        "S11"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-29",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Recommendations. Load 'you may also like' widget",
+      "scenario": [
+        "S26"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "si",
+      "expected_action": "suggest",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-29",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Recommendations. Load 'you may also like' widget",
+      "scenario": [
+        "S26"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "si",
+      "expected_action": "suggest",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-30",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Recommendations. Rank personalized offers",
+      "scenario": [
+        "S02",
+        "S06",
+        "S07",
+        "S08",
+        "S35",
+        "S36",
+        "S39"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "pb",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-30",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Buttons. Place-order button interactable",
+      "scenario": [
+        "S02",
+        "S06",
+        "S07",
+        "S08",
+        "S35",
+        "S36",
+        "S39"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "ab",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-30",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Misc. Gift-card balance widget renders",
+      "scenario": [
+        "S02",
+        "S06",
+        "S07",
+        "S08",
+        "S35",
+        "S36",
+        "S39"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-30",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Tiny. Badge visible",
+      "scenario": [
+        "S02",
+        "S06",
+        "S07",
+        "S08",
+        "S35",
+        "S36",
+        "S39"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "ab",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-30",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Smoke. Landing renders",
+      "scenario": [
+        "S02",
+        "S06",
+        "S07",
+        "S08",
+        "S35",
+        "S36",
+        "S39"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-30",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Coupons. Coupon expiry banner shows",
+      "scenario": [
+        "S02",
+        "S06",
+        "S07",
+        "S08",
+        "S35",
+        "S36",
+        "S39"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "pb",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-30",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Loyalty. Redeem points at checkout",
+      "scenario": [
+        "S02",
+        "S06",
+        "S07",
+        "S08",
+        "S35",
+        "S36",
+        "S39"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "pb",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-30",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Ledger. Reconcile ledger after checkout",
+      "scenario": [
+        "S02",
+        "S06",
+        "S07",
+        "S08",
+        "S35",
+        "S36",
+        "S39"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-30",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Recommendations. Rank personalized offers",
+      "scenario": [
+        "S02",
+        "S06",
+        "S07",
+        "S08",
+        "S35",
+        "S36",
+        "S39"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "pb",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-30",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Buttons. Place-order button interactable",
+      "scenario": [
+        "S02",
+        "S06",
+        "S07",
+        "S08",
+        "S35",
+        "S36",
+        "S39"
+      ],
+      "adv_case": "ADV-8",
+      "ground_truth": "ab",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-31",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-31",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-31",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-31",
+      "project": "webshop-ui",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "NET-XUN-01",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.FxRates.Tests.FxRateTests.Get_Rate_ForHistoricalDate_UsesClosingRate",
+      "scenario": [
+        "S10"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "NET-XUN-01",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.FxRates.Tests.FxRateTests.Get_Rate_ForHistoricalDate_UsesClosingRate",
+      "scenario": [
+        "S10"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "NET-XUN-02",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_MinorUnits_Returns201",
+      "scenario": [
+        "S18"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-02",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_SameCurrency_Returns201",
+      "scenario": [
+        "S18"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-02",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_CrossCurrency_Returns201",
+      "scenario": [
+        "S18"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-03",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_MinorUnits_Returns201",
+      "scenario": [
+        "S18"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "si",
+      "expected_action": "suggest",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-03",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_SameCurrency_Returns201",
+      "scenario": [
+        "S18"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "si",
+      "expected_action": "suggest",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-03",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Transfers.Tests.TransferApiTests.Post_Transfer_CrossCurrency_Returns201",
+      "scenario": [
+        "S18"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "si",
+      "expected_action": "suggest",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-04",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Ledger.Tests.IdempotencyTests.Repeat_Post_WithSameKey_ReturnsCachedResponse",
+      "scenario": [
+        "S25"
+      ],
+      "adv_case": "ADV-D1",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-04",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Ledger.Tests.IdempotencyTests.Repeat_Post_WithSameKey_ReturnsCachedResponse",
+      "scenario": [
+        "S25"
+      ],
+      "adv_case": "ADV-D1",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-04",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Ledger.Tests.IdempotencyTests.Repeat_Post_WithSameKey_ReturnsCachedResponse",
+      "scenario": [
+        "S25"
+      ],
+      "adv_case": "ADV-D1",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-05",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.FxRates.Tests.FxRateClientTests.Get_Rate_WhenServiceUp_Returns200",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "NET-XUN-05",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.FxRates.Tests.FxRateClientTests.Get_Rate_WhenServiceUp_Returns200",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "NET-XUN-06",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Ledger.Tests.PostingTests.Concurrent_Postings_AreSerialized",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "NET-XUN-07",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.FxRates.Tests.FxRateClientTests.Get_Rate_UnderLoad_RespectsRateLimit",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "suggest",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-08",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.MoneyMovement.Tests.InstantPayoutsE2E.Payout_Completes_ForEligibleAccount",
+      "scenario": [
+        "S41"
+      ],
+      "adv_case": null,
+      "ground_truth": "nd",
+      "expected_action": "suggest",
+      "expected_label": "nd",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-08",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.MoneyMovement.Tests.InstantPayoutsE2E.Payout_Completes_ForBusinessAccount",
+      "scenario": [
+        "S41"
+      ],
+      "adv_case": null,
+      "ground_truth": "nd",
+      "expected_action": "suggest",
+      "expected_label": "nd",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-08",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.MoneyMovement.Tests.InstantPayoutsE2E.Payout_Completes_WithSplitDisbursement",
+      "scenario": [
+        "S41"
+      ],
+      "adv_case": null,
+      "ground_truth": "nd",
+      "expected_action": "suggest",
+      "expected_label": "nd",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-10",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Ledger.Tests.ReconciliationTests.EndOfDay_Balance_MatchesLedger",
+      "scenario": [
+        "S30"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-10",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Ledger.Tests.ReconciliationTests.EndOfDay_Balance_MatchesLedger",
+      "scenario": [
+        "S30"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-10",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Ledger.Tests.ReconciliationTests.EndOfDay_Balance_MatchesLedger",
+      "scenario": [
+        "S30"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-11",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Api.Tests.PaymentStatusTests.Get_Status_ReturnsSettled",
+      "scenario": [
+        "S22"
+      ],
+      "adv_case": "ADV-5",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-11",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Api.Tests.PaymentStatusTests.Get_Status_ReturnsSettled",
+      "scenario": [
+        "S22"
+      ],
+      "adv_case": "ADV-5",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-12",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Events.Tests.SettlementConsumerTests.Consume_SettlementEvent_UpdatesLedger",
+      "scenario": [
+        "S22"
+      ],
+      "adv_case": "ADV-5",
+      "ground_truth": "si",
+      "expected_action": "suggest",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-12",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Events.Tests.SettlementConsumerTests.Consume_SettlementEvent_UpdatesLedger",
+      "scenario": [
+        "S22"
+      ],
+      "adv_case": "ADV-5",
+      "ground_truth": "si",
+      "expected_action": "suggest",
+      "expected_label": "si",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-13",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "NET-XUN-13",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "NET-XUN-13",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "NET-XUN-13",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Infra Healthcheck. Upstream gateway. Responds within budget",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "NET-XUN-14",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Settings. Save shipping profile",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "NET-XUN-14",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Settings. Save shipping profile",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "NET-XUN-14",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Settings. Save shipping profile",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "NET-XUN-14",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Settings. Save shipping profile",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "NET-XUN-14",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Settings. Save shipping profile",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "NET-XUN-14",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Settings. Save shipping profile",
+      "scenario": [
+        "S45"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "NET-XUN-15",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Settlements.Tests.SettlementBatchTests.Process_Batch_ClosesOpenPositions",
+      "scenario": [
+        "S39"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "NET-XUN-15",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Settlements.Tests.SettlementBatchTests.Process_Batch_ClosesOpenPositions",
+      "scenario": [
+        "S39"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "NET-XUN-16",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202",
+      "scenario": [
+        "S27",
+        "S38"
+      ],
+      "adv_case": "ADV-D4",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-16",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202",
+      "scenario": [
+        "S27",
+        "S38"
+      ],
+      "adv_case": "ADV-D4",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-16",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202",
+      "scenario": [
+        "S27",
+        "S38"
+      ],
+      "adv_case": "ADV-D4",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-16",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202",
+      "scenario": [
+        "S27",
+        "S38"
+      ],
+      "adv_case": "ADV-D4",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-16",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202",
+      "scenario": [
+        "S27",
+        "S38"
+      ],
+      "adv_case": "ADV-D4",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "NET-XUN-16",
+      "project": "payments-services",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Hawkins.Payments.Contracts.Tests.RefundContractTests.Post_Refund_Returns202",
+      "scenario": [
+        "S27",
+        "S38"
+      ],
+      "adv_case": "ADV-D4",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "TS-CY-02",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "Legacy Admin > Refunds > bulk refund 25 selected orders shows success toast",
+      "scenario": [
+        "S39"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "TS-PW-01",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/product-grid.spec.ts › Product grid › renders the filter rail",
+      "scenario": [
+        "S40"
+      ],
+      "adv_case": null,
+      "ground_truth": "nd",
+      "expected_action": "suggest",
+      "expected_label": "nd",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-01",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/mini-cart.spec.ts › Mini cart › opens the drawer on hover",
+      "scenario": [
+        "S40"
+      ],
+      "adv_case": null,
+      "ground_truth": "nd",
+      "expected_action": "suggest",
+      "expected_label": "nd",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-01",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/product-grid.spec.ts › Product grid › lazy-loads the next page of results",
+      "scenario": [
+        "S40"
+      ],
+      "adv_case": null,
+      "ground_truth": "nd",
+      "expected_action": "suggest",
+      "expected_label": "nd",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-01",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/mini-cart.spec.ts › Mini cart › shows the item-count badge after add-to-cart",
+      "scenario": [
+        "S40"
+      ],
+      "adv_case": null,
+      "ground_truth": "nd",
+      "expected_action": "suggest",
+      "expected_label": "nd",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-01",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/search-suggest.spec.ts › Search › renders type-ahead suggestions",
+      "scenario": [
+        "S40"
+      ],
+      "adv_case": null,
+      "ground_truth": "nd",
+      "expected_action": "suggest",
+      "expected_label": "nd",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-01",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/promo-banner.spec.ts › Promo banner › renders the hero campaign slot",
+      "scenario": [
+        "S40"
+      ],
+      "adv_case": null,
+      "ground_truth": "nd",
+      "expected_action": "suggest",
+      "expected_label": "nd",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-03",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/checkout.spec.ts › Checkout › displays the order total with grouping and decimals",
+      "scenario": [
+        "S18"
+      ],
+      "adv_case": "ADV-3.C",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "TS-PW-03",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/checkout.spec.ts › Checkout › displays the order total with grouping and decimals",
+      "scenario": [
+        "S18"
+      ],
+      "adv_case": "ADV-3.C",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "TS-PW-04",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/smoke.spec.ts › Smoke › storefront home page is reachable",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-05",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/smoke.spec.ts › Smoke › checkout API is reachable over https",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-06",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/product.spec.ts › Product › shows the size selector",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-07",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/account.spec.ts › Account › loads the wishlist",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-08",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/checkout.spec.ts › Checkout › fetches a delivery-slot quote",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": "tie",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-08",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/cart.spec.ts › Cart › revalidates the cart against pricing-svc",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": "tie",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-09",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/nav.spec.ts › Navigation › highlights the active category",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "TS-PW-09",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/pdp.spec.ts › Product detail › selects a size",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "TS-PW-09",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/cart.spec.ts › Cart › removes a line item",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "TS-PW-09",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/home.spec.ts › Home › loads the recommendations rail",
+      "scenario": [
+        "S33"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "TS-PW-10",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/login-smoke.spec.ts › Login smoke › keeps the session after reload",
+      "scenario": [
+        "S33",
+        "S40"
+      ],
+      "adv_case": null,
+      "ground_truth": "nd",
+      "expected_action": "auto",
+      "expected_label": "nd",
+      "expected_method": "rule_cold"
+    },
+    {
+      "archetype_id": "TS-PW-11",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/checkout.spec.ts › Checkout › places an order",
+      "scenario": [
+        "S16"
+      ],
+      "adv_case": "ADV-1.C",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "TS-PW-11",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/cart.spec.ts › Cart › proceeds to checkout",
+      "scenario": [
+        "S16"
+      ],
+      "adv_case": "ADV-1.C",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "TS-PW-11",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/product.spec.ts › Product › adds to cart",
+      "scenario": [
+        "S16"
+      ],
+      "adv_case": "ADV-1.C",
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "TS-PW-12",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/bootstrap.spec.ts › Bootstrap › hydrates the app shell",
+      "scenario": [
+        "S39"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "TS-PW-12",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/bootstrap.spec.ts › Bootstrap › registers the service worker",
+      "scenario": [
+        "S39"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "TS-PW-13",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/home.spec.ts › Home › renders above the fold",
+      "scenario": [
+        "S02"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "TS-PW-13",
+      "project": "frontend-apps",
+      "launch": "Probe Launch - Demo Day",
+      "date": "2026-07-17",
+      "test_name": "storefront/product.spec.ts › Product › opens the size guide",
+      "scenario": [
+        "S02"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "BENCH-auto-hash",
+        "S05",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-23",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Settings. Save shipping profile",
+      "scenario": [
+        "BENCH-auto-kb",
+        "S29",
+        "S46"
+      ],
+      "adv_case": "ADV-9",
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": "kb"
+    },
+    {
+      "archetype_id": "JAVA-SEL-24",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Address. Validate shipping address",
+      "scenario": [
+        "BENCH-suggest-confirm",
+        "S13",
+        "S46"
+      ],
+      "adv_case": "ADV-1",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-27",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Wishlist. Move item to cart",
+      "scenario": [
+        "BENCH-suggest-disagree",
+        "S11",
+        "S32",
+        "S46"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-27",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Wishlist. Move item to cart",
+      "scenario": [
+        "BENCH-declined-dock",
+        "S11",
+        "S32",
+        "S46"
+      ],
+      "adv_case": "ADV-3",
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "ab",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-32",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Loyalty ledger. Reconcile points balance",
+      "scenario": [
+        "BENCH-ai-guess-only",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-33",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Receipt. Render printable receipt",
+      "scenario": [
+        "BENCH-silent-no-signal",
+        "S02",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "BENCH-group-of-3",
+        "S05",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "BENCH-group-of-3",
+        "S05",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-03",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Order search. Find order by number",
+      "scenario": [
+        "BENCH-group-of-3",
+        "S05",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "auto",
+      "expected_label": "pb",
+      "expected_method": "hash"
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Publish cart snapshot",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Fetch price feed",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Sync stock levels",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Broadcast order event",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Refresh delivery quotes",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Validate coupon service",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Warm search index",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-34",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Mesh relay. Ping loyalty bridge",
+      "scenario": [
+        "BENCH-burst-si",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "si",
+      "expected_action": "auto",
+      "expected_label": "si",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-35",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase 2",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Gift card. Redeem balance at checkout",
+      "scenario": [
+        "BENCH-suggest-confirm",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-36",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase 2",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Promotions. Apply seasonal promo to cart",
+      "scenario": [
+        "BENCH-suggest-disagree",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "pb",
+      "expected_action": "suggest",
+      "expected_label": "pb",
+      "expected_method": "gbm"
+    },
+    {
+      "archetype_id": "JAVA-SEL-37",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase 2",
+      "date": "2026-07-17",
+      "test_name": "Checkout. Receipt. Verify rendered receipt markup",
+      "scenario": [
+        "BENCH-declined-dock",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    },
+    {
+      "archetype_id": "JAVA-SEL-38",
+      "project": "webshop-ui",
+      "launch": "Make Decision Showcase 2",
+      "date": "2026-07-17",
+      "test_name": "Telemetry. Chrono beacon. Verify epoch alignment",
+      "scenario": [
+        "BENCH-ai-guess-only",
+        "S46"
+      ],
+      "adv_case": null,
+      "ground_truth": "ti",
+      "expected_action": "abstain",
+      "expected_label": "ti",
+      "expected_method": ""
+    }
+  ]
+}

@@ -8,6 +8,9 @@ idempotent re-index) is provable without a database.
 from __future__ import annotations
 
 import json
+import threading
+import time
+from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -64,17 +67,21 @@ class FakeDrainStore:
     def __init__(self) -> None:
         self.states: dict[int, tuple[bytes, int]] = {}
         self.templates: dict[int, list[dict]] = {}
+        # The real Postgres CAS is atomic; model that so a check-then-set race in
+        # the fake can't spuriously let two writers both "win".
+        self._save_lock = threading.Lock()
 
     def load(self, project_id: int) -> tuple[bytes, int] | None:
         return self.states.get(project_id)
 
     def save(self, project_id: int, state: bytes, expected_version: int, config: dict) -> bool:
-        current = self.states.get(project_id)
-        current_version = current[1] if current else 0
-        if current_version != expected_version:
-            return False
-        self.states[project_id] = (state, current_version + 1)
-        return True
+        with self._save_lock:
+            current = self.states.get(project_id)
+            current_version = current[1] if current else 0
+            if current_version != expected_version:
+                return False
+            self.states[project_id] = (state, current_version + 1)
+            return True
 
     def load_template_texts(self, project_id: int) -> list[str]:
         return [t["pattern"] for t in self.templates.get(project_id, [])]
@@ -154,3 +161,132 @@ def test_item_with_only_non_error_logs_gets_empty_signature() -> None:
     # No ERROR logs survive filtering -> never-analyzed empty signature (§3.4).
     assert sig.exception_fp == 0
     assert sig.error_hash == 0
+
+
+# --------------------------------------------------------------------------- #
+# Concurrent burst-index for ONE project (the live CAS-collision defect).
+#
+# RP's project-wide "Generate index" fires a burst of `index` AMQP messages for
+# one project; the worker pool processes them on parallel threads. Each does
+# load-version -> mine -> CAS-save. Without serialization, concurrent batches read
+# the same version and collide on the optimistic-concurrency save; a batch that
+# loses every attempt raises and its launches are silently dropped.
+# --------------------------------------------------------------------------- #
+
+
+class _BarrierRaceDrainStore(FakeDrainStore):
+    """Forces two index threads to mine the SAME CAS version (no serialization).
+
+    ``load`` rendezvouses both threads on a barrier before returning, so absent a
+    per-project lock both mine version 0 and exactly one loses the atomic CAS —
+    the race that drops a launch. (Used with ``cas_retries=1`` so each thread
+    loads exactly once; no reload → no second barrier party → no deadlock.)
+    """
+
+    def __init__(self, parties: int = 2) -> None:
+        super().__init__()
+        self._barrier = threading.Barrier(parties, timeout=10)
+
+    def load(self, project_id: int) -> tuple[bytes, int] | None:
+        result = super().load(project_id)
+        self._barrier.wait()
+        return result
+
+
+class _LockingDrainStore(FakeDrainStore):
+    """CAS-correct store exposing a real per-project advisory-lock stand-in.
+
+    ``project_lock`` is a genuine per-project mutex, and ``load`` sleeps to widen
+    the load->save window so that WITHOUT the lock the two threads would collide;
+    the lock is what makes them serialize and both succeed.
+    """
+
+    def __init__(self, load_delay: float = 0.05) -> None:
+        super().__init__()
+        self._load_delay = load_delay
+        self._locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
+
+    def load(self, project_id: int) -> tuple[bytes, int] | None:
+        result = super().load(project_id)
+        time.sleep(self._load_delay)
+        return result
+
+    @contextmanager
+    def project_lock(self, project_id: int) -> Iterator[None]:
+        with self._locks[project_id]:
+            yield
+
+
+def _launch_for(project: int, launch_id: int, item_id: int) -> Launch:
+    return Launch(
+        launchId=launch_id,
+        launchName="L",
+        launchNumber=launch_id,
+        project=project,
+        testItems=[
+            {
+                "testItemId": item_id,
+                "isAutoAnalyzed": False,
+                "testItemName": "t",
+                "testCaseHash": item_id,
+                "issueType": "ti001",
+                "logs": [
+                    {
+                        "logId": item_id * 10,
+                        "logLevel": 40000,
+                        "message": "NullPointerException at Foo.bar(Foo.java:1)",
+                    }
+                ],
+            }
+        ],
+    )
+
+
+def _run_concurrent(pipe: IndexPipeline, launches: list[Launch]) -> list[Any]:
+    results: dict[int, Any] = {}
+
+    def worker(idx: int, launch: Launch) -> None:
+        # index_launches catches per-project failures internally (errors flag),
+        # so this never raises; capture the BulkResponse.
+        results[idx] = pipe.index_launches([launch])
+
+    threads = [
+        threading.Thread(target=worker, args=(i, launch)) for i, launch in enumerate(launches)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+    assert not any(t.is_alive() for t in threads), "index worker deadlocked"
+    return [results[i] for i in range(len(launches))]
+
+
+def test_concurrent_index_without_lock_drops_a_batch() -> None:
+    # Baseline: no per-project serialization + a single CAS attempt reproduces the
+    # live defect — two concurrent batches for project 7 collide and one is lost.
+    drain = _BarrierRaceDrainStore(parties=2)
+    retrieval, stats = FakeRetrieval(), FakeStats()
+    pipe = IndexPipeline(retrieval, stats, drain, cas_retries=1)
+
+    responses = _run_concurrent(pipe, [_launch_for(7, 1, 2001), _launch_for(7, 2, 2002)])
+
+    # Exactly one batch lost the CAS and raised -> its launch dropped.
+    assert sum(1 for r in responses if r.errors) == 1
+    present = [(7, 2001) in retrieval.items, (7, 2002) in retrieval.items]
+    assert present.count(True) == 1, "expected exactly one batch to survive the race"
+    assert drain.states[7][1] == 1  # only the winner's save landed
+
+
+def test_concurrent_index_with_advisory_lock_persists_both() -> None:
+    # Fix: the per-project advisory lock serializes load->mine->CAS, so both
+    # concurrent batches for project 7 persist and neither is lost — even with a
+    # single CAS attempt and a widened race window.
+    drain = _LockingDrainStore()
+    retrieval, stats = FakeRetrieval(), FakeStats()
+    pipe = IndexPipeline(retrieval, stats, drain, cas_retries=1)
+
+    responses = _run_concurrent(pipe, [_launch_for(7, 1, 2001), _launch_for(7, 2, 2002)])
+
+    assert all(r.errors is False for r in responses), "no batch should fail under the lock"
+    assert (7, 2001) in retrieval.items and (7, 2002) in retrieval.items
+    assert drain.states[7][1] == 2  # two serialized saves, version advanced by exactly 2

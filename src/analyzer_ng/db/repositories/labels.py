@@ -52,9 +52,7 @@ class PgLabelStore(StoreBase):
             params.append(project_id)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         with self._conn() as conn:
-            cur = conn.execute(
-                f"SELECT count(*) FROM analyzer.label_event{where}", params
-            )
+            cur = conn.execute(f"SELECT count(*) FROM analyzer.label_event{where}", params)
             return int(require_row(cur)[0])
 
     def fetch_training_frame(
@@ -98,6 +96,11 @@ class PgLabelStore(StoreBase):
                     FROM analyzer.suggestion sg
                     WHERE sg.project_id = le.project_id AND sg.item_id = le.item_id
                       AND sg.created_at <= le.ts
+                      -- docs/EARLY-ITEM-AA.md: 'early' rows carry singleton-context
+                      -- features (group_dominance frozen at 1.0, si_prior at 0.0) and
+                      -- must never train the launch-finish GBM. An item whose only
+                      -- snapshot is early contributes no feature row at all.
+                      AND sg.source IS DISTINCT FROM 'early'
                     ORDER BY sg.created_at DESC, sg.suggestion_id DESC LIMIT 1
                 ) sg ON true
                 LEFT JOIN analyzer.test_history_stats ths

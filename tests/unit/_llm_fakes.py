@@ -24,8 +24,12 @@ class FakeCacheStore:
         return row["output"] if row else None
 
     def get_fresh(self, project_id: int, cache_key: str, ttl_days: int) -> dict | None:
+        """Read-time freshness like the real store: a row older than ``ttl_days``
+        misses. Tests age a row by setting ``age_days`` on it (default 0)."""
         row = self.rows.get((project_id, cache_key))
         if row is None or row.get("stale"):
+            return None
+        if row.get("age_days", 0) > ttl_days:
             return None
         row["hits"] = row.get("hits", 0) + 1
         return row["output"]
@@ -123,6 +127,11 @@ class MockOllama:
             if names is None:
                 names = ["qwen3:4b-q4_K_M"] if self.model_present else ["other:1b"]
             return httpx.Response(200, json={"models": [{"name": n} for n in names]})
+        if path == "/v1/models":
+            names = self.tags
+            if names is None:
+                names = ["qwen3:4b-q4_K_M"] if self.model_present else ["other:1b"]
+            return httpx.Response(200, json={"data": [{"id": n} for n in names]})
         if path in ("/api/chat", "/v1/chat/completions"):
             self.chat_bodies.append(json.loads(request.content))
             return self._chat_response(request)
@@ -146,6 +155,12 @@ class MockOllama:
         message: dict[str, Any] = {"role": "assistant", "content": entry.get("content", "{}")}
         if "tool_calls" in entry:
             message["tool_calls"] = entry["tool_calls"]
+        # Stop cause: default "stop"; entries set "finish_reason": "length" to
+        # simulate a num_predict cap (masked truncation). Ollama surfaces it as
+        # ``done_reason``, the OpenAI dialect as choice ``finish_reason``.
+        finish_reason = entry.get("finish_reason", "stop")
         if request.url.path == "/v1/chat/completions":
-            return httpx.Response(200, json={"choices": [{"message": message}]})
-        return httpx.Response(200, json={"message": message})
+            return httpx.Response(
+                200, json={"choices": [{"message": message, "finish_reason": finish_reason}]}
+            )
+        return httpx.Response(200, json={"message": message, "done_reason": finish_reason})

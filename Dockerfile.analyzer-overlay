@@ -1,0 +1,27 @@
+# Thin overlay over an already built analyzer image: swaps in the current
+# src/analyzer_ng without re-running pip or the model export.
+#
+# Why: the minikube VM has no outbound DNS, so the full multi-stage Dockerfile
+# cannot install dependencies or download the embedder there. The base image
+# already carries /opt/venv and the exported model; a code-only refresh needs
+# neither. Same trick as Dockerfile.inspector-overlay.
+#
+# Build context is the REPO ROOT:
+#
+#   docker build -f Dockerfile.analyzer-overlay \
+#     --build-arg BASE=analyzer-ng:mk31 -t analyzer-ng:<tag> .
+#   kubectl set image statefulset/reportportal-analyzer analyzer=analyzer-ng:<tag>
+#
+# Pass the image the cluster runs today as BASE. The default is only a fallback:
+# it goes stale every time a new tag is deployed, and building on a stale base
+# silently drops everything that landed after it. Read the running tag with
+#   kubectl get statefulset reportportal-analyzer \
+#     -o jsonpath='{.spec.template.spec.containers[0].image}'
+#
+# Use the full Dockerfile instead when dependencies, the model, or the entrypoint
+# changed. Note `minikube image build` rejects --build-arg, so build through
+# `eval $(minikube docker-env)` + plain `docker build`.
+ARG BASE=analyzer-ng:mk31
+FROM ${BASE}
+
+COPY src/analyzer_ng /opt/venv/lib/python3.12/site-packages/analyzer_ng

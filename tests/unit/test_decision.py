@@ -15,6 +15,7 @@ from analyzer_ng.core.decision import (
     HashMatch,
     best_kb_match,
     decide,
+    discriminant_gate_blocked,
     kb_short_circuit,
     stage_a_inherit,
 )
@@ -27,7 +28,16 @@ NOW = datetime(2026, 7, 16, tzinfo=UTC)
 _SRC_CONF = {"rp": 1.0, "human": 0.9, "ai_suggested": 0.3}
 
 
-def _hm(item_id, issue_type, source, days_ago=1.0, is_auto=False, confidence=None):
+def _hm(
+    item_id,
+    issue_type,
+    source,
+    days_ago=1.0,
+    is_auto=False,
+    confidence=None,
+    status_codes=(),
+    msg_tokens=frozenset(),
+):
     return HashMatch(
         item_id=item_id,
         issue_type=issue_type,
@@ -36,6 +46,8 @@ def _hm(item_id, issue_type, source, days_ago=1.0, is_auto=False, confidence=Non
         label_ts=NOW - timedelta(days=days_ago),
         confidence=confidence if confidence is not None else _SRC_CONF.get(source, 0.3),
         is_auto_analyzed=is_auto,
+        status_codes=tuple(status_codes),
+        msg_tokens=frozenset(msg_tokens),
     )
 
 
@@ -107,12 +119,132 @@ def test_stage_a_auto_nd_never_propagates():
 
 
 # --------------------------------------------------------------------------- #
+# Stage A discriminant gate (2026-07-18 errata) — error_hash over Drain3-masked
+# templates collapses HTTP codes and app-area detail, so inherit is additionally
+# gated on un-masked status_codes / salient message terms.
+# --------------------------------------------------------------------------- #
+def test_stage_a_status_code_mismatch_does_not_inherit():
+    # HTTP 503 query vs a crowd labeled off HTTP 500 (masked to the same hash).
+    matches = [
+        _hm(1, "pb001", "rp", status_codes=("500",)),
+        _hm(2, "pb001", "rp", status_codes=("500",)),
+    ]
+    assert stage_a_inherit(9, matches, query_status_codes=("503",), now=NOW) is None
+
+
+def test_stage_a_msg_divergence_does_not_inherit():
+    # Same exception_fp, no status codes on either side, but disjoint salient terms
+    # (an NPE from a different app area) → gate filters everything out.
+    matches = [
+        _hm(1, "pb001", "rp", msg_tokens={"widget", "render"}),
+        _hm(2, "pb001", "rp", msg_tokens={"widget", "render"}),
+    ]
+    assert (
+        stage_a_inherit(9, matches, query_msg_tokens=frozenset({"checkout", "cart"}), now=NOW)
+        is None
+    )
+
+
+def test_stage_a_msg_identical_still_inherits():
+    matches = [
+        _hm(1, "pb001", "rp", msg_tokens={"widget", "render"}),
+        _hm(2, "pb001", "rp", msg_tokens={"widget", "render"}),
+    ]
+    got = stage_a_inherit(9, matches, query_msg_tokens=frozenset({"widget", "render"}), now=NOW)
+    assert got is not None
+
+
+def test_stage_a_param_noise_near_duplicate_inherits_unchanged():
+    # MUST-group regression guard: identical status + msg discriminants inherit.
+    matches = [
+        _hm(1, "ab001", "rp", status_codes=("500",), msg_tokens={"timeout", "db"}),
+        _hm(2, "ab001", "rp", status_codes=("500",), msg_tokens={"timeout", "db"}),
+    ]
+    got = stage_a_inherit(
+        9,
+        matches,
+        query_status_codes=("500",),
+        query_msg_tokens=frozenset({"timeout", "db"}),
+        now=NOW,
+    )
+    assert got is not None
+
+
+def test_stage_a_mixed_crowd_filtered_to_zero():
+    # 2 unanimous 500-matches cannot out-vote a 503 query by count — the gate strips
+    # them first, leaving nothing to inherit.
+    matches = [
+        _hm(1, "pb001", "rp", status_codes=("500",)),
+        _hm(2, "pb001", "rp", status_codes=("500",)),
+    ]
+    assert stage_a_inherit(9, matches, query_status_codes=("503",), now=NOW) is None
+    res = decide(
+        DecisionInputs(exception_fp=9, hash_matches=matches, query_status_codes=("503",)),
+        now=NOW,
+    )
+    assert res.method != METHOD_HASH
+    assert res.label == "ti"
+
+
+def test_stage_a_both_empty_msg_tokens_passes():
+    # Jaccard of two empty token sets is 1.0 → gate does not block.
+    matches = [_hm(1, "pb001", "rp")]
+    got = stage_a_inherit(9, matches, query_msg_tokens=frozenset(), now=NOW)
+    assert got is not None and got.item_id == 1
+
+
+# --- identifier-aware message gate (2026-07-18 errata) --------------------- #
+# Shared NPE/assertion boilerplate must not out-vote the discriminating dotted
+# identifiers; the gate scores over identifier tokens when either side has any.
+_NPE = "java.lang.NullPointerException: Cannot invoke"
+_AUTH = frozenset(
+    f'{_NPE} "com.hawkins.shop.auth.Session.userId()" because "session" is null'.split()
+)
+_TAX = frozenset(f'{_NPE} "com.hawkins.shop.tax.Region.rate()" because "region" is null'.split())
+
+
+def test_stage_a_identifier_divergence_blocks_despite_boilerplate():
+    # All-token Jaccard of these two NPEs is ~0.5+ from shared boilerplate, but the
+    # identifiers (Session.userId vs Region.rate) diverge → gate must block.
+    matches = [_hm(1, "pb001", "rp", msg_tokens=_TAX), _hm(2, "pb001", "rp", msg_tokens=_TAX)]
+    assert stage_a_inherit(9, matches, query_msg_tokens=_AUTH, now=NOW) is None
+
+
+def test_stage_a_identical_identifiers_still_inherit():
+    matches = [_hm(1, "ab001", "rp", msg_tokens=_AUTH), _hm(2, "ab001", "rp", msg_tokens=_AUTH)]
+    got = stage_a_inherit(9, matches, query_msg_tokens=frozenset(_AUTH), now=NOW)
+    assert got is not None
+
+
+def test_stage_a_boilerplate_only_falls_back_to_all_tokens():
+    # No identifier tokens on either side → fall back to all-token Jaccard (unchanged
+    # behaviour): identical boilerplate still inherits, disjoint still blocks.
+    same = [
+        _hm(1, "pb001", "rp", msg_tokens={"timeout", "db"}),
+        _hm(2, "pb001", "rp", msg_tokens={"timeout", "db"}),
+    ]
+    assert stage_a_inherit(9, same, query_msg_tokens=frozenset({"timeout", "db"}), now=NOW)
+    other = [
+        _hm(1, "pb001", "rp", msg_tokens={"widget", "render"}),
+        _hm(2, "pb001", "rp", msg_tokens={"widget", "render"}),
+    ]
+    q = frozenset({"checkout", "cart"})
+    assert stage_a_inherit(9, other, query_msg_tokens=q, now=NOW) is None
+
+
+# --------------------------------------------------------------------------- #
 # KB scoring / short-circuit
 # --------------------------------------------------------------------------- #
 def _kbc(mode_id, cosine, jac, fp, purity, support, status):
     return Candidate(
-        item_id=None, mode_id=mode_id, cosine=cosine, jaccard_templates=jac,
-        same_exception_fp=fp, mode_purity=purity, mode_support=support, mode_status=status,
+        item_id=None,
+        mode_id=mode_id,
+        cosine=cosine,
+        jaccard_templates=jac,
+        same_exception_fp=fp,
+        mode_purity=purity,
+        mode_support=support,
+        mode_status=status,
         issue_type="si001",
     )
 
@@ -135,15 +267,13 @@ def test_kb_short_circuit_requires_all_conditions():
 # Full decide() paths + policy bands
 # --------------------------------------------------------------------------- #
 def test_decide_stage_a_auto():
-    res = decide(
-        DecisionInputs(exception_fp=99, hash_matches=[_hm(7, "pb001", "rp")]), now=NOW
-    )
+    res = decide(DecisionInputs(exception_fp=99, hash_matches=[_hm(7, "pb001", "rp")]), now=NOW)
     assert res.method == METHOD_HASH
     assert res.action == ACTION_AUTO
     assert res.confidence == 0.95
     assert res.relevant_item_id == 7
     assert res.issue_type == "pb001"
-    assert len(res.features) == 41
+    assert len(res.features) == 64
 
 
 def test_decide_kb_short_circuit():
@@ -190,7 +320,7 @@ def test_decide_pure_abstain_features_present():
     res = decide(DecisionInputs(exception_fp=0), now=NOW)
     assert res.label == "ti"
     assert res.action == ACTION_ABSTAIN
-    assert len(res.features) == 41
+    assert len(res.features) == 64
 
 
 # --------------------------------------------------------------------------- #
@@ -291,3 +421,365 @@ def test_gbm_overrides_seed_cold_fallback():
     )
     assert res.method == METHOD_GBM
     assert res.label == "ab"
+
+
+# --------------------------------------------------------------------------- #
+# Discriminant-agreement signals reaching the GBM feature vector (errata)
+# --------------------------------------------------------------------------- #
+def test_discriminant_gate_blocked_helper():
+    # ≥1 exact-hash match but the discriminant gate rejects all of them (503 vs 500).
+    trap = [_hm(1, "pb001", "rp", status_codes=("500",))]
+    assert discriminant_gate_blocked(9, trap, query_status_codes=("503",)) is True
+    # Agreeing discriminants → not blocked.
+    ok = [_hm(1, "pb001", "rp", status_codes=("503",))]
+    assert discriminant_gate_blocked(9, ok, query_status_codes=("503",)) is False
+    # No matches / no fingerprint → nothing to block.
+    assert discriminant_gate_blocked(9, [], query_status_codes=("503",)) is False
+    assert discriminant_gate_blocked(0, trap, query_status_codes=("503",)) is False
+
+
+def test_decide_threads_hash_gate_blocked_into_features():
+    # The 503 near-miss trap: exact hash exists (500-labeled) but status disagrees, so
+    # Stage A abstains AND the feature snapshot records the trap for the GBM to learn.
+    res = decide(
+        DecisionInputs(
+            exception_fp=9,
+            hash_matches=[_hm(1, "pb001", "rp", status_codes=("500",))],
+            query_status_codes=("503",),
+        ),
+        now=NOW,
+    )
+    assert res.method != METHOD_HASH  # gate blocked the inherit
+    assert res.features["hash_gate_blocked"] == 1.0
+    assert res.features["status_codes_present"] == 1.0
+    assert res.features["status_codes_match_top1"] == 0.0
+
+
+def test_decide_threads_status_match_when_discriminants_agree():
+    res = decide(
+        DecisionInputs(
+            exception_fp=9,
+            hash_matches=[_hm(1, "pb001", "rp", status_codes=("503",))],
+            query_status_codes=("503",),
+        ),
+        now=NOW,
+    )
+    # Agreeing status → Stage A inherits; the snapshot still records the agreement.
+    assert res.features["hash_gate_blocked"] == 0.0
+    assert res.features["status_codes_present"] == 1.0
+    assert res.features["status_codes_match_top1"] == 1.0
+
+
+# --------------------------------------------------------------------------- #
+# Deterministic boilerplate-only guard on the GBM suggest band (errata)
+# --------------------------------------------------------------------------- #
+def _plain_cand(**kw):
+    base = dict(
+        item_id=5,
+        mode_id=None,
+        cosine=0.93,
+        issue_type="pb001",
+        same_exception_fp=False,
+        same_error_hash=False,
+        jaccard_templates=0.0,
+        msg_text="connection pool timeout exhausted",  # no identifier tokens
+    )
+    base.update(kw)
+    return Candidate(**base)
+
+
+# A query message whose only salient tokens are identifiers with NO overlap with the
+# neighbour's boilerplate — a NullReferenceException on a novel call site.
+_NOVEL_Q = frozenset({"NullReferenceException", "getUserProfile"})
+
+
+def test_boilerplate_only_neighbor_demotes_suggest_to_abstain():
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            stage_c=[_plain_cand()],
+            query_msg_tokens=_NOVEL_Q,
+            gbm_predict=_gbm("pb", 0.6),  # suggest band
+        ),
+        now=NOW,
+    )
+    assert res.method == METHOD_GBM
+    assert res.label == "ti"
+    assert res.action == ACTION_ABSTAIN
+    assert res.abstain_reason == "gbm_boilerplate_only_neighbor"
+
+
+def test_guard_does_not_fire_with_any_structural_overlap():
+    # Any of: exact fp, exact hash, template overlap, or identifier-token overlap
+    # ≥ threshold keeps the suggest.
+    for overlap in (
+        {"same_exception_fp": True},
+        {"same_error_hash": True},
+        {"jaccard_templates": 0.4},
+        {"msg_text": "NullReferenceException getUserProfile"},  # identifier overlap
+    ):
+        res = decide(
+            DecisionInputs(
+                exception_fp=0,
+                stage_c=[_plain_cand(**overlap)],
+                query_msg_tokens=_NOVEL_Q,
+                gbm_predict=_gbm("pb", 0.6),
+            ),
+            now=NOW,
+        )
+        assert res.action == ACTION_SUGGEST, overlap
+        assert res.label == "pb"
+
+
+def test_guard_bypassed_on_auto_band():
+    # p ≥ τ_auto is auto-labeled regardless of a boilerplate-only neighbour.
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            stage_c=[_plain_cand()],
+            query_msg_tokens=_NOVEL_Q,
+            gbm_predict=_gbm("pb", 0.9),
+        ),
+        now=NOW,
+    )
+    assert res.action == ACTION_AUTO
+    assert res.label == "pb"
+
+
+def test_guard_both_empty_identifier_sets_follow_stage_a_fallback():
+    # Neither side has identifier tokens → fall back to all-token Jaccard (Stage A
+    # semantics). Identical boilerplate → Jaccard 1.0 ≥ threshold → guard does NOT
+    # fire even with no fingerprint/hash/template overlap.
+    q = frozenset({"connection", "pool", "timeout", "exhausted"})
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            stage_c=[_plain_cand()],
+            query_msg_tokens=q,
+            gbm_predict=_gbm("pb", 0.6),
+        ),
+        now=NOW,
+    )
+    assert res.action == ACTION_SUGGEST
+    assert res.label == "pb"
+
+
+# --------------------------------------------------------------------------- #
+# Human-confirmed exact-hash floor on the GBM abstain band (tech-debt #3, Defect B)
+# --------------------------------------------------------------------------- #
+# Query + neighbour share the discriminating identifier token Session.userId, so the
+# S16 identifier gate passes (clean textual evidence).
+_HC_Q = frozenset({"cannot", "invoke", "Session.userId", "because", "null"})
+_HC_MSG = "cannot invoke Session.userId because null"
+
+
+def _hc_cand(**kw):
+    """A human-confirmed exact-error_hash Stage-C top-1 neighbour."""
+    base = dict(
+        item_id=77,
+        mode_id=None,
+        cosine=0.9,
+        issue_type="pb001",
+        label_source="rp",
+        same_error_hash=True,
+        same_exception_fp=False,
+        jaccard_templates=0.0,
+        msg_text=_HC_MSG,
+    )
+    base.update(kw)
+    return Candidate(**base)
+
+
+def test_human_confirmed_hash_floor_promotes_abstain_to_suggest():
+    # Stage A declined (the sole hash match is 200 d old — past the 180 d guard), the GBM
+    # jitters to a pure abstain (p=0.3), but the top-1 neighbour is a human-confirmed
+    # exact-hash match with clean discriminants → promote to the SUGGEST floor, anchored
+    # on that neighbour. Never auto.
+    res = decide(
+        DecisionInputs(
+            exception_fp=9,
+            hash_matches=[_hm(7, "pb001", "rp", days_ago=200, msg_tokens=_HC_Q)],
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand()],
+            gbm_predict=_gbm("si", 0.3),  # jittery pure-abstain
+        ),
+        now=NOW,
+    )
+    assert res.method != METHOD_HASH  # Stage A did NOT inherit (age guard)
+    assert res.method == METHOD_GBM
+    assert res.action == ACTION_SUGGEST
+    assert res.label == "pb"  # anchored on the human-confirmed neighbour, not the GBM
+    assert res.issue_type == "pb001"
+    assert res.confidence == 0.45  # the suggest floor (τ_suggest), never auto
+    assert res.relevant_item_id == 77
+    assert res.relevant_label_source == "rp"
+    assert res.abstain_reason is None
+    # The GBM's own distribution is still carried for audit.
+    assert set(res.probs) == {"pb", "ab", "si", "nd"}
+
+
+def test_human_confirmed_hash_floor_fires_for_human_source_too():
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand(label_source="human")],
+            gbm_predict=_gbm("si", 0.2),
+        ),
+        now=NOW,
+    )
+    assert res.action == ACTION_SUGGEST
+    assert res.label == "pb"
+    assert res.relevant_label_source == "human"
+
+
+def test_floor_does_not_fire_on_identifier_mismatch_trap():
+    # Same error_hash + human-confirmed, but the neighbour's identifier (Region.rate) is
+    # disjoint from the query's (Session.userId): a same-hash different-app-area trap. The
+    # reused S16 gate keeps it below threshold → the GBM abstain stands.
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand(msg_text="cannot invoke Region.rate because null")],
+            gbm_predict=_gbm("si", 0.3),
+        ),
+        now=NOW,
+    )
+    assert res.label == "ti"
+    assert res.action == ACTION_ABSTAIN
+    assert res.abstain_reason == "gbm_below_suggest"
+
+
+def test_floor_does_not_fire_on_status_code_near_miss():
+    # The query carries an un-masked status code but no exact-hash neighbour confirms it
+    # agrees (status_codes_present=1, status_codes_match_top1=0) → the status guard blocks
+    # the promotion even though the identifier gate would pass.
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            query_msg_tokens=_HC_Q,
+            query_status_codes=("503",),
+            stage_c=[_hc_cand()],
+            gbm_predict=_gbm("si", 0.3),
+        ),
+        now=NOW,
+    )
+    assert res.features["status_codes_present"] == 1.0
+    assert res.features["status_codes_match_top1"] == 0.0
+    assert res.label == "ti"
+    assert res.action == ACTION_ABSTAIN
+
+
+def test_floor_does_not_fire_when_hash_gate_blocked():
+    # A 503-vs-500 exact-hash trap: the discriminant gate rejected every hash match
+    # (hash_gate_blocked=1), so the floor must NOT resurrect that distrusted hash — even
+    # though a stage-C neighbour is flagged same_error_hash + human.
+    res = decide(
+        DecisionInputs(
+            exception_fp=9,
+            hash_matches=[_hm(1, "pb001", "rp", status_codes=("500",), msg_tokens=_HC_Q)],
+            query_status_codes=("503",),
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand()],
+            gbm_predict=_gbm("si", 0.3),
+        ),
+        now=NOW,
+    )
+    assert res.features["hash_gate_blocked"] == 1.0
+    assert res.label == "ti"
+    assert res.action == ACTION_ABSTAIN
+
+
+def test_floor_does_not_fire_for_non_human_source():
+    # An ai_suggested (unreviewed) same-hash neighbour is NOT authoritative → no floor.
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand(label_source="ai_suggested")],
+            gbm_predict=_gbm("si", 0.3),
+        ),
+        now=NOW,
+    )
+    assert res.label == "ti"
+    assert res.action == ACTION_ABSTAIN
+
+
+def test_floor_does_not_fire_without_exact_hash():
+    # No exact error_hash on the neighbour (a boilerplate-cosine plateau) → the floor
+    # never engages, preserving the NET-XUN-15 abstain.
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand(same_error_hash=False)],
+            gbm_predict=_gbm("si", 0.3),
+        ),
+        now=NOW,
+    )
+    assert res.label == "ti"
+    assert res.action == ACTION_ABSTAIN
+
+
+def test_floor_never_promotes_into_auto_band():
+    # The floor lifts a pure abstain only to the suggest floor — a genuine suggest-band
+    # GBM prediction (p=0.6) is untouched by the floor (it is not in the abstain branch).
+    res = decide(
+        DecisionInputs(
+            exception_fp=0,
+            query_msg_tokens=_HC_Q,
+            stage_c=[_hc_cand()],
+            gbm_predict=_gbm("si", 0.6),
+        ),
+        now=NOW,
+    )
+    assert res.action == ACTION_SUGGEST
+    assert res.label == "si"  # the GBM's own suggest-band label, not the floor's
+    assert res.confidence == 0.6
+
+
+# ---------------------------------------------------------------------------
+# Label provenance threading (suggest modelInfo "human-confirmed" vs "auto")
+# ---------------------------------------------------------------------------
+class TestRelevantProvenance:
+    def test_stage_a_inherit_carries_source_and_auto_flag(self):
+        m = _hm(7, "pb001", "rp", confidence=1.0)
+        inputs = DecisionInputs(
+            exception_fp=1,
+            hash_matches=[m, _hm(8, "pb001", "rp")],
+            kb_candidates=[],
+            seed=None,
+            stage_c=[],
+            stage_c_ages_days=[],
+            feature_ctx=None,
+        )
+        d = decide(inputs)
+        assert d.method == "hash"
+        assert d.relevant_label_source == "rp"
+        assert d.relevant_is_auto_analyzed is False
+
+    def test_gbm_result_carries_candidate_source(self):
+        cand = Candidate(
+            item_id=11,
+            mode_id=None,
+            issue_type="ab001",
+            label_source="ai_suggested",
+            cosine=0.9,
+            rrf_score=0.03,
+            same_exception_fp=True,
+        )
+        inputs = DecisionInputs(
+            exception_fp=1,
+            hash_matches=[],
+            kb_candidates=[],
+            seed=None,
+            stage_c=[cand],
+            stage_c_ages_days=[1.0],
+            feature_ctx=None,
+            gbm_predict=_gbm("ab", 0.6),
+        )
+        d = decide(inputs)
+        assert d.method == "gbm"
+        assert d.relevant_item_id == 11
+        assert d.relevant_label_source == "ai_suggested"

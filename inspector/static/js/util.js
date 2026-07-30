@@ -1,4 +1,5 @@
 // Shared helpers: DOM builder, label palette, formatters, token highlighting.
+import { RP_ICONS } from './rp-icons.js';
 
 export const LABEL_COLORS = {
   pb: getVar('--lbl-pb'), ab: getVar('--lbl-ab'), si: getVar('--lbl-si'),
@@ -21,7 +22,10 @@ export const GOOD = getVar('--good');
 export const BAND = { auto: getVar('--band-auto'), suggest: getVar('--band-suggest'), abstain: getVar('--band-abstain') };
 export const FEATURE_GROUP_COLORS = {
   retrieval: getVar('--accent'), history: getVar('--lbl-ab'), kb: getVar('--lbl-si'),
-  grouping: getVar('--warning'), signal: getVar('--lbl-nd'), other: getVar('--muted'),
+  grouping: getVar('--warning'), signal: getVar('--lbl-nd'),
+  // v4 groups (2026-07-18): discriminant → --lbl-pb (mockup C5 note); llm → --serious.
+  discriminant: getVar('--lbl-pb'), llm: getVar('--serious'),
+  other: getVar('--muted'),
 };
 
 function getVar(name) {
@@ -55,28 +59,112 @@ export function defectColor(locator, group) {
   const byGroup = defectForGroup(g);
   return (byGroup && byGroup.color) || labelColor(g);
 }
+const DEFECT_GROUPS = ['pb', 'ab', 'si', 'nd', 'ti'];
+
 export function defectName(locator, group) {
   const info = defectInfo(locator);
   if (info && info.name) return info.name;
+  // No exact defect-type name: the label is GROUP-level (a bare group code from
+  // matching/decision, a legend entry, or an unresolvable locator). Say so with
+  // a "group" suffix — "Product bug group" — so it cannot be misread as the
+  // concrete pb001 "Product Bug" type. Never borrow a representative type's name.
   const g = group || labelGroup(locator);
-  const byGroup = defectForGroup(g);
-  return (byGroup && byGroup.name) || labelName(g);
+  return DEFECT_GROUPS.includes(g) ? `${labelName(g)} group` : labelName(g);
 }
 
-// Badge showing the REAL defect long-name accented by the RP hex_color, with the
-// locator kept as a secondary monospace chip (locator is real data too). Falls
-// back to the static group name + palette color when RP names are unavailable.
+// RP defect pill (DESIGN-PLATFORM §4): white fill, 1px #c1c7d0 border, radius
+// 100px, a 12px color DOT filled from issue_type.hex_color, name in neutral ink.
+// Color is carried by the dot — never the fill or the text. The raw locator is
+// not shown inline (it lives in Technical Details); it stays in the tooltip.
 export function defectBadge(locator, group) {
   const g = group || labelGroup(locator);
+  const info = defectInfo(locator);
+  // A bare group code (matching/decision labels like 'pb') is not a defect type
+  // at all: no defect pill. Render a plain chip like its neighbor chips so the
+  // group-level label reads as metadata, not as an applied defect.
+  if (!info && (!locator || DEFECT_GROUPS.includes(locator)) && DEFECT_GROUPS.includes(g)) {
+    return h('span', { class: 'chip', title: `Defect group (${g.toUpperCase()}), not a specific defect type` },
+      `${labelName(g)} group`);
+  }
   const col = defectColor(locator, g);
   const name = defectName(locator, g);
-  const badge = h('span', { class: 'badge defect',
-    style: { color: col, borderColor: col, background: `color-mix(in srgb, ${col} 15%, transparent)` } },
-    h('span', { class: 'dot', style: { background: col } }), name);
-  if (!locator) return badge;
+  const title = info
+    ? [info.name, locator].filter(Boolean).join(' · ')
+    : DEFECT_GROUPS.includes(g)
+      ? `Defect group (${g.toUpperCase()}), not a specific defect type`
+      : locator || null;
+  return h('span', { class: 'badge defect', title,
+    style: { background: '#fff', color: 'var(--rp-almost-black)', borderColor: 'var(--rp-e-200)', fontWeight: 600 } },
+    h('span', { class: 'dot', style: { background: col, width: '12px', height: '12px' } }), name);
+}
+
+// Compact defect badge for dense lists: shows the RP abbreviation
+// (issue_type.abbreviation). Falls back to the group code (PB/AB/SI/ND/TI —
+// RP's stock abbreviations) when RP names are unavailable; full name + locator
+// stay reachable in the tooltip.
+export function defectBadgeAbbr(locator, group) {
+  const g = group || labelGroup(locator);
+  const col = defectColor(locator, g);
   const info = defectInfo(locator);
-  return h('span', { class: 'flex center gap-8' }, badge,
-    h('span', { class: 'chip mono', title: info ? 'RP locator' : 'locator (RP name unavailable)' }, locator));
+  const abbr = (info && (info.short_name || info.name))
+    || (DEFECT_GROUPS.includes(g) ? g.toUpperCase() : labelName(g));
+  const title = info
+    ? [info.name, locator].filter(Boolean).join(' · ')
+    : DEFECT_GROUPS.includes(g)
+      ? `${labelName(g)} group`
+      : '';
+  return h('span', { class: 'badge defect', title: title || null,
+    style: { background: '#fff', color: 'var(--rp-almost-black)', borderColor: 'var(--rp-e-200)', fontWeight: 600 } },
+    h('span', { class: 'dot', style: { background: col, width: '10px', height: '10px' } }), abbr);
+}
+
+// Render a test-item / launch id as a hyperlink into the ReportPortal UI when a
+// real deep link (ui_url/launch_url resolved from RP's DB) is present; otherwise
+// return exactly today's plain node. Keeps the no-dummy-data rule: no link when
+// there is no real URL. `cls` is the class of the surrounding chip/text so the
+// link inherits its look and only gains a link affordance (see .idlink in CSS).
+// Opens in a new tab (target=_blank, rel=noopener).
+// Render untrusted/derived prose with raw defect-type locators (pb001,
+// ab_1iupzjso5bh9t, …) replaced by compact inline defect pills showing the
+// project's configured NAME (abbreviation when the name is long). SAFE by
+// construction: the text is tokenized around EXACT occurrences of known
+// locators (keys of the per-project defects map, longest-first, word-boundary
+// guarded) and assembled as text nodes + DOM pills — never innerHTML. Unknown
+// locators stay plain text (honest).
+const _LOCATOR_CHAR = /[A-Za-z0-9_]/;
+export function renderWithDefectNames(text) {
+  const frag = document.createDocumentFragment();
+  const s = String(text == null ? '' : text);
+  const keys = Object.keys(_defects).sort((a, b) => b.length - a.length);
+  let i = 0;
+  while (i < s.length) {
+    let best = null;
+    for (const k of keys) {
+      const at = s.indexOf(k, i);
+      if (at === -1) continue;
+      // word-boundary guard: locator chars must not continue on either side
+      const before = at > 0 ? s[at - 1] : '';
+      const after = at + k.length < s.length ? s[at + k.length] : '';
+      if ((before && _LOCATOR_CHAR.test(before)) || (after && _LOCATOR_CHAR.test(after))) continue;
+      if (!best || at < best.at || (at === best.at && k.length > best.k.length)) best = { at, k };
+    }
+    if (!best) { frag.appendChild(document.createTextNode(s.slice(i))); break; }
+    if (best.at > i) frag.appendChild(document.createTextNode(s.slice(i, best.at)));
+    const info = _defects[best.k];
+    const shown = (info.name && info.name.length > 18 && info.short_name) ? info.short_name : (info.name || best.k);
+    frag.appendChild(h('span', { class: 'defect-inline', title: `${info.name || shown} · ${best.k}` },
+      h('span', { class: 'dot', style: { background: info.color || 'var(--rp-e-300)' } }), shown));
+    i = best.at + best.k.length;
+  }
+  return frag;
+}
+
+export function idChip(label, url, cls = 'chip') {
+  if (!url) return h('span', cls ? { class: cls } : {}, label);
+  return h('a', {
+    href: url, target: '_blank', rel: 'noopener',
+    class: (cls ? cls + ' ' : '') + 'idlink', title: 'Open in ReportPortal ↗',
+  }, label);
 }
 
 // tiny hyperscript
@@ -142,15 +230,93 @@ export function highlightPattern(pattern) {
   return s;
 }
 
+// Label-provenance vocabulary. Covers the label_event.source CHECK values
+// (rp_defect_update / analyzer_suggestion_accepted / human_ui) AND the
+// feature-vector label_source tokens (rp / human / ai_suggested / seed) so both
+// the Feedback timeline and the Matching candidate strip read from one map.
+// `weight` is the src_weight (features.py _SRC_WEIGHT / spec §6.4) — the vote a
+// label of this provenance casts as future retrieval evidence.
+export const SOURCE_LABELS = {
+  rp_defect_update: { k: 'rp', text: 'defect update', plain: 'human · RP', actor: 'human (RP defect edit)', weight: 1.0 },
+  analyzer_suggestion_accepted: { k: 'human', text: 'UI accept', plain: 'human · accepted', actor: 'human accepted analyzer suggestion', weight: 0.9 },
+  human_ui: { k: 'human', text: 'UI edit', plain: 'human · UI', actor: 'human (Inspector UI)', weight: 0.9 },
+  rp: { k: 'rp', text: 'defect update', plain: 'human · RP', actor: 'human (RP defect edit)', weight: 1.0 },
+  human: { k: 'human', text: 'UI accept', plain: 'human', actor: 'human (Inspector UI)', weight: 0.9 },
+  ai_suggested: { k: 'ai_suggested', text: 'auto', plain: 'analyzer', actor: "analyzer's auto-label", weight: 0.3 },
+  seed: { k: 'seed', text: 'catalog', plain: 'seed', actor: 'seed catalog rule', weight: 0.6 },
+};
+export function srcInfo(token) {
+  if (token == null) return { k: '—', text: '', plain: '—', actor: 'unrecorded actor', weight: null, raw: null };
+  return { ...(SOURCE_LABELS[token] || { k: token, text: '', plain: token, actor: token, weight: null }), raw: token };
+}
+
+// Relative time: "just now" / "{m}m ago" / "{h}h ago" / "{d}d ago" / shortTime.
+// The full ISO always rides title= elsewhere — this is a convenience layer only.
+export function relTime(iso) {
+  if (!iso) return '—';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return String(iso);
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 2592000) return `${Math.floor(s / 86400)}d ago`;
+  return shortTime(iso);
+}
+
+// ---- Permalink hash state (shareable deep links) ----
+// Parse `#k=v&k2=v2` from the address bar into a plain object (values decoded).
+export function readHashParams() {
+  const raw = (location.hash || '').replace(/^#/, '');
+  const out = {};
+  for (const part of raw.split('&')) {
+    if (!part) continue;
+    const i = part.indexOf('=');
+    const k = decodeURIComponent(i < 0 ? part : part.slice(0, i));
+    const v = i < 0 ? '' : decodeURIComponent(part.slice(i + 1));
+    if (k) out[k] = v;
+  }
+  return out;
+}
+// Write params back to the hash via replaceState (no history entry, no reload).
+// Null / undefined / '' values are dropped so the URL stays clean.
+export function writeHashParams(params) {
+  const parts = [];
+  for (const [k, v] of Object.entries(params)) {
+    if (v == null || v === '') continue;
+    parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(v));
+  }
+  const hash = parts.length ? '#' + parts.join('&') : '';
+  history.replaceState(null, '', location.pathname + location.search + hash);
+}
+
 export function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
   clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-export function emptyState(icon, title, body, stageTag) {
+// RP ui-kit icon (vendored, currentColor). Returns an inline <svg> element.
+export function icon(name, { size = 16, title = null, cls = '' } = {}) {
+  const def = RP_ICONS[name] || RP_ICONS.info;
+  const span = h('span', { class: `rp-icon ${cls}`.trim(), title });
+  span.innerHTML = `<svg width="${size}" height="${size}" viewBox="${def.vb}" fill="none" aria-hidden="true">${def.body}</svg>`;
+  return span;
+}
+
+// Legacy emoji → RP icon names, so callers that still pass an emoji to
+// emptyState render a library icon (no-emoji rule) without touching each view.
+const EMOJI_ICON = {
+  '🚫': 'error', '🩺': 'warning', '🔌': 'warning', '🧭': 'search', '🔍': 'search',
+  '📭': 'launchType', '🪐': 'diamond', '🕸️': 'tree', '🌳': 'tree', '🌵': 'details',
+  '🔤': 'details', '📈': 'latestExecutions', '📊': 'latestExecutions', '🧱': 'jar',
+  '🗄️': 'moveToFolder', '🎯': 'checkmark', '🧠': 'info', '📄': 'fileOther',
+};
+
+export function emptyState(iconOrEmoji, title, body, stageTag) {
+  const name = EMOJI_ICON[iconOrEmoji] || (RP_ICONS[iconOrEmoji] ? iconOrEmoji : null);
   return h('div', { class: 'empty' },
-    h('div', { class: 'icon' }, icon),
+    h('div', { class: 'icon' }, name ? icon(name, { size: 28 }) : iconOrEmoji),
     h('h4', {}, title),
     h('p', {}, body),
     stageTag ? h('span', { class: 'stage-tag' }, stageTag) : null,
@@ -170,13 +336,34 @@ export function card(title, opts = {}, ...body) {
     h('div', { class: 'card-body' }, ...body));
 }
 
-// ECharts shared dark options
+// Shared "Technical Details" disclosure (L4). Native <details>, closed by
+// default, open-state persisted per key across items/launches so an ML engineer
+// opens it once and it stays open (localStorage `inspector.eng.<key>`).
+export function engDrawer(key, summaryText, ...children) {
+  const details = h('details', { class: 'eng' });
+  const summary = h('summary', {}, summaryText + ' ', h('span', { class: 'eng-caret' }, '▸'));
+  details.append(summary, h('div', { class: 'eng-body' }, ...children));
+  const sk = 'inspector.eng.' + key;
+  try { if (localStorage.getItem(sk) === '1') details.open = true; } catch (_) { /* storage off */ }
+  details.addEventListener('toggle', () => {
+    try { localStorage.setItem(sk, details.open ? '1' : '0'); } catch (_) { /* storage off */ }
+  });
+  return details;
+}
+export function engDetails(key, ...children) {
+  return engDrawer(key, 'Technical Details', ...children);
+}
+
+// ECharts shared options (RP light: dark axis ink, light gridlines). Chart
+// tooltips are light (white card + soft shadow) so the rich formatter HTML —
+// which colors text with the dark INK/INK2/MUTED tokens — stays readable.
 export function echartsBase() {
   return {
-    textStyle: { fontFamily: 'system-ui, sans-serif', color: INK2 },
+    textStyle: { fontFamily: 'Roboto, Arial, sans-serif', color: INK2 },
     grid: { left: 8, right: 16, top: 24, bottom: 8, containLabel: true },
     tooltip: {
-      backgroundColor: '#26292d', borderColor: HAIRLINE, textStyle: { color: INK },
+      backgroundColor: '#ffffff', borderColor: HAIRLINE, borderWidth: 1,
+      textStyle: { color: INK2 }, extraCssText: 'box-shadow:0 8px 40px rgba(0,0,0,.15);border-radius:8px;',
       confine: true,
     },
   };

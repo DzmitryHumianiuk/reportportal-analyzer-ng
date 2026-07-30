@@ -23,8 +23,11 @@ from analyzer_ng.db.repositories import (
     PgLlmEventStore,
     PgLlmRoleStateStore,
 )
+from analyzer_ng.db.repositories.labels import PgLabelStore
 from analyzer_ng.db.repositories.llm_eval import PgLlmComparisonSource
-from analyzer_ng.db.repositories.suggestion_ops import PgSuggestionOps
+from analyzer_ng.db.repositories.models import LabelEventIn, SignatureIn, TestItemIn
+from analyzer_ng.db.repositories.retrieval import PgRetrievalStore
+from analyzer_ng.db.repositories.suggestion_ops import PgLlmFacts, PgSuggestionOps
 from analyzer_ng.db.startup import bootstrap_and_migrate
 from analyzer_ng.llm.eval import LlmEvalJob
 from analyzer_ng.llm.wiring import build_extractor_feature_lookup
@@ -194,9 +197,7 @@ def test_extractor_feature_lookup_tenancy(pool: ConnectionPool) -> None:
 def test_suggestion_ops_coldstart_and_explanation(pool: ConnectionPool) -> None:
     ops = PgSuggestionOps(pool)
     with pool.connection() as conn:
-        conn.execute(
-            "INSERT INTO analyzer.project (project_id) VALUES (7) ON CONFLICT DO NOTHING"
-        )
+        conn.execute("INSERT INTO analyzer.project (project_id) VALUES (7) ON CONFLICT DO NOTHING")
     sid = ops.insert_coldstart(
         project_id=7,
         item_id=100,
@@ -208,13 +209,14 @@ def test_suggestion_ops_coldstart_and_explanation(pool: ConnectionPool) -> None:
     )
     with pool.connection() as conn:
         row = conn.execute(
-            "SELECT confidence, llm_used, predicted_label FROM analyzer.suggestion "
+            "SELECT confidence, llm_used, predicted_label, method FROM analyzer.suggestion "
             "WHERE project_id=7 AND suggestion_id=%s",
             (sid,),
         ).fetchone()
     assert row is not None
     assert row[0] < 0.75  # < τ_auto (cold-start never auto-applies)
     assert row[1] is True  # llm_used
+    assert row[3] == "coldstart"  # decision provenance column (migration 0007)
     ops.set_explanation(7, sid, "matched a connection failure mode")
     with pool.connection() as conn:
         expl = conn.execute(
@@ -223,6 +225,56 @@ def test_suggestion_ops_coldstart_and_explanation(pool: ConnectionPool) -> None:
         ).fetchone()
     assert expl is not None and expl[0] == "matched a connection failure mode"
     assert expl[1] is True
+
+
+def test_hash_pool_returns_same_hash_conflict_scoped(pool: ConnectionPool) -> None:
+    """PgLlmFacts.hash_pool (the abstain explainer's conflict source, extension
+    2026-07-20): labeled non-ti items sharing error_hash, excluding the query item,
+    project-scoped, with label_source passed through the label_event LATERAL."""
+    retr = PgRetrievalStore(pool)
+    labels = PgLabelStore(pool)
+    HASH, OTHER = 5001, 6001
+    # Project 1: query item (10, unlabeled) + a pb/ab conflict pool on HASH, plus two
+    # rows that must be excluded (a ti-labeled same-hash item and a different-hash pb).
+    retr.upsert_items(
+        [
+            TestItemIn(item_id=10, project_id=1, launch_id=1, issue_type=None),
+            TestItemIn(item_id=11, project_id=1, launch_id=1, issue_type="pb001"),
+            TestItemIn(item_id=12, project_id=1, launch_id=1, issue_type="ab_x1"),
+            TestItemIn(item_id=13, project_id=1, launch_id=1, issue_type="ti001"),
+            TestItemIn(item_id=14, project_id=1, launch_id=1, issue_type="pb001"),
+            # Project 2: same hash + label, must never surface for project 1 (§5.4).
+            TestItemIn(item_id=11, project_id=2, launch_id=1, issue_type="pb001"),
+        ]
+    )
+    retr.upsert_signatures(
+        [
+            SignatureIn(project_id=1, item_id=10, exception_fp=7, error_hash=HASH),
+            SignatureIn(project_id=1, item_id=11, exception_fp=7, error_hash=HASH),
+            SignatureIn(project_id=1, item_id=12, exception_fp=7, error_hash=HASH),
+            SignatureIn(project_id=1, item_id=13, exception_fp=7, error_hash=HASH),
+            SignatureIn(project_id=1, item_id=14, exception_fp=7, error_hash=OTHER),
+            SignatureIn(project_id=2, item_id=11, exception_fp=7, error_hash=HASH),
+        ]
+    )
+    # A human label on item 11 exercises the label_source passthrough; 12 stays NULL.
+    labels.append_event(
+        LabelEventIn(project_id=1, item_id=11, new_label="pb001", source="rp_defect_update")
+    )
+
+    facts = PgLlmFacts(pool)
+    pool_rows = facts.hash_pool(1, HASH, exclude_item_id=10)
+    got = {(r["issue_type"], r["issue_type_group"], r["label_source"]) for r in pool_rows}
+    # Only the two labeled non-ti same-hash items in project 1 — the pb-vs-ab conflict.
+    assert got == {
+        ("pb001", "pb", "rp_defect_update"),
+        ("ab_x1", "ab", None),
+    }
+    # Excludes the query item, the different-hash item, the ti-labeled item, project 2.
+    assert all(r["issue_type"] != "ti001" for r in pool_rows)
+    # Tenancy: project 2's identical hash/label is a separate, empty pool for a query
+    # that has no other same-hash rows there.
+    assert facts.hash_pool(2, HASH, exclude_item_id=11) == []
 
 
 def test_judge_annotation_persists_and_surfaces(pool: ConnectionPool) -> None:
@@ -277,3 +329,8 @@ def test_cache_freshness_ttl(pool: ConnectionPool) -> None:
     assert cache.get_fresh(1, "f" * 64, ttl_days=90) is None
     # A generous TTL still finds it.
     assert cache.get_fresh(1, "f" * 64, ttl_days=200) is not None
+    # Rewriting the entry restarts its freshness clock (issue #7): otherwise a
+    # regenerated row keeps the old created_at, misses on TTL forever and the role
+    # pays a full generation on every read — the exact cost the cache exists to stop.
+    cache.put(1, "f" * 64, "explainer", "m", {"explanation": "y", "quoted_lines": []})
+    assert cache.get_fresh(1, "f" * 64, ttl_days=90) == {"explanation": "y", "quoted_lines": []}

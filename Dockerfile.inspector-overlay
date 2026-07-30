@@ -1,0 +1,30 @@
+# Thin overlay over an already built inspector image: swaps in the changed app
+# files without re-running pip.
+#
+# Why: the minikube VM has no outbound DNS, so a full `inspector/Dockerfile`
+# build fails at `pip install`. The base image already carries the dependencies,
+# so an app-only rebuild needs no network and takes about a second. Same trick
+# the service-ui patch uses over the stock ReportPortal image.
+#
+# Build context is the REPO ROOT, same as inspector/Dockerfile:
+#
+#   docker build -f Dockerfile.inspector-overlay \
+#     --build-arg BASE=analyzer-inspector:ins47 -t analyzer-inspector:ins48 .
+#   kubectl set image deployment/analyzer-inspector inspector=analyzer-inspector:ins48
+#
+# `minikube image build` rejects --build-arg, so build through
+# `eval $(minikube docker-env)` + plain `docker build`. Always pass the tag the
+# cluster runs today: the default below goes stale on every deploy, and building
+# on a stale base silently drops everything that landed after it.
+#
+# Use inspector/Dockerfile instead whenever the build host has network, or when
+# inspector/requirements.txt changed (this file cannot pick up new dependencies).
+ARG BASE=analyzer-inspector:ins47
+FROM ${BASE}
+
+COPY --chown=inspector:inspector inspector/backend /app/backend
+COPY --chown=inspector:inspector inspector/static /app/static
+COPY --chown=inspector:inspector src/analyzer_ng/db/repositories/queries.py /app/analyzer_sql/queries.py
+# The cold-start rubric, so the Inspector shows the same rules the analyzer
+# applied instead of keeping a copy that could drift.
+COPY --chown=inspector:inspector src/analyzer_ng/llm/rubric.py /app/analyzer_sql/rubric.py

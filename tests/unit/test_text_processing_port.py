@@ -166,6 +166,33 @@ def test_status_codes_extraction():
     ]
 
 
+def test_status_codes_assertion_and_response_idioms():
+    # 2026-07-18 extension: assertion/HTTP-response idioms the legacy patterns miss.
+    xunit = "Assert.Equal() Failure: Values differ\nExpected: 201\nActual:   503"
+    assert tp.get_unique_potential_status_codes(xunit) == ["201", "503"]
+    # a server-500 of the same assertion produces a *different* status set — this is
+    # the discriminant that keeps a pb/500 from over-matching an si/503 (same hash).
+    assert tp.get_unique_potential_status_codes("Expected: 201\nActual:   500") == ["201", "500"]
+    assert tp.get_potential_status_codes("StatusCode=503") == ["503"]
+    assert tp.get_potential_status_codes("StatusCode: 404") == ["404"]
+    assert tp.get_potential_status_codes("HTTP/1.1 503 Service Unavailable") == ["503"]
+    assert tp.get_potential_status_codes("GET /account/profile -> 500 in 58 ms") == ["500"]
+
+
+def test_status_codes_no_false_positives_on_bare_numbers():
+    # ports, line numbers, counts, ids and 2-digit values must NOT become status codes.
+    for text in (
+        "at Foo.bar(Foo.java:96)",
+        "listening on port 8080",
+        "retryAfter:30",
+        "user U-70455",
+        "Expected: 42 items but found 3",
+        "value 12345 exceeded the ceiling",
+        "Expected: Completed\nActual:   RejectedFeatureDisabled",
+    ):
+        assert tp.get_potential_status_codes(text) == [], text
+
+
 def test_extract_urls_and_paths():
     text = "connect to https://api.example.com/v1 failed at /opt/app/main.py"
     urls = tp.extract_urls(text)
@@ -189,6 +216,25 @@ def test_detect_log_description_and_stacktrace_splits_java():
     msg, stack = tp.detect_log_description_and_stacktrace(log)
     assert "RuntimeException" in msg
     assert "com.example.Foo.bar" in stack
+
+
+def test_is_line_from_stacktrace_ignores_line_column_position():
+    # Newman/JS report a parse error position as "at <line>:<col>". The trailing
+    # ":1" (a column) must NOT be mistaken for a ":<lineno>" frame marker, or the
+    # informative line is shunted into the stacktrace half and lost from the
+    # signature (leaving only the useless "<html>" fragment behind).
+    assert not tp.is_line_from_stacktrace("Unexpected token '<' at 1:1")
+    # Real file:line frames must still be detected.
+    assert tp.is_line_from_stacktrace("\tat com.example.Foo.bar(Foo.java:42)")
+
+
+def test_detect_log_description_keeps_newman_json_parse_message():
+    # RP/Postman failure: the endpoint returned HTML instead of JSON, so Newman's
+    # JSON parser fails. The descriptive first line must stay in the description
+    # so the failure signature is meaningful (not just "<html>").
+    log = "Unexpected token '<' at 1:1\n<html>\n^"
+    msg, _stack = tp.detect_log_description_and_stacktrace(log)
+    assert "Unexpected token" in msg
 
 
 def test_preprocess_test_item_name_camel_split():

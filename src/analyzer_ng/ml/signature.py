@@ -234,6 +234,33 @@ def _mask_msg(msg: str, is_assertion: bool) -> str:
     return text
 
 
+# Number of near-error context lines folded into the message (spec 03 §3, ADV-1
+# log-context discrimination). Marker word prepended so the context tokens are
+# inspectable/greppable and never collide with an error-message token of the same text.
+CONTEXT_MSG_MAX_LINES = 5
+CONTEXT_MARKER = "ctx"
+
+
+def mask_context_lines(context_msgs: Sequence[str]) -> str:
+    """Masked, single-line rendering of near-error WARN+ context lines (ADV-1).
+
+    These are the log lines that precede the first ERROR (e.g. ``SLOW QUERY …`` vs
+    ``connection pool exhausted …``) — the *only* discriminant when two failures
+    raise the identical exception through the identical stack (spec 03 §3.3 collapses
+    them to one ``error_hash``). They are masked the same way as the primary message
+    (numbers/ids normalized) so variants with different counters/timings collapse to
+    one token set, then joined behind a :data:`CONTEXT_MARKER` so they land in
+    ``msg_text``/salient tokens WITHOUT ever entering the ``error_hash`` identity."""
+    out: list[str] = []
+    for raw in context_msgs[-CONTEXT_MSG_MAX_LINES:]:
+        masked = " ".join(mask_text(first_lines(raw, 1)).split()).strip()
+        if masked:
+            out.append(masked)
+    if not out:
+        return ""
+    return CONTEXT_MARKER + " " + (" " + CONTEXT_MARKER + " ").join(out)
+
+
 def _truncate_signature(sections: dict[str, str]) -> str:
     """Assemble the document, truncating MSG→TEMPLATES→FRAMES to fit the char cap."""
     order = ["TEST", "EXC", "MSG", "FRAMES", "TEMPLATES", "CODES"]
@@ -300,13 +327,21 @@ def build_item_signature(
     logs: Sequence[ProcessedLog],
     *,
     in_app_prefixes: set[str] | None = None,
+    context_msgs: Sequence[str] = (),
 ) -> SignatureResult:
     """Build the full signature (doc + fingerprints) for one test item (§3.1-§3.4).
 
     ``logs`` must be in time order (oldest → newest). An item with no logs gets
     an empty signature and ``exception_fp = error_hash = 0`` (never analyzed,
     §3.4).
-    """
+
+    ``context_msgs`` are the near-error WARN+ log lines (ADV-1 log-context): they are
+    masked and folded into ``msg_text`` / the signature document (so retrieval, the
+    FTS index, salient terms and the Stage-A message gate gain the discriminant) but
+    are DELIBERATELY kept out of the identity hashes — ``exception_fp`` and
+    ``error_hash`` are computed only from the ERROR-log exception chain, frames and
+    template hashes, so identity stays stable across the same failure regardless of
+    context (spec 03 §3.2-§3.3; the context is signal, not identity)."""
     primary = _select_primary(logs)
     if primary is None:
         return SignatureResult(signature_text="", exception_fp=0, error_hash=0)
@@ -331,8 +366,16 @@ def build_item_signature(
 
     status_codes = get_potential_status_codes(primary.msg)
 
+    # Identity is computed BEFORE folding context in — context never touches the
+    # exception chain, frames or template hashes, so ``error_hash`` is invariant to it.
     exc_fp = exception_fingerprint(exc_classes, frames)
     err_hash = error_hash(exc_fp, ordered_hashes)
+
+    # Fold the near-error WARN+ context into the searchable message (ADV-1). Appended
+    # AFTER the identity hashes so it is a retrieval/gate/feature discriminant only.
+    context_text = mask_context_lines(context_msgs)
+    if context_text:
+        msg_text = (msg_text + " " + context_text).strip() if msg_text else context_text
 
     signature_text = build_signature_document(
         test_item_name=test_item_name,

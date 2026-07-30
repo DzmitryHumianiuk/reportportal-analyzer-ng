@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 # spec 03 §1.1 constants.
 ERROR_LOGGING_LEVEL = 40000
+# WARN (RP numeric level). Near-error context (ADV-1) is mined from WARN+ lines that
+# precede the first ERROR — the discriminant when the ERROR itself is ambiguous.
+WARN_LOGGING_LEVEL = 30000
+CONTEXT_LOOKBACK_LINES = 5
 SIMILARITY_THRESHOLD_TO_DROP = 0.95
 NUMBER_OF_LOGS_TO_INDEX = 20
 # §3.4 "many tiny logs" merge threshold.
@@ -77,6 +81,36 @@ def filter_item_logs(
         messages = [messages[i] for i in keep_indices]
     # 3. Cap: keep the last N surviving logs.
     return messages[-max_logs:]
+
+
+def extract_context_lines(
+    logs: Sequence[LogInput], *, lookback: int = CONTEXT_LOOKBACK_LINES
+) -> list[str]:
+    """Near-error context: the last ``lookback`` WARN+ (but sub-ERROR) log messages
+    that PRECEDE the first ERROR log (spec 03 §3, ADV-1).
+
+    These are the only lines that separate two failures raising the identical
+    exception through the identical stack (e.g. a ``SLOW QUERY …`` app regression vs a
+    ``connection pool exhausted …`` infra outage) — the ERROR log and its stack are
+    byte-identical, so ``error_hash`` collapses them. INFO/DEBUG is ignored (too noisy
+    to be a stable discriminant); nothing at/above ERROR is context. Empty when there
+    is no ERROR log (the item yields no signature anyway, §3.4)."""
+    first_error = next(
+        (
+            i
+            for i, log in enumerate(logs)
+            if log.log_level >= ERROR_LOGGING_LEVEL and log.message.strip()
+        ),
+        None,
+    )
+    if first_error is None:
+        return []
+    context = [
+        log.message
+        for log in logs[:first_error]
+        if WARN_LOGGING_LEVEL <= log.log_level < ERROR_LOGGING_LEVEL and log.message.strip()
+    ]
+    return context[-lookback:]
 
 
 def clean_log(raw_message: str) -> CleanedLog:
@@ -156,12 +190,19 @@ def build_item_signature(
     if not kept:
         return SignatureResult(signature_text="", exception_fp=0, error_hash=0)
 
+    # Near-error WARN+ context (ADV-1) — extracted from the full (unfiltered) log list
+    # so it survives the ERROR+ level filter, folded into msg_text by the signature
+    # builder WITHOUT touching the identity hashes.
+    context_msgs = extract_context_lines(logs)
+
     is_merged = False
     if merge_small_logs:
         kept, is_merged = maybe_merge_small_logs(kept)
 
     processed = [process_log(message, drain) for message in kept]
-    result = sig.build_item_signature(test_item_name, processed, in_app_prefixes=in_app_prefixes)
+    result = sig.build_item_signature(
+        test_item_name, processed, in_app_prefixes=in_app_prefixes, context_msgs=context_msgs
+    )
     if is_merged:
         # Reflect the §3.4 merge in the result (feature flag for the decision layer).
         result = dataclasses.replace(result, is_merged_small_logs=True)

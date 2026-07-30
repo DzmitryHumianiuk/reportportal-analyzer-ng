@@ -137,7 +137,36 @@ def test_coldstart_inserts_suggest_band_ai_suggestion() -> None:
     assert ins["confidence"] < 0.75  # always below τ_auto
     assert ins["predicted_label"] == "si001"
     assert ins["model_ver"] == "rubric+qwen3:4b-q4_K_M"
-    assert ins["features"]["coldstart"] == {"rule": "R6", "confidence": "high"}
+    # The rule id is kept for audit, and its reader-facing name travels with it so
+    # a UI can name the rule without holding its own copy of the rubric.
+    assert ins["features"]["coldstart"] == {
+        "rule": "R6",
+        "rule_name": "Could not reach the service",
+        "confidence": "high",
+    }
+
+
+def test_coldstart_copies_rubric_reason_into_explanation() -> None:
+    # Extension 2026-07-20: the rubric reason sentence (already in llm_event.output)
+    # is persisted onto the inserted suggestion's explanation — no second LLM call.
+    ops = FakeOps()
+    out = {
+        "label": "si",
+        "confidence": "high",
+        "rubric_rule_matched": "R6",
+        "reason": "connection refused to shared database (R6)",
+    }
+    sid = apply_coldstart(ops, 1, 10, 500, output=out, group_locator="si001", model_tag="m")
+    # The rule id is stripped out of the sentence: it is jargon a reader cannot
+    # resolve, and this sentence is copied onto the defect comment.
+    assert ops.explanations == [(1, sid, "Connection refused to shared database")]
+
+
+def test_coldstart_no_reason_leaves_explanation_unset() -> None:
+    ops = FakeOps()
+    out = {"label": "si", "confidence": "high", "rubric_rule_matched": "R6", "reason": ""}
+    apply_coldstart(ops, 1, 10, 500, output=out, group_locator="si001", model_tag="m")
+    assert ops.explanations == []
 
 
 def test_coldstart_method_name_constant() -> None:

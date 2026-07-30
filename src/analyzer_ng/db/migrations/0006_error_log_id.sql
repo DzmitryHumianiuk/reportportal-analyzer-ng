@@ -1,0 +1,16 @@
+-- failure_signature.error_log_id — the RP log id of an item's representative
+-- ERROR log (spec 03 §8.2 similar-TI search wire contract).
+--
+-- The `search` route ("Similar 'To Investigate' in the launch", RP Make Decision)
+-- must reply with SearchLogInfo rows carrying a REAL ReportPortal log id: the RP
+-- backend (SearchLogServiceImpl, 5.15.x) rebuilds each result by loading the log
+-- BY logId from RP's own DB (`logService.findAllById(logIds)`) and drops any row
+-- whose logId is absent — so a 0/synthetic id yields "No Items" in the UI.
+--
+-- analyzer-ng never stored a log id (it keeps only the derived failure_signature,
+-- no per-log table). This column captures the first ERROR-level log's RP logId at
+-- index time (the value RP sends on the `index` wire), so the retrieval layer can
+-- return it verbatim. Nullable: rows indexed before this migration carry NULL
+-- until they are re-indexed; the search layer coalesces a NULL to 0 (RP then drops
+-- just that row, never the whole reply).
+ALTER TABLE failure_signature ADD COLUMN IF NOT EXISTS error_log_id bigint;

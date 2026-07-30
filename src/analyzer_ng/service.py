@@ -145,7 +145,11 @@ class AnalyzerService:
         one — the surfacing half of live-fix Bug 2 (Finding #2: "gbm_model_ver stays
         null"). Falls back to the constructor-injected value for store-less configs."""
         handlers = getattr(self, "_handlers", None)
-        live = handlers.gbm_version() if hasattr(handlers, "gbm_version") else None
+        live = (
+            handlers.gbm_version()
+            if handlers is not None and hasattr(handlers, "gbm_version")
+            else None
+        )
         return live or self._gbm_model_ver_injected
 
     def _next_seq(self) -> int:
@@ -194,9 +198,15 @@ class AnalyzerService:
             engine_tunables={
                 "auto_min_prob": config.analyzer_auto_min_prob,
                 "suggest_max": config.analyzer_suggest_max,
+                "suggest_below_enabled": config.analyzer_suggest_below_enabled,
+                "suggest_below_max": config.analyzer_suggest_below_max,
                 "burst_si_share": config.analyzer_burst_si_share,
                 "time_decay": config.analyzer_time_decay,
+                "early_item_analysis": config.analyzer_early_item_analysis,
+                "early_label_policy": config.analyzer_early_aa_label_policy,
+                "early_gbm_pb_min": config.analyzer_early_gbm_pb_min,
             },
+            retrain_debounce_s=config.analyzer_retrain_debounce_s,
         )
 
     def _resolve_embedder(self) -> tuple[object | None, int, str]:
@@ -332,10 +342,32 @@ class AnalyzerService:
                     MetricsDailyJob(stats, emb_model_ver=self.emb_model_ver).run(yesterday)
                 except Exception:  # noqa: BLE001 — reporting must not kill the timer
                     logger.exception("nightly metrics_daily rollup failed")
+            self._reap_orphan_label_events()
             self._run_llm_eval()
 
         self._retrain_timer = NightlyRetrainTimer(_trigger)
         self._retrain_timer.start()
+
+    def _reap_orphan_label_events(self) -> None:
+        """Nightly GC of label_event rows orphaned by a genuine deletion (tech-debt #6).
+
+        The append-only learning log is preserved by every delete path so a reindex
+        never loses history; this reclaims the rows a *genuine* project/item/launch
+        deletion leaves behind, once orphaned past the configured grace. A reindex
+        re-creates test_item within minutes, long inside the grace, so live history
+        is never reaped. Failures are swallowed — the reaper must not kill the timer.
+        """
+        retrieval = self._handlers.retrieval
+        if retrieval is None:
+            return  # store-less (unit) configuration
+        try:
+            purged = retrieval.reap_orphan_label_events(
+                self._config.analyzer_label_event_orphan_grace_days
+            )
+            if purged:
+                logger.info("label_event orphan reaper purged %d row(s)", purged)
+        except Exception:  # noqa: BLE001 — the reaper must not kill the timer
+            logger.exception("nightly label_event orphan reap failed")
 
     def _run_llm_eval(self) -> None:
         """Nightly LLM paired comparison + per-project kill-switch (spec 04 §6.2).
@@ -422,6 +454,18 @@ class AnalyzerService:
         self._metrics.queue_depth.set(self._pool.queue_depth)
         self._metrics.pg_pool_in_use.set(pool_in_use(self._pg_pool))
         return self._metrics.render()
+
+    def llm_health(self) -> dict[str, Any]:
+        """LLM sidecar liveness for ``GET /health`` (tech-debt #4).
+
+        A cheap in-process state read (``sidecar.health()`` touches only attributes
+        and the breaker's in-memory state — no Ollama call), so the health hot path
+        stays fast. When the sidecar is absent or the master switch is off, the block
+        is ``{"enabled": False}`` and claims nothing else (spec 04 §0 back-compat)."""
+        sidecar = self._sidecar
+        if sidecar is None or not sidecar.enabled:
+            return {"enabled": False}
+        return sidecar.health()
 
     def metrics_summary(self) -> dict | None:
         """Install-wide metrics_daily rollup for the health endpoint (spec §10.3)."""

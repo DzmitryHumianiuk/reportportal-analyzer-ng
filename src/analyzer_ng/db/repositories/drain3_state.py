@@ -2,15 +2,48 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 
 from psycopg.types.json import Jsonb
 
 from analyzer_ng.db.repositories._common import StoreBase
 
+# Advisory-lock class id for per-project Drain3 index serialization (spec 02 §2.3
+# CAS). We use the *two-key* ``pg_advisory_xact_lock(classid, project_id)`` space,
+# which is disjoint from the single-bigint startup/migration locks (db/startup.py,
+# db/migrate.py), so a project id can never collide with them. project_id fits
+# int4 (RP project ids are small).
+DRAIN_INDEX_LOCK_CLASSID = 0x414E5A49  # "ANZI"
+
 
 class PgDrain3StateStore(StoreBase):
     """psycopg3 implementation of :class:`~...protocols.Drain3StateStore`."""
+
+    @contextmanager
+    def project_lock(self, project_id: int) -> Iterator[None]:
+        """Serialize the per-project Drain3 mine+CAS critical section, fleet-wide.
+
+        Takes a transaction-scoped Postgres advisory lock keyed by ``project_id``
+        on a dedicated pooled connection and holds it for the ``with`` body; the
+        lock releases automatically when the transaction commits on exit. Concurrent
+        ``index`` batches for the *same* project (including across future analyzer
+        replicas) therefore run the load->mine->CAS-write section one at a time,
+        so they never collide on the optimistic-concurrency ``state_version`` —
+        the burst-reindex defect. Different projects use distinct keys and never
+        contend. Single lock per critical section ⇒ deadlock-free.
+
+        Hold time equals mining time (seconds for large batches); acceptable on the
+        async ``index`` route (spec 01 §4.4). A waiter is bounded by the task
+        watchdog's ``statement_timeout`` (``_conn``), so a pathologically long hold
+        surfaces as that batch timing out rather than a hung worker.
+        """
+        with self._conn() as conn, conn.transaction():
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(%s, %s)",
+                (DRAIN_INDEX_LOCK_CLASSID, int(project_id)),
+            )
+            yield
 
     def load(self, project_id: int) -> tuple[bytes, int] | None:
         with self._conn() as conn:
