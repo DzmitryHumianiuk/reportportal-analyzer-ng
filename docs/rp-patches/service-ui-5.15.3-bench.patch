@@ -7303,10 +7303,10 @@ index 000000000..b4371162a
 +}
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.jsx
 new file mode 100644
-index 000000000..c52fc2999
+index 000000000..0188e0199
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.jsx
-@@ -0,0 +1,689 @@
+@@ -0,0 +1,697 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -7353,6 +7353,7 @@ index 000000000..c52fc2999
 +import { MarkdownEditor } from 'components/main/markdown';
 +import OpenInNewTabIcon from 'common/img/open-in-new-tab-inline.svg';
 +import { COMMON_LOCALE_KEYS } from 'common/constants/localization';
++import { TO_INVESTIGATE_LOCATOR_PREFIX } from 'common/constants/defectTypes';
 +import { messages } from '../messages';
 +import {
 +  ADD_FOR_ALL,
@@ -7500,9 +7501,16 @@ index 000000000..c52fc2999
 +
 +  const decision = journey?.decision || null;
 +  // The story line renders only for a real auto decision whose label resolves to
-+  // a project defect type (ng40 lesson: resolve from the specific locator).
++  // a project defect type (ng40 lesson: resolve from the specific locator), AND
++  // only when the representative actually carries a non-TI saved type. A band=auto
++  // suggestion row for a still-To-Investigate item means the analyzer WOULD apply,
++  // not that it did; saying "already applied" there would be a lie, and the offer
++  // cards below already carry that answer.
++  const repApplied =
++    !!repItem?.issue?.issueType &&
++    !repItem.issue.issueType.startsWith(TO_INVESTIGATE_LOCATOR_PREFIX);
 +  const storyDefect =
-+    decision && decision.band === 'auto' && decision.predicted_label
++    repApplied && decision && decision.band === 'auto' && decision.predicted_label
 +      ? getDefectType(decision.predicted_label)
 +      : null;
 +
@@ -8311,7 +8319,7 @@ index d4d861b56..3cf9bc481 100644
 +  benchMode: false,
  };
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
-index f3ff2925b..e72af65fb 100644
+index f3ff2925b..527764f01 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
 @@ -14,8 +14,9 @@
@@ -8409,7 +8417,7 @@ index f3ff2925b..e72af65fb 100644
    useEffect(() => {
      let hasChanges;
      const newIssueData = modalState[ACTIVE_TAB_MAP[modalState.decisionType]].issue;
-@@ -113,27 +167,101 @@ const MakeDecision = ({ data }) => {
+@@ -113,27 +167,105 @@ const MakeDecision = ({ data }) => {
      } else {
        hasChanges = !isEqual(itemData.issue, newIssueData);
      }
@@ -8437,10 +8445,14 @@ index f3ff2925b..e72af65fb 100644
 +    }
 +    let cancelled = false;
 +    const timers = [];
-+    const url =
-+      clusterIds.length === 1
-+        ? URLS.MLSuggestionsByCluster(activeProject, clusterIds[0])
-+        : URLS.MLSuggestions(activeProject, itemData.id);
++    // Always the per-item suggest, even when the selection is one Unique Errors
++    // cluster. The by-cluster endpoint is a dead letter against analyzer-ng: the
++    // service-api cluster variant sends clusterId + launch metadata and NO logs,
++    // and the analyzer builds the query signature from the request's own logs, so
++    // the reply was always empty (spec 3.4). A cluster IS the exact error-hash
++    // group, so the representative member's suggest is the group's suggest.
++    const repId = isBulkOperation ? data.items[0].id : itemData.id;
++    const url = URLS.MLSuggestions(activeProject, repId);
 +    // An empty reply does NOT mean the analyzer has nothing to say. It answers the
 +    // suggest call from what it has already worked out; for a failure it has not
 +    // seen before the answer is still being computed when the reply goes out, and
@@ -8520,7 +8532,7 @@ index f3ff2925b..e72af65fb 100644
    }, []);
  
    const prepareDataToSend = ({ isIssueAction } = {}) => {
-@@ -181,16 +309,48 @@ const MakeDecision = ({ data }) => {
+@@ -181,16 +313,48 @@ const MakeDecision = ({ data }) => {
        );
      }
  
@@ -8576,7 +8588,7 @@ index f3ff2925b..e72af65fb 100644
    };
    const sendSuggestResponse = () => {
      const dataToSend = modalState.suggestedItems.map((item) => {
-@@ -357,7 +517,8 @@ const MakeDecision = ({ data }) => {
+@@ -357,7 +521,8 @@ const MakeDecision = ({ data }) => {
          saveDefect();
      } else {
        modalHasChanges &&
@@ -8586,7 +8598,7 @@ index f3ff2925b..e72af65fb 100644
          saveDefect();
      }
      trackEvent(getOnApplyEvent());
-@@ -389,6 +550,22 @@ const MakeDecision = ({ data }) => {
+@@ -389,6 +554,22 @@ const MakeDecision = ({ data }) => {
      ),
    });
  
@@ -8609,7 +8621,7 @@ index f3ff2925b..e72af65fb 100644
    const getMakeDecisionTabs = () => {
      const preparedHistoryLineItems = historyItems.filter(
        (item) =>
-@@ -420,14 +597,20 @@ const MakeDecision = ({ data }) => {
+@@ -420,14 +601,20 @@ const MakeDecision = ({ data }) => {
          isOpen: activeTab === MACHINE_LEARNING_SUGGESTIONS,
          title:
            modalState.suggestChoice.suggestRs &&
@@ -8633,7 +8645,7 @@ index f3ff2925b..e72af65fb 100644
            />
          ),
        },
-@@ -458,43 +641,140 @@ const MakeDecision = ({ data }) => {
+@@ -458,43 +645,140 @@ const MakeDecision = ({ data }) => {
      ctrlEnter: applyChanges,
    };
  

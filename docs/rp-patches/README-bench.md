@@ -10,7 +10,25 @@ parsing intact. This is an **RP-side** change (the user owns the stand).
 > the public repo; only the patch and its evidence ship here.
 
 - Patch: [`service-ui-5.15.3-bench.patch`](./service-ui-5.15.3-bench.patch)
-- Built image: `reportportal/service-ui:5.15.3-ng72`
+- Built image: `reportportal/service-ui:5.15.3-ng74`
+
+**ng73 to ng74 — the group offer comes from the representative, not a dead
+endpoint.** The by-cluster suggest endpoint is a dead letter against
+analyzer-ng: service-api's cluster variant sends `clusterId` and launch
+metadata with NO logs, and the analyzer builds its query signature from the
+request's own logs, so the reply was always empty — every modal opened from
+Unique Errors (single item or bulk) silently lost its suggestions. A cluster
+IS the exact error-hash group, so the modal now asks for the representative
+member's own suggest instead (same band contract, same failure group). Also:
+the bulk story banner now requires the representative to actually carry a
+non-TI saved type — a band `auto` suggestion row for a still-To-Investigate
+item means the analyzer WOULD apply, not that it did. Verified live on a
+fresh TI cluster: Past decision + Similar failures cards render, card arming
+fills the defect and the matched test's saved comment, the recap states both.
+Analyzer-side debt (not fixed here): the analyzer `suggest` route ignores
+`clusterId`, so the stock by-cluster endpoint stays empty for any other
+client until the analyzer learns to resolve a cluster to its stored
+representative.
 
 **ng71 to ng72 — a one-cluster bulk decision gets the group anatomy.** A Unique
 Errors cluster and the analyzer's launch group are the same set (the cluster
