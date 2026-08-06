@@ -10,7 +10,29 @@ parsing intact. This is an **RP-side** change (the user owns the stand).
 > the public repo; only the patch and its evidence ship here.
 
 - Patch: [`service-ui-5.15.3-bench.patch`](./service-ui-5.15.3-bench.patch)
-- Built image: `reportportal/service-ui:5.15.3-ng70`
+- Built image: `reportportal/service-ui:5.15.3-ng72`
+
+**ng71 to ng72 — a one-cluster bulk decision gets the group anatomy.** A Unique
+Errors cluster and the analyzer's launch group are the same set (the cluster
+route mints its id from the group representative's error hash inside the same
+`_group()` the Inspector journey serves), so a selection that sits in one
+cluster is a decision about one failure group and now reads that way: a group
+cue line under the selection list ("All selected tests share one failure
+signature."), the analyzer's own story when it already decided (band `auto`
+from the representative's journey, with an Inspector link), and the same three
+checks the single Bench shows, classified from the cluster suggest reply's
+band contract: Past decision, Similar failures (alike score + the neighbour's
+label source, unlabeled stated as "nobody labelled yet"), AI guess with its
+rationale. The whole card arms; the matched test's saved comment (or the AI
+reason) prefills the reason while the human has not typed one, and an edited
+comment is kept and says so. Below-line rows collapse into one
+looked-at-and-declined line. A selection spanning several clusters gets an
+honest "fail in N different ways" line and the manual bar, no group pretense.
+The journey's `launch_group` count is deliberately NOT shown: it is persisted
+per analyze batch and can undercount the cluster the page shows (seen live:
+`member_count` 1 for a 3-test cluster). Component tests cover the card
+classification, arming with prefill, the cross-cluster state, and the
+settled-empty state.
 
 **ng70 — a multi-select decision gets the light surface too.** Editing defects
 for several tests at once (step page multi-select, Unique Errors cluster

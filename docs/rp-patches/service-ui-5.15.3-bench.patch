@@ -4899,10 +4899,10 @@ index 000000000..80b38dd53
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 000000000..967e299f6
+index 000000000..b4371162a
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2408 @@
+@@ -0,0 +1,2398 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -7195,60 +7195,50 @@ index 000000000..967e299f6
 +    }
 +  }
 +
-+  .bulk-offer {
-+    .bo-head {
-+      font-size: 13px;
-+      font-weight: 600;
-+      color: var(--rp-charcoal);
-+    }
++  // The bulk story banner carries an absolutely-positioned corner link; the
++  // head must be its positioning context or the link escapes to the modal edge.
++  .region-head {
++    position: relative;
++  }
 +
-+    .bo-sub {
-+      margin-top: 2px;
-+      font-size: 12px;
-+      line-height: 16px;
++  .bl-group-line {
++    margin-top: 6px;
++    font-size: 12px;
++    line-height: 16px;
++    color: var(--rp-charcoal);
++
++    &.many {
 +      color: var(--rp-e-400);
 +    }
++  }
 +
-+    .bo-rows {
-+      display: flex;
-+      flex-wrap: wrap;
-+      gap: 10px;
-+      margin-top: 10px;
-+    }
++  .bo-alike {
++    font-size: 12px;
++    color: var(--rp-e-400);
++  }
 +
-+    .bo-row {
-+      display: inline-flex;
-+      align-items: center;
-+      gap: 8px;
-+      padding: 8px 14px;
-+      border: 1px solid var(--rp-e-200);
-+      border-radius: 8px;
-+      background: var(--rp-bg-000);
-+      font-family: var(--rp-font);
-+      font-size: 13px;
-+      color: var(--rp-charcoal);
-+      cursor: pointer;
-+      transition: border-color 120ms ease, box-shadow 120ms ease;
++  .bo-expl {
++    margin-top: 6px;
++    font-size: 12px;
++    line-height: 17px;
++    color: var(--rp-charcoal);
++    display: -webkit-box;
++    -webkit-line-clamp: 3;
++    -webkit-box-orient: vertical;
++    overflow: hidden;
++  }
 +
-+      &:hover {
-+        border-color: var(--rp-e-300);
-+        box-shadow: var(--rp-shadow-hover);
-+      }
++  .bulk-declined {
++    margin-top: 10px;
++    font-size: 12px;
++    line-height: 16px;
++    color: var(--rp-e-400);
++  }
 +
-+      &.armed {
-+        border-color: var(--rp-topaz);
-+        box-shadow: 0 0 0 2px var(--rp-topaz-focused);
-+      }
-+    }
-+
-+    .bo-name {
-+      font-weight: 600;
-+    }
-+
-+    .bo-alike {
-+      font-size: 12px;
-+      color: var(--rp-e-400);
-+    }
++  .bulk-no-offers {
++    font-size: 13px;
++    line-height: 18px;
++    color: var(--rp-charcoal);
 +  }
 +
 +  .cmt-opt-anchor {
@@ -7313,10 +7303,10 @@ index 000000000..967e299f6
 +}
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.jsx
 new file mode 100644
-index 000000000..e64387927
+index 000000000..c52fc2999
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.jsx
-@@ -0,0 +1,404 @@
+@@ -0,0 +1,689 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -7335,21 +7325,33 @@ index 000000000..e64387927
 +
 +/*
 + * The bulk Bench: the light surface for a multi-select Edit Defects call.
-+ * One decision fans out over every selected test, so the single-item anatomy
-+ * (journey, story, three advisors) does not apply here. What remains is the
-+ * selection itself, the analyzer offer for the shared failure group when the
-+ * whole selection is one Unique Errors cluster, and the same manual verdict
-+ * bar the Bench uses. The commit path is the stock bulk path, wire-identical:
-+ * selectManualChoice + commentOption + applyChanges.
++ *
++ * A Unique Errors cluster and the analyzer's launch group are the SAME set:
++ * both come from the error-hash `_group()` (the cluster route mints its id
++ * from the group representative's error_hash). So a selection that sits in
++ * one cluster is a decision about one failure group, and it gets the group
++ * anatomy: the shared failure's group count from the representative's
++ * Inspector journey, the analyzer's story when it already decided, and the
++ * same three-check offer cards the single Bench shows (classified from the
++ * cluster suggest reply, which carries the full band contract). A selection
++ * spanning several clusters gets no group pretense: an honest line and the
++ * manual verdict bar.
++ *
++ * The commit path is the stock bulk path, wire-identical: selectManualChoice
++ * + commentOption + applyChanges. Arming a card only prefills that choice.
 + */
 +
 +import React, { useEffect, useMemo, useRef, useState } from 'react';
 +import PropTypes from 'prop-types';
++import Parser from 'html-react-parser';
 +import classNames from 'classnames/bind';
 +import { useIntl } from 'react-intl';
 +import { useSelector } from 'react-redux';
 +import { defectTypesSelector, getDefectTypeSelector } from 'controllers/project';
++import { projectInfoIdSelector } from 'controllers/project/selectors';
++import { DefectTypeItem } from 'pages/inside/common/defectTypeItem';
 +import { MarkdownEditor } from 'components/main/markdown';
++import OpenInNewTabIcon from 'common/img/open-in-new-tab-inline.svg';
 +import { COMMON_LOCALE_KEYS } from 'common/constants/localization';
 +import { messages } from '../messages';
 +import {
@@ -7359,6 +7361,17 @@ index 000000000..e64387927
 +  REPLACE_FOR_ALL,
 +  SELECT_DEFECT_MANUALLY,
 +} from '../constants';
++import {
++  BANDS,
++  PROVENANCE,
++  getInspectorJourneyApiUrl,
++  getInspectorJourneyUrl,
++  getInspectorJourneyUrlForItem,
++  isRubricHypothesis,
++  parseBand,
++  parseExplanation,
++  parseProvenance,
++} from '../analyzerSuggestionMeta';
 +import styles from './bench.scss';
 +
 +const cx = classNames.bind(styles);
@@ -7380,8 +7393,27 @@ index 000000000..e64387927
 +const scoreToAlike = (matchScore) =>
 +  typeof matchScore === 'number' ? (matchScore / 100).toFixed(2) : '';
 +
++const CornerLink = ({ href, label }) =>
++  href ? (
++    <a
++      className={cx('insp-link', 'corner')}
++      href={href}
++      target="_blank"
++      rel="noopener noreferrer"
++      onClick={(e) => e.stopPropagation()}
++    >
++      {label}{' '}
++      <span className={cx('insp-ico')} aria-hidden>
++        {Parser(OpenInNewTabIcon)}
++      </span>
++    </a>
++  ) : null;
++CornerLink.propTypes = { href: PropTypes.string, label: PropTypes.string };
++CornerLink.defaultProps = { href: null, label: '' };
++
 +export const BulkBench = ({
 +  suggestedItems,
++  mlResolved,
 +  modalState,
 +  setModalState,
 +  onApply,
@@ -7393,8 +7425,16 @@ index 000000000..e64387927
 +  const { formatMessage } = useIntl();
 +  const getDefectType = useSelector(getDefectTypeSelector);
 +  const defectTypes = useSelector(defectTypesSelector);
++  // Frozen to the mount frame for the same reason as the single Bench (ng51):
++  // an in-app navigation updates redux immediately while the modal's items are
++  // fixed at open, and the journey fetch must never pair a fresh project with
++  // the items of the previous page.
++  const liveProjectId = useSelector(projectInfoIdSelector);
++  const [projectId] = useState(liveProjectId);
 +
-+  const items = modalState.currentTestItems || [];
++  const items = useMemo(() => modalState.currentTestItems || [], [
++    modalState.currentTestItems,
++  ]);
 +  const armedIssue = modalState.selectManualChoice.issue || {};
 +  const armedType = armedIssue.issueType || '';
 +  const comment = armedIssue.comment || '';
@@ -7403,35 +7443,95 @@ index 000000000..e64387927
 +  const [commentOpen, setCommentOpen] = useState(false);
 +  const [commentKey, setCommentKey] = useState(0);
 +  const [optOpen, setOptOpen] = useState(false);
-+  // 'you' when the type came from the picker, 'offer' when an analyzer offer
-+  // row was clicked. Drives the small provenance tag only, never the payload.
-+  const [armedFrom, setArmedFrom] = useState('');
++  const [commentDirty, setCommentDirty] = useState(false);
++  const [commentKept, setCommentKept] = useState(false);
++  // null | 'you' | 'past' | 'similar' | 'ai' — where the armed type came from.
++  // Drives the ring on the armed card and the small provenance tag only.
++  const [armedFrom, setArmedFrom] = useState(null);
++  const [prefillNote, setPrefillNote] = useState(null); // 'offer' | 'ai' | null
 +  const pickerWrapRef = useRef(null);
 +  const optWrapRef = useRef(null);
 +
 +  const defectName = (locator) => getDefectType(locator)?.longName || locator || '';
 +  const defectColor = (locator) => getDefectType(locator)?.color || '#76839b';
 +
-+  // The analyzer offer rows: one per offered defect type, best similarity wins.
-+  // Offers exist only when the whole selection shares one cluster (the parent
-+  // fetches URLS.MLSuggestionsByCluster then); otherwise this list is empty.
-+  const offers = useMemo(() => {
-+    const byType = new Map();
-+    (suggestedItems || []).forEach((s) => {
-+      const issueType = s.suggestRs?.issueType;
-+      if (!issueType) {
-+        return;
-+      }
-+      const prev = byType.get(issueType);
-+      if (!prev || (s.suggestRs.matchScore || 0) > (prev.score || 0)) {
-+        byType.set(issueType, { issueType, score: s.suggestRs.matchScore });
-+      }
-+    });
-+    return Array.from(byType.values());
-+  }, [suggestedItems]);
++  // One cluster selected = one exact failure group; several = no group pretense.
++  const clusterIds = useMemo(
++    () => Array.from(new Set(items.map((i) => i.clusterId).filter(Boolean))),
++    [items],
++  );
++  const oneGroup = clusterIds.length === 1;
++  const manyGroups = clusterIds.length > 1;
 +
-+  // Outside click closes the floating panels (the modal's Esc handling is the
-+  // dark layout's own).
++  // ---- the representative's journey: group size + the analyzer's own story ----
++  // Fetched only when the selection is one failure group; the journey belongs to
++  // the first selected member, and the grouping/decision it carries describe the
++  // shared failure signature (same `_group()` on the analyzer side).
++  const [journey, setJourney] = useState(null);
++  const repItem = items[0] || null;
++  const repItemId = repItem && (repItem.id || repItem.itemId);
++  useEffect(() => {
++    if (!oneGroup) {
++      return undefined;
++    }
++    const apiUrl = getInspectorJourneyApiUrl(projectId, repItemId);
++    if (!apiUrl) {
++      return undefined;
++    }
++    let cancelled = false;
++    window
++      .fetch(apiUrl)
++      .then((r) => (r.ok ? r.json() : null))
++      .then((d) => {
++        if (!cancelled) {
++          setJourney(d && typeof d === 'object' ? d : null);
++        }
++      })
++      .catch(() => {
++        // No record or unreachable: the group line and story are simply omitted.
++        if (!cancelled) {
++          setJourney(null);
++        }
++      });
++    return () => {
++      cancelled = true;
++    };
++  }, [projectId, repItemId, oneGroup]);
++
++  const decision = journey?.decision || null;
++  // The story line renders only for a real auto decision whose label resolves to
++  // a project defect type (ng40 lesson: resolve from the specific locator).
++  const storyDefect =
++    decision && decision.band === 'auto' && decision.predicted_label
++      ? getDefectType(decision.predicted_label)
++      : null;
++
++  // ---- classify the cluster suggest rows into the three checks --------------
++  // Same reading as the single Bench: band=auto row is the precedent, band=
++  // suggest rows are the similar failures, the rubric row is the AI guess, and
++  // below-line rows were looked at and declined.
++  const parsed = useMemo(
++    () =>
++      (suggestedItems || []).map((s) => ({
++        res: s.testItemResource,
++        suggestRs: s.suggestRs,
++        band: parseBand(s.suggestRs),
++        rubric: isRubricHypothesis(s.suggestRs),
++        issueType: s.suggestRs.issueType,
++        score: s.suggestRs.matchScore,
++        explanation: parseExplanation(s.suggestRs),
++        provenance: parseProvenance(s.suggestRs),
++      })),
++    [suggestedItems],
++  );
++  const rubricRow = parsed.find((p) => p.rubric) || null;
++  const classical = parsed.filter((p) => !p.rubric);
++  const precedentRow = classical.find((p) => p.band === BANDS.AUTO) || null;
++  const topSuggest = classical.find((p) => p.band === BANDS.SUGGEST) || null;
++  const belowRows = classical.filter((p) => p.band === BANDS.BELOW_SUGGEST);
++  const hasOffers = !!(precedentRow || topSuggest || rubricRow);
++
++  // Outside click closes the floating panels.
 +  useEffect(() => {
 +    const onDocClick = (e) => {
 +      if (pickerWrapRef.current && !pickerWrapRef.current.contains(e.target)) {
@@ -7447,8 +7547,6 @@ index 000000000..e64387927
 +
 +  // Same rule as the stock bulk footer: no comment text limits the options to
 +  // "not changed" / "cleared"; typed text limits them to "added" / "replaced".
-+  // The stored option is flipped to the matching default when the text state
-+  // crosses that line, so the payload never carries a stale combination.
 +  const untouchedOptions = [NOT_CHANGED_FOR_ALL, CLEAR_FOR_ALL];
 +  const touchedOptions = [ADD_FOR_ALL, REPLACE_FOR_ALL];
 +  const commentOptions = comment ? touchedOptions : untouchedOptions;
@@ -7462,20 +7560,80 @@ index 000000000..e64387927
 +    // eslint-disable-next-line react-hooks/exhaustive-deps
 +  }, [comment]);
 +
-+  const armType = (issueType, from) => {
++  const armType = (issueType, from, extras = {}) => {
 +    setModalState({
 +      decisionType: SELECT_DEFECT_MANUALLY,
 +      issueActionType: '',
-+      selectManualChoice: { issue: { ...armedIssue, issueType } },
++      selectManualChoice: { issue: { ...armedIssue, issueType, ...extras } },
 +    });
 +    setArmedFrom(from);
 +  };
 +
++  // Card arm: the whole card is the target (verdict 6.1). The matched test's own
++  // saved comment (or the AI rationale) prefills the reason ONLY while the human
++  // has not typed one; an edited comment is kept and says so (dirty rule).
++  const adoptCard = (row, kind) => () => {
++    const prefill = kind === 'ai' ? row.explanation : row.res?.issue?.comment;
++    if (!commentDirty && prefill) {
++      armType(row.issueType, kind, { comment: prefill });
++      setPrefillNote(kind === 'ai' ? 'ai' : 'offer');
++      setCommentKept(false);
++      setCommentOpen(true);
++      setCommentKey((k) => k + 1);
++    } else {
++      armType(row.issueType, kind);
++      if (commentDirty && comment) {
++        setCommentKept(true);
++      }
++    }
++  };
++  const armOnCardClick = (fn) => (e) => {
++    if (e.target.closest('a, button')) {
++      return;
++    }
++    fn();
++  };
++
 +  const setComment = (value) => {
++    setCommentDirty(true);
++    setCommentKept(false);
++    setPrefillNote(null);
 +    setModalState({
 +      decisionType: SELECT_DEFECT_MANUALLY,
 +      selectManualChoice: { issue: { ...armedIssue, comment: (value || '').trim() } },
 +    });
++  };
++
++  const renderPill = (locator) =>
++    locator ? <DefectTypeItem type={locator} className={cx('defect-pill')} /> : null;
++
++  const provTag = () => {
++    if (!armedType || !armedFrom) {
++      return null;
++    }
++    let text;
++    if (armedFrom === 'past') {
++      text = formatMessage(messages.benchProvFromPrecedent);
++    } else if (armedFrom === 'similar') {
++      text = formatMessage(messages.benchProvFromSimilarity, {
++        score: scoreToAlike(topSuggest && topSuggest.score),
++      });
++    } else if (armedFrom === 'ai') {
++      text = formatMessage(messages.benchProvFromAi);
++    } else {
++      text = formatMessage(messages.benchProvYouPicked);
++    }
++    return <span className={cx('prov-tag', { picked: armedFrom === 'you' })}>{text}</span>;
++  };
++
++  const similarSrcLine = (row) => {
++    if (row.provenance === PROVENANCE.HUMAN) {
++      return formatMessage(messages.benchBulkDecidedByPerson);
++    }
++    if (row.provenance === PROVENANCE.AUTO) {
++      return formatMessage(messages.benchBulkDecidedAuto);
++    }
++    return formatMessage(messages.benchBulkUnlabeled);
 +  };
 +
 +  const recapText = armedType
@@ -7494,11 +7652,29 @@ index 000000000..e64387927
 +        .join(' ')
 +    : '';
 +
++  const declinedList = belowRows
++    .map((r) => `${defectName(r.issueType)} (${scoreToAlike(r.score)})`)
++    .join(', ');
++
 +  return (
 +    <div className={cx('bench-modal')}>
 +      {/* the selection: every test this one decision will touch */}
 +      <div className={cx('band', 'band-grey', 'bulk-list')}>
 +        <div className={cx('bl-cap')}>{formatMessage(messages.benchBulkListCap)}</div>
++        {/* The cue comes from the selection itself (one cluster = one exact
++            failure signature). The journey's launch_group is NOT used for the
++            count: it is persisted per analyze batch and can undercount the
++            cluster the page shows. */}
++        {oneGroup && (
++          <div className={cx('bl-group-line')}>
++            {formatMessage(messages.benchBulkOneGroup)}
++          </div>
++        )}
++        {manyGroups && (
++          <div className={cx('bl-group-line', 'many')}>
++            {formatMessage(messages.benchBulkManyGroups, { count: clusterIds.length })}
++          </div>
++        )}
 +        <div className={cx('bl-rows')}>
 +          {items.map((item) => {
 +            const saved = item.issue?.issueType ? getDefectType(item.issue.issueType) : null;
@@ -7524,31 +7700,120 @@ index 000000000..e64387927
 +        </div>
 +      </div>
 +
-+      {/* the analyzer offer for the shared failure group (single-cluster only) */}
-+      {offers.length > 0 && (
-+        <div className={cx('band', 'band-white', 'bulk-offer')}>
-+          <div className={cx('bo-head')}>{formatMessage(messages.benchBulkOfferHead)}</div>
-+          <div className={cx('bo-sub')}>{formatMessage(messages.benchBulkOfferSub)}</div>
-+          <div className={cx('bo-rows')}>
-+            {offers.map((offer) => (
-+              <button
-+                type="button"
-+                key={offer.issueType}
-+                className={cx('bo-row', {
-+                  armed: armedFrom === 'offer' && armedType === offer.issueType,
-+                })}
-+                onClick={() => armType(offer.issueType, 'offer')}
-+              >
-+                <span className={cx('dot')} style={{ background: defectColor(offer.issueType) }} />
-+                <span className={cx('bo-name')}>{defectName(offer.issueType)}</span>
-+                {scoreToAlike(offer.score) && (
-+                  <span className={cx('bo-alike')}>
-+                    {formatMessage(messages.benchLogsAlike, { score: scoreToAlike(offer.score) })}
-+                  </span>
++      {/* one failure group: the analyzer's story + the three offer checks */}
++      {oneGroup && (hasOffers || storyDefect || mlResolved) && (
++        <div className={cx('band', 'band-white', 'bench-region')}>
++          {storyDefect && (
++            <div className={cx('region-head', 'agree')}>
++              <span className={cx('headline')}>
++                {formatMessage(messages.benchBulkStoryAuto, { defect: storyDefect.longName })}
++              </span>
++              <CornerLink
++                href={getInspectorJourneyUrlForItem(projectId, repItem)}
++                label={formatMessage(messages.benchBulkInspector)}
++              />
++            </div>
++          )}
++          {hasOffers ? (
++            <>
++              <div className={cx('offers-cap')}>
++                {formatMessage(messages.benchBulkOffersCap)}
++              </div>
++              <div className={cx('bench-row')}>
++                {precedentRow && (
++                  <div
++                    className={cx('check', 'auto', 'actionable', { armed: armedFrom === 'past' })}
++                    role="button"
++                    tabIndex={0}
++                    onClick={armOnCardClick(adoptCard(precedentRow, 'past'))}
++                  >
++                    <span className={cx('edge')} />
++                    <CornerLink
++                      href={getInspectorJourneyUrl(precedentRow.suggestRs)}
++                      label={formatMessage(messages.benchWhy)}
++                    />
++                    <div className={cx('method')}>
++                      <span className={cx('gl')}>◆</span> {formatMessage(messages.benchCheckPast)}
++                    </div>
++                    <div className={cx('role')}>{formatMessage(messages.benchBulkPastRole)}</div>
++                    <div className={cx('verd-pill')}>{renderPill(precedentRow.issueType)}</div>
++                    <div className={cx('strength')}>
++                      {formatMessage(messages.benchCheckPastStrong)}
++                    </div>
++                  </div>
 +                )}
-+              </button>
-+            ))}
-+          </div>
++                {topSuggest && (
++                  <div
++                    className={cx('check', 'suggest', 'actionable', {
++                      armed: armedFrom === 'similar',
++                    })}
++                    role="button"
++                    tabIndex={0}
++                    onClick={armOnCardClick(adoptCard(topSuggest, 'similar'))}
++                  >
++                    <span className={cx('edge')} />
++                    <CornerLink
++                      href={getInspectorJourneyUrl(topSuggest.suggestRs)}
++                      label={formatMessage(messages.benchWhy)}
++                    />
++                    <div className={cx('method')}>
++                      <span className={cx('gl')}>≈</span>{' '}
++                      {formatMessage(messages.benchCheckSimilar)}
++                    </div>
++                    <div className={cx('role')}>
++                      {formatMessage(messages.benchCheckSimilarRole)}
++                    </div>
++                    <div className={cx('verd-pill')}>{renderPill(topSuggest.issueType)}</div>
++                    <div className={cx('strength')}>
++                      {formatMessage(messages.benchLogsAlike, {
++                        score: scoreToAlike(topSuggest.score),
++                      })}
++                    </div>
++                    <div className={cx('prov')}>{similarSrcLine(topSuggest)}</div>
++                  </div>
++                )}
++                {rubricRow && (
++                  <div
++                    className={cx('check', 'rubric', 'actionable', { armed: armedFrom === 'ai' })}
++                    role="button"
++                    tabIndex={0}
++                    onClick={armOnCardClick(adoptCard(rubricRow, 'ai'))}
++                  >
++                    <span className={cx('edge')} />
++                    <div className={cx('method')}>
++                      <span className={cx('gl')}>✳</span> {formatMessage(messages.benchCheckAi)}
++                    </div>
++                    <div className={cx('role')}>{formatMessage(messages.benchCheckAiRole)}</div>
++                    <div className={cx('verd-pill')}>
++                      {renderPill(rubricRow.issueType)}
++                      <span className={cx('bo-alike')}>
++                        {formatMessage(messages.benchBulkAiPct, {
++                          pct: Math.round(rubricRow.score || 0),
++                        })}
++                      </span>
++                    </div>
++                    {rubricRow.explanation && (
++                      <div className={cx('bo-expl')}>{rubricRow.explanation}</div>
++                    )}
++                  </div>
++                )}
++              </div>
++              {belowRows.length > 0 && (
++                <div className={cx('bulk-declined')}>
++                  {formatMessage(messages.benchBulkDeclined, { list: declinedList })}
++                </div>
++              )}
++            </>
++          ) : (
++            // The story banner above IS the stored answer; saying "nothing
++            // stored" under it would be a lie. The line renders only when the
++            // analyzer has neither a decision nor an offer for this group.
++            !storyDefect && (
++              <div className={cx('bulk-no-offers')}>
++                {formatMessage(messages.benchBulkNoOffers)}
++              </div>
++            )
++          )}
 +        </div>
 +      )}
 +
@@ -7602,13 +7867,7 @@ index 000000000..e64387927
 +              </div>
 +            )}
 +          </span>
-+          {armedType && armedFrom && (
-+            <span className={cx('prov-tag')}>
-+              {formatMessage(
-+                armedFrom === 'offer' ? messages.benchProvFromOffer : messages.benchProvYouPicked,
-+              )}
-+            </span>
-+          )}
++          {provTag()}
 +        </div>
 +
 +        {/* comment: collapsed row; in bulk the fan-out rule sits next to the editor */}
@@ -7649,6 +7908,20 @@ index 000000000..e64387927
 +                )}
 +              </span>
 +            </div>
++            {prefillNote && (
++              <div className={cx('cmt-prefill-note')}>
++                {formatMessage(
++                  prefillNote === 'ai'
++                    ? messages.benchCmtPrefillNote
++                    : messages.benchBulkCmtFromOffer,
++                )}
++              </div>
++            )}
++            {commentKept && (
++              <div className={cx('cmt-prefill-note')}>
++                {formatMessage(messages.benchProvCommentKept)}
++              </div>
++            )}
 +            <MarkdownEditor
 +              key={commentKey}
 +              value={comment}
@@ -7702,6 +7975,7 @@ index 000000000..e64387927
 +};
 +BulkBench.propTypes = {
 +  suggestedItems: PropTypes.array,
++  mlResolved: PropTypes.bool,
 +  modalState: PropTypes.object.isRequired,
 +  setModalState: PropTypes.func.isRequired,
 +  onApply: PropTypes.func.isRequired,
@@ -7712,6 +7986,7 @@ index 000000000..e64387927
 +};
 +BulkBench.defaultProps = {
 +  suggestedItems: [],
++  mlResolved: false,
 +  modalHasChanges: false,
 +  scopeSection: null,
 +  scopeRef: null,
@@ -7721,6 +7996,204 @@ index 000000000..e64387927
 +// header is built (makeDecisionModal). Exported so the count logic lives once.
 +export const distinctSavedTypeCount = (items) =>
 +  new Set((items || []).map((i) => i.issue?.issueType).filter(Boolean)).size;
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.test.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.test.jsx
+new file mode 100644
+index 000000000..486801cc7
+--- /dev/null
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.test.jsx
+@@ -0,0 +1,192 @@
++/*
++ * Copyright 2025 EPAM Systems
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import React from 'react';
++import { mount } from 'enzyme';
++import { IntlProvider } from 'react-intl';
++
++const mockDefectTypes = {
++  PRODUCT_BUG: [{ locator: 'pb001', longName: 'Product Bug', color: '#d32f2f' }],
++  AUTOMATION_BUG: [{ locator: 'ab001', longName: 'Automation Bug', color: '#f7b500' }],
++  SYSTEM_ISSUE: [{ locator: 'si001', longName: 'System Issue', color: '#0274d1' }],
++  TO_INVESTIGATE: [{ locator: 'ti001', longName: 'To Investigate', color: '#ffb743' }],
++};
++const mockFlat = Object.values(mockDefectTypes).flat();
++
++jest.mock('react-redux', () => ({
++  useSelector: (selector) => selector({}),
++}));
++jest.mock('controllers/project', () => ({
++  defectTypesSelector: () => mockDefectTypes,
++  getDefectTypeSelector: () => (locator) => mockFlat.find((t) => t.locator === locator),
++}));
++jest.mock('controllers/project/selectors', () => ({
++  projectInfoIdSelector: () => 7,
++}));
++jest.mock('components/main/markdown', () => ({
++  MarkdownEditor: () => null,
++}));
++jest.mock('pages/inside/common/defectTypeItem', () => ({
++  // eslint-disable-next-line react/prop-types
++  DefectTypeItem: ({ type }) => <span data-pill={type} />,
++}));
++
++ 
++import { BulkBench, distinctSavedTypeCount } from './bulkBench';
++
++const suggestRow = ({ issueType, score, modelInfo, comment, methodName }) => ({
++  testItemResource: {
++    id: 900,
++    launchId: 55,
++    issue: { issueType, comment },
++  },
++  suggestRs: {
++    project: 7,
++    launchId: 55,
++    testItem: 900,
++    issueType,
++    matchScore: score,
++    modelInfo,
++    methodName,
++  },
++});
++
++const makeItems = (clusterIds) =>
++  clusterIds.map((clusterId, i) => ({
++    id: 100 + i,
++    name: `Test ${i}`,
++    status: 'FAILED',
++    clusterId,
++    issue: { issueType: 'ti001', comment: '' },
++    logs: [{ id: 1, message: 'BoomError: it broke\n  at frame' }],
++  }));
++
++const mountBulk = ({ items, suggested = [], mlResolved = true, setModalState = jest.fn() }) => {
++  const modalState = {
++    currentTestItems: items,
++    selectManualChoice: { issue: { comment: '' } },
++    commentOption: 'notChangedForAll',
++  };
++  const wrapper = mount(
++    <IntlProvider locale="en" onError={() => {}}>
++      <BulkBench
++        suggestedItems={suggested}
++        mlResolved={mlResolved}
++        modalState={modalState}
++        setModalState={setModalState}
++        onApply={jest.fn()}
++        onCancel={jest.fn()}
++        modalHasChanges={false}
++      />
++    </IntlProvider>,
++  );
++  return { wrapper, setModalState };
++};
++
++describe('BulkBench', () => {
++  beforeEach(() => {
++    window.fetch = jest.fn(() => new Promise(() => {}));
++  });
++
++  it('one-cluster selection renders the three offer cards from a banded reply', () => {
++    const suggested = [
++      suggestRow({
++        issueType: 'pb001',
++        score: 90,
++        modelInfo: 'gbm;ng=1;band=auto;src=human-confirmed',
++        comment: 'known payment race',
++      }),
++      suggestRow({
++        issueType: 'ab001',
++        score: 88,
++        modelInfo: 'gbm;ng=1;band=suggest;src=human-confirmed',
++        comment: 'flaky selector',
++      }),
++      suggestRow({
++        issueType: 'si001',
++        score: 65,
++        modelInfo: 'coldstart_rubric;rubric+v1;why=Connection refused points at the service.',
++        methodName: 'coldstart_rubric',
++      }),
++      suggestRow({
++        issueType: 'si001',
++        score: 40,
++        modelInfo: 'gbm;ng=1;band=below_suggest;src=unlabeled;ek=decline;why=too far',
++      }),
++    ];
++    const { wrapper } = mountBulk({ items: makeItems([5, 5, 5]), suggested });
++    const cards = wrapper.find('div[role="button"]').filterWhere((n) => {
++      const cls = n.prop('className') || '';
++      return cls.includes('check');
++    });
++    expect(cards).toHaveLength(3);
++    const text = wrapper.text();
++    expect(text).toContain('All selected tests share one failure signature.');
++    expect(text).toContain('Past decision');
++    expect(text).toContain('Similar failures');
++    expect(text).toContain('AI guess');
++    expect(text).toContain('65% guess. Not confirmed.');
++    expect(text).toContain('Looked at and declined: System Issue (0.40).');
++  });
++
++  it('arming the similar card prefills the matched test comment', () => {
++    const suggested = [
++      suggestRow({
++        issueType: 'ab001',
++        score: 88,
++        modelInfo: 'gbm;ng=1;band=suggest;src=human-confirmed',
++        comment: 'flaky selector',
++      }),
++    ];
++    const { wrapper, setModalState } = mountBulk({ items: makeItems([5, 5]), suggested });
++    const card = wrapper
++      .find('div[role="button"]')
++      .filterWhere((n) => (n.prop('className') || '').includes('suggest'))
++      .first();
++    card.simulate('click');
++    const armCall = setModalState.mock.calls.find(
++      (c) => c[0].selectManualChoice && c[0].selectManualChoice.issue.issueType === 'ab001',
++    );
++    expect(armCall).toBeTruthy();
++    expect(armCall[0].selectManualChoice.issue.comment).toBe('flaky selector');
++  });
++
++  it('a cross-cluster selection gets the honest line and no offer cards', () => {
++    const { wrapper } = mountBulk({ items: makeItems([5, 6, 5]) });
++    const text = wrapper.text();
++    expect(text).toContain('The selected tests fail in 2 different ways.');
++    expect(text).not.toContain('Past decision');
++    expect(wrapper.text()).toContain('Applies to all 3 selected tests.');
++  });
++
++  it('one cluster with a settled empty reply says so once', () => {
++    const { wrapper } = mountBulk({ items: makeItems([5, 5]), suggested: [], mlResolved: true });
++    expect(wrapper.text()).toContain('The analyzer has nothing stored for this failure group yet.');
++  });
++});
++
++describe('distinctSavedTypeCount', () => {
++  it('counts distinct saved types, ignoring items without one', () => {
++    expect(
++      distinctSavedTypeCount([
++        { issue: { issueType: 'pb001' } },
++        { issue: { issueType: 'pb001' } },
++        { issue: { issueType: 'ab001' } },
++        { issue: {} },
++      ]),
++    ).toBe(2);
++  });
++});
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/index.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/index.js
 new file mode 100644
 index 000000000..03681e814
@@ -7838,7 +8311,7 @@ index d4d861b56..3cf9bc481 100644
 +  benchMode: false,
  };
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
-index f3ff2925b..6559adf6b 100644
+index f3ff2925b..e72af65fb 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
 @@ -14,8 +14,9 @@
@@ -8160,7 +8633,7 @@ index f3ff2925b..6559adf6b 100644
            />
          ),
        },
-@@ -458,43 +641,139 @@ const MakeDecision = ({ data }) => {
+@@ -458,43 +641,140 @@ const MakeDecision = ({ data }) => {
      ctrlEnter: applyChanges,
    };
  
@@ -8254,6 +8727,7 @@ index f3ff2925b..6559adf6b 100644
 +      {benchBulk ? (
 +        <BulkBench
 +          suggestedItems={modalState.suggestedItems}
++          mlResolved={mlResolved}
            modalState={modalState}
            setModalState={setModalState}
 -          isBulkOperation={isBulkOperation}
@@ -8498,10 +8972,10 @@ index 9c6b6dafa..1f85b26ca 100644
      display: flex;
    }
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-index 34cfec56e..decb1e63a 100644
+index 34cfec56e..3cf21ca15 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-@@ -266,4 +266,1126 @@ export const messages = defineMessages({
+@@ -266,4 +266,1171 @@ export const messages = defineMessages({
      id: 'MakeDecisionModal.defectReplaceWith',
      defaultMessage: 'The defect type will be changed to',
    },
@@ -9606,17 +10080,62 @@ index 34cfec56e..decb1e63a 100644
 +    id: 'MakeDecisionModal.benchBulkListCap',
 +    defaultMessage: 'Tests to change',
 +  },
-+  benchBulkOfferHead: {
-+    id: 'MakeDecisionModal.benchBulkOfferHead',
-+    defaultMessage: 'The analyzer offer for this failure group',
++  // One failure group: the selection maps to an exact analyzer launch group
++  // (Unique Errors clusters and the Inspector grouping share the same
++  // error-hash `_group()`), so the group decision anatomy applies.
++  benchBulkOneGroup: {
++    id: 'MakeDecisionModal.benchBulkOneGroup',
++    defaultMessage: 'All selected tests share one failure signature.',
 +  },
-+  benchBulkOfferSub: {
-+    id: 'MakeDecisionModal.benchBulkOfferSub',
-+    defaultMessage: 'From earlier failures with similar logs. Click an offer to use its defect type.',
++  benchBulkManyGroups: {
++    id: 'MakeDecisionModal.benchBulkManyGroups',
++    defaultMessage:
++      'The selected tests fail in {count} different ways. Offers appear when the selection is one failure group.',
 +  },
-+  benchProvFromOffer: {
-+    id: 'MakeDecisionModal.benchProvFromOffer',
-+    defaultMessage: 'from the analyzer offer',
++  benchBulkStoryAuto: {
++    id: 'MakeDecisionModal.benchBulkStoryAuto',
++    defaultMessage: 'The analyzer already applied {defect} to this failure on its own.',
++  },
++  benchBulkInspector: {
++    id: 'MakeDecisionModal.benchBulkInspector',
++    defaultMessage: 'Open this failure in the Inspector',
++  },
++  benchBulkOffersCap: {
++    id: 'MakeDecisionModal.benchBulkOffersCap',
++    defaultMessage: 'What the analyzer offers for this failure group',
++  },
++  benchBulkNoOffers: {
++    id: 'MakeDecisionModal.benchBulkNoOffers',
++    defaultMessage:
++      'The analyzer has nothing stored for this failure group yet. Pick a defect type yourself.',
++  },
++  benchBulkPastRole: {
++    id: 'MakeDecisionModal.benchBulkPastRole',
++    defaultMessage: 'This same failure was decided in an earlier run.',
++  },
++  benchBulkDecidedByPerson: {
++    id: 'MakeDecisionModal.benchBulkDecidedByPerson',
++    defaultMessage: 'A person decided that failure.',
++  },
++  benchBulkDecidedAuto: {
++    id: 'MakeDecisionModal.benchBulkDecidedAuto',
++    defaultMessage: 'The analyzer decided that failure earlier on its own.',
++  },
++  benchBulkUnlabeled: {
++    id: 'MakeDecisionModal.benchBulkUnlabeled',
++    defaultMessage: 'A look-alike nobody labelled yet. Your call.',
++  },
++  benchBulkAiPct: {
++    id: 'MakeDecisionModal.benchBulkAiPct',
++    defaultMessage: '{pct}% guess. Not confirmed.',
++  },
++  benchBulkDeclined: {
++    id: 'MakeDecisionModal.benchBulkDeclined',
++    defaultMessage: 'Looked at and declined: {list}.',
++  },
++  benchBulkCmtFromOffer: {
++    id: 'MakeDecisionModal.benchBulkCmtFromOffer',
++    defaultMessage: "Filled from the matched test's saved comment. Change it if you want.",
 +  },
 +  benchBulkScopeAll: {
 +    id: 'MakeDecisionModal.benchBulkScopeAll',
