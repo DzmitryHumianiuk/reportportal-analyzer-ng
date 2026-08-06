@@ -10,7 +10,24 @@ parsing intact. This is an **RP-side** change (the user owns the stand).
 > the public repo; only the patch and its evidence ship here.
 
 - Patch: [`service-ui-5.15.3-bench.patch`](./service-ui-5.15.3-bench.patch)
-- Built image: `reportportal/service-ui:5.15.3-ng67`
+- Built image: `reportportal/service-ui:5.15.3-ng70`
+
+**ng70 — a multi-select decision gets the light surface too.** Editing defects
+for several tests at once (step page multi-select, Unique Errors cluster
+selection) still fell to the stock dark tabbed modal: the Bench gate excluded
+every bulk operation, a deliberate deferral from the silent-state work. The
+bulk surface is now its own light component (`bulkBench.jsx`): the dark
+identity bar counts the selection and shows the shared saved type (or says the
+types differ), the body lists every test the decision will touch with its
+first error line, and the same verdict bar arms one type for all of them. The
+stock bulk comment rule rides along next to the editor: no text offers
+keep-or-clear, typed text offers add-or-replace, and the recap states both
+what will be set and what happens to the comments. When the whole selection is
+one Unique Errors cluster, the analyzer offer for that failure group renders
+as armable rows, fed by the same `MLSuggestionsByCluster` fetch the stock tabs
+used. Commit path unchanged and wire-identical (`selectManualChoice` +
+`commentOption` + the stock bulk `applyChanges`). Analyzer off or unreachable
+on a single item is now the only state left on the stock dark tabs.
 
 **ng66 to ng67 — the AI card names its rule, and the empty state offers a way in.**
 The card said the AI "reasons from a set of rules" without saying which. The

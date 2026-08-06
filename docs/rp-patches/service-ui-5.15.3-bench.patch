@@ -4899,10 +4899,10 @@ index 000000000..80b38dd53
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 000000000..8dc0614e5
+index 000000000..967e299f6
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2221 @@
+@@ -0,0 +1,2408 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -7124,12 +7124,609 @@ index 000000000..8dc0614e5
 +    background: transparent;
 +  }
 +}
++
++// ---- bulk Bench: the light surface for a multi-select Edit Defects call ----
++// Same tokens, same bands; the per-item anatomy is replaced by the selection
++// list and (single-cluster selections only) the analyzer offer rows.
++.bench-modal {
++  .bulk-list {
++    .bl-cap {
++      font-size: 10px;
++      font-weight: 700;
++      letter-spacing: 0.4px;
++      text-transform: uppercase;
++      color: var(--rp-e-400);
++    }
++
++    .bl-rows {
++      display: flex;
++      flex-direction: column;
++      gap: 10px;
++      margin-top: 10px;
++      max-height: 300px;
++      overflow-y: auto;
++      padding-right: 6px;
++    }
++
++    .bl-line {
++      display: flex;
++      align-items: baseline;
++      gap: 10px;
++      min-width: 0;
++    }
++
++    .bl-name {
++      font-size: 13px;
++      line-height: 18px;
++      color: var(--rp-charcoal);
++      white-space: nowrap;
++      overflow: hidden;
++      text-overflow: ellipsis;
++    }
++
++    .bl-status {
++      flex: none;
++      font-size: 10px;
++      line-height: 16px;
++      letter-spacing: 0.6px;
++      text-transform: uppercase;
++      color: var(--rp-e-400);
++    }
++
++    .bl-type {
++      flex: none;
++      display: inline-flex;
++      align-items: center;
++      gap: 6px;
++      font-size: 12px;
++      line-height: 16px;
++      color: var(--rp-charcoal);
++    }
++
++    .bl-log {
++      margin-top: 2px;
++      font-family: var(--rp-mono);
++      font-size: 11px;
++      line-height: 15px;
++      color: var(--rp-e-400);
++      white-space: nowrap;
++      overflow: hidden;
++      text-overflow: ellipsis;
++    }
++  }
++
++  .bulk-offer {
++    .bo-head {
++      font-size: 13px;
++      font-weight: 600;
++      color: var(--rp-charcoal);
++    }
++
++    .bo-sub {
++      margin-top: 2px;
++      font-size: 12px;
++      line-height: 16px;
++      color: var(--rp-e-400);
++    }
++
++    .bo-rows {
++      display: flex;
++      flex-wrap: wrap;
++      gap: 10px;
++      margin-top: 10px;
++    }
++
++    .bo-row {
++      display: inline-flex;
++      align-items: center;
++      gap: 8px;
++      padding: 8px 14px;
++      border: 1px solid var(--rp-e-200);
++      border-radius: 8px;
++      background: var(--rp-bg-000);
++      font-family: var(--rp-font);
++      font-size: 13px;
++      color: var(--rp-charcoal);
++      cursor: pointer;
++      transition: border-color 120ms ease, box-shadow 120ms ease;
++
++      &:hover {
++        border-color: var(--rp-e-300);
++        box-shadow: var(--rp-shadow-hover);
++      }
++
++      &.armed {
++        border-color: var(--rp-topaz);
++        box-shadow: 0 0 0 2px var(--rp-topaz-focused);
++      }
++    }
++
++    .bo-name {
++      font-weight: 600;
++    }
++
++    .bo-alike {
++      font-size: 12px;
++      color: var(--rp-e-400);
++    }
++  }
++
++  .cmt-opt-anchor {
++    position: relative;
++    margin-left: auto;
++  }
++
++  .cmt-opt-btn {
++    display: inline-flex;
++    align-items: center;
++    gap: 6px;
++    padding: 4px 10px;
++    border: 1px solid var(--rp-e-200);
++    border-radius: 6px;
++    background: var(--rp-bg-000);
++    font-family: var(--rp-font);
++    font-size: 12px;
++    font-weight: 400;
++    color: var(--rp-charcoal);
++    cursor: pointer;
++
++    &:hover {
++      border-color: var(--rp-e-300);
++    }
++  }
++
++  .cmt-opt-pop {
++    position: absolute;
++    top: calc(100% + 4px);
++    right: 0;
++    z-index: 30;
++    min-width: 280px;
++    padding: 6px;
++    border: 1px solid var(--rp-e-200);
++    border-radius: 8px;
++    background: var(--rp-bg-000);
++    box-shadow: var(--rp-shadow-secondary);
++  }
++
++  .cmt-opt-item {
++    display: block;
++    width: 100%;
++    padding: 7px 10px;
++    border: 0;
++    border-radius: 6px;
++    background: transparent;
++    font-family: var(--rp-font);
++    font-size: 12px;
++    color: var(--rp-charcoal);
++    text-align: left;
++    cursor: pointer;
++
++    &:hover {
++      background: var(--rp-bg-100);
++    }
++
++    &.sel {
++      background: var(--rp-topaz-100);
++      color: var(--rp-topaz);
++    }
++  }
++}
+diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.jsx
+new file mode 100644
+index 000000000..e64387927
+--- /dev/null
++++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.jsx
+@@ -0,0 +1,404 @@
++/*
++ * Copyright 2025 EPAM Systems
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++/*
++ * The bulk Bench: the light surface for a multi-select Edit Defects call.
++ * One decision fans out over every selected test, so the single-item anatomy
++ * (journey, story, three advisors) does not apply here. What remains is the
++ * selection itself, the analyzer offer for the shared failure group when the
++ * whole selection is one Unique Errors cluster, and the same manual verdict
++ * bar the Bench uses. The commit path is the stock bulk path, wire-identical:
++ * selectManualChoice + commentOption + applyChanges.
++ */
++
++import React, { useEffect, useMemo, useRef, useState } from 'react';
++import PropTypes from 'prop-types';
++import classNames from 'classnames/bind';
++import { useIntl } from 'react-intl';
++import { useSelector } from 'react-redux';
++import { defectTypesSelector, getDefectTypeSelector } from 'controllers/project';
++import { MarkdownEditor } from 'components/main/markdown';
++import { COMMON_LOCALE_KEYS } from 'common/constants/localization';
++import { messages } from '../messages';
++import {
++  ADD_FOR_ALL,
++  CLEAR_FOR_ALL,
++  NOT_CHANGED_FOR_ALL,
++  REPLACE_FOR_ALL,
++  SELECT_DEFECT_MANUALLY,
++} from '../constants';
++import styles from './bench.scss';
++
++const cx = classNames.bind(styles);
++
++const middleTruncate = (name, max = 88) => {
++  if (!name || name.length <= max) {
++    return name;
++  }
++  const head = Math.ceil((max - 3) / 2);
++  const tail = Math.floor((max - 3) / 2);
++  return `${name.slice(0, head)}...${name.slice(name.length - tail)}`;
++};
++
++const firstErrorLine = (logs) => {
++  const message = (logs || []).map((log) => log.message || '').find((m) => m.length);
++  return message ? message.split('\n').find((l) => l.length) || '' : '';
++};
++
++const scoreToAlike = (matchScore) =>
++  typeof matchScore === 'number' ? (matchScore / 100).toFixed(2) : '';
++
++export const BulkBench = ({
++  suggestedItems,
++  modalState,
++  setModalState,
++  onApply,
++  onCancel,
++  modalHasChanges,
++  scopeSection,
++  scopeRef,
++}) => {
++  const { formatMessage } = useIntl();
++  const getDefectType = useSelector(getDefectTypeSelector);
++  const defectTypes = useSelector(defectTypesSelector);
++
++  const items = modalState.currentTestItems || [];
++  const armedIssue = modalState.selectManualChoice.issue || {};
++  const armedType = armedIssue.issueType || '';
++  const comment = armedIssue.comment || '';
++
++  const [pickerOpen, setPickerOpen] = useState(false);
++  const [commentOpen, setCommentOpen] = useState(false);
++  const [commentKey, setCommentKey] = useState(0);
++  const [optOpen, setOptOpen] = useState(false);
++  // 'you' when the type came from the picker, 'offer' when an analyzer offer
++  // row was clicked. Drives the small provenance tag only, never the payload.
++  const [armedFrom, setArmedFrom] = useState('');
++  const pickerWrapRef = useRef(null);
++  const optWrapRef = useRef(null);
++
++  const defectName = (locator) => getDefectType(locator)?.longName || locator || '';
++  const defectColor = (locator) => getDefectType(locator)?.color || '#76839b';
++
++  // The analyzer offer rows: one per offered defect type, best similarity wins.
++  // Offers exist only when the whole selection shares one cluster (the parent
++  // fetches URLS.MLSuggestionsByCluster then); otherwise this list is empty.
++  const offers = useMemo(() => {
++    const byType = new Map();
++    (suggestedItems || []).forEach((s) => {
++      const issueType = s.suggestRs?.issueType;
++      if (!issueType) {
++        return;
++      }
++      const prev = byType.get(issueType);
++      if (!prev || (s.suggestRs.matchScore || 0) > (prev.score || 0)) {
++        byType.set(issueType, { issueType, score: s.suggestRs.matchScore });
++      }
++    });
++    return Array.from(byType.values());
++  }, [suggestedItems]);
++
++  // Outside click closes the floating panels (the modal's Esc handling is the
++  // dark layout's own).
++  useEffect(() => {
++    const onDocClick = (e) => {
++      if (pickerWrapRef.current && !pickerWrapRef.current.contains(e.target)) {
++        setPickerOpen(false);
++      }
++      if (optWrapRef.current && !optWrapRef.current.contains(e.target)) {
++        setOptOpen(false);
++      }
++    };
++    document.addEventListener('mousedown', onDocClick);
++    return () => document.removeEventListener('mousedown', onDocClick);
++  }, []);
++
++  // Same rule as the stock bulk footer: no comment text limits the options to
++  // "not changed" / "cleared"; typed text limits them to "added" / "replaced".
++  // The stored option is flipped to the matching default when the text state
++  // crosses that line, so the payload never carries a stale combination.
++  const untouchedOptions = [NOT_CHANGED_FOR_ALL, CLEAR_FOR_ALL];
++  const touchedOptions = [ADD_FOR_ALL, REPLACE_FOR_ALL];
++  const commentOptions = comment ? touchedOptions : untouchedOptions;
++  useEffect(() => {
++    if (!comment && touchedOptions.includes(modalState.commentOption)) {
++      setModalState({ commentOption: NOT_CHANGED_FOR_ALL });
++    }
++    if (comment && untouchedOptions.includes(modalState.commentOption)) {
++      setModalState({ commentOption: ADD_FOR_ALL });
++    }
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [comment]);
++
++  const armType = (issueType, from) => {
++    setModalState({
++      decisionType: SELECT_DEFECT_MANUALLY,
++      issueActionType: '',
++      selectManualChoice: { issue: { ...armedIssue, issueType } },
++    });
++    setArmedFrom(from);
++  };
++
++  const setComment = (value) => {
++    setModalState({
++      decisionType: SELECT_DEFECT_MANUALLY,
++      selectManualChoice: { issue: { ...armedIssue, comment: (value || '').trim() } },
++    });
++  };
++
++  const recapText = armedType
++    ? [
++        formatMessage(messages.benchBulkRecap, {
++          defect: defectName(armedType),
++          count: items.length,
++        }),
++        modalState.commentOption !== NOT_CHANGED_FOR_ALL
++          ? `${formatMessage(messages.commentWill)} ${formatMessage(
++              messages[modalState.commentOption],
++            )}.`
++          : '',
++      ]
++        .filter(Boolean)
++        .join(' ')
++    : '';
++
++  return (
++    <div className={cx('bench-modal')}>
++      {/* the selection: every test this one decision will touch */}
++      <div className={cx('band', 'band-grey', 'bulk-list')}>
++        <div className={cx('bl-cap')}>{formatMessage(messages.benchBulkListCap)}</div>
++        <div className={cx('bl-rows')}>
++          {items.map((item) => {
++            const saved = item.issue?.issueType ? getDefectType(item.issue.issueType) : null;
++            const logLine = firstErrorLine(item.logs);
++            return (
++              <div className={cx('bl-row')} key={item.id}>
++                <div className={cx('bl-line')}>
++                  <span className={cx('bl-name')} title={item.name}>
++                    {middleTruncate(item.name)}
++                  </span>
++                  {item.status && <span className={cx('bl-status')}>{item.status}</span>}
++                  {saved && (
++                    <span className={cx('bl-type')}>
++                      <span className={cx('dot')} style={{ background: saved.color }} />
++                      {saved.longName}
++                    </span>
++                  )}
++                </div>
++                {logLine && <div className={cx('bl-log')}>{logLine}</div>}
++              </div>
++            );
++          })}
++        </div>
++      </div>
++
++      {/* the analyzer offer for the shared failure group (single-cluster only) */}
++      {offers.length > 0 && (
++        <div className={cx('band', 'band-white', 'bulk-offer')}>
++          <div className={cx('bo-head')}>{formatMessage(messages.benchBulkOfferHead)}</div>
++          <div className={cx('bo-sub')}>{formatMessage(messages.benchBulkOfferSub)}</div>
++          <div className={cx('bo-rows')}>
++            {offers.map((offer) => (
++              <button
++                type="button"
++                key={offer.issueType}
++                className={cx('bo-row', {
++                  armed: armedFrom === 'offer' && armedType === offer.issueType,
++                })}
++                onClick={() => armType(offer.issueType, 'offer')}
++              >
++                <span className={cx('dot')} style={{ background: defectColor(offer.issueType) }} />
++                <span className={cx('bo-name')}>{defectName(offer.issueType)}</span>
++                {scoreToAlike(offer.score) && (
++                  <span className={cx('bo-alike')}>
++                    {formatMessage(messages.benchLogsAlike, { score: scoreToAlike(offer.score) })}
++                  </span>
++                )}
++              </button>
++            ))}
++          </div>
++        </div>
++      )}
++
++      {/* the verdict bar: same picker, comment and commit the Bench uses */}
++      <div className={cx('band', 'band-white', 'verdict-bar')}>
++        <div className={cx('vb-verdict-row')}>
++          <span className={cx('flabel')}>{formatMessage(messages.benchVbDefect)}</span>
++          <span className={cx('picker-anchor')} ref={pickerWrapRef}>
++            <span
++              className={cx('defect-select', { empty: !armedType })}
++              onClick={() => setPickerOpen((o) => !o)}
++              role="button"
++              tabIndex={0}
++            >
++              {armedType ? (
++                <>
++                  <span className={cx('dot')} style={{ background: defectColor(armedType) }} />
++                  {defectName(armedType)}
++                </>
++              ) : (
++                formatMessage(messages.benchVbChooseDefect)
++              )}
++              <span className={cx('caret')} aria-hidden>
++                ▾
++              </span>
++            </span>
++            {pickerOpen && (
++              <div className={cx('picker-pop')}>
++                <div className={cx('picker-head')}>{formatMessage(messages.benchManualHead)}</div>
++                <div className={cx('pick-groups')}>
++                  {Object.keys(defectTypes).map((group) => (
++                    <div className={cx('pill-row')} key={group}>
++                      {defectTypes[group].map((t) => (
++                        <button
++                          type="button"
++                          key={t.locator}
++                          className={cx('pick-pill', { sel: armedType === t.locator })}
++                          onClick={() => {
++                            armType(t.locator, 'you');
++                            setPickerOpen(false);
++                          }}
++                        >
++                          <span className={cx('dot')} style={{ background: t.color }} />
++                          {t.longName}
++                        </button>
++                      ))}
++                    </div>
++                  ))}
++                </div>
++                <div className={cx('manual-help')}>{formatMessage(messages.benchManualHelp)}</div>
++              </div>
++            )}
++          </span>
++          {armedType && armedFrom && (
++            <span className={cx('prov-tag')}>
++              {formatMessage(
++                armedFrom === 'offer' ? messages.benchProvFromOffer : messages.benchProvYouPicked,
++              )}
++            </span>
++          )}
++        </div>
++
++        {/* comment: collapsed row; in bulk the fan-out rule sits next to the editor */}
++        {commentOpen ? (
++          <div className={cx('comment-pane')}>
++            <div className={cx('cmt-head')}>
++              <span>{formatMessage(messages.comment)}</span>
++              <span className={cx('cmt-opt-anchor')} ref={optWrapRef}>
++                <button
++                  type="button"
++                  className={cx('cmt-opt-btn')}
++                  onClick={() => setOptOpen((o) => !o)}
++                >
++                  {formatMessage(messages.commentWill)}{' '}
++                  {formatMessage(messages[modalState.commentOption])}
++                  <span className={cx('caret')} aria-hidden>
++                    ▾
++                  </span>
++                </button>
++                {optOpen && (
++                  <div className={cx('cmt-opt-pop')}>
++                    {commentOptions.map((option) => (
++                      <button
++                        type="button"
++                        key={option}
++                        className={cx('cmt-opt-item', {
++                          sel: modalState.commentOption === option,
++                        })}
++                        onClick={() => {
++                          setModalState({ commentOption: option });
++                          setOptOpen(false);
++                        }}
++                      >
++                        {formatMessage(messages.commentWill)} {formatMessage(messages[option])}
++                      </button>
++                    ))}
++                  </div>
++                )}
++              </span>
++            </div>
++            <MarkdownEditor
++              key={commentKey}
++              value={comment}
++              onChange={setComment}
++              placeholder={formatMessage(messages.benchCmtPlaceholder)}
++            />
++          </div>
++        ) : (
++          <button
++            type="button"
++            className={cx('cmt-collapsed')}
++            onClick={() => {
++              setCommentOpen(true);
++              setCommentKey((k) => k + 1);
++            }}
++          >
++            <span aria-hidden>+</span> {formatMessage(messages.benchCmtAddReason)}
++          </button>
++        )}
++
++        {/* commit row: bulk scope left, Cancel + Apply right */}
++        <div className={cx('commit-row')}>
++          <div className={cx('commit-left')}>
++            {/* executionSection stays mounted (renders nothing here) only for the
++                bulkLastLogs fetch that feeds the selection list above. */}
++            <div className={cx('exec-mount')} ref={scopeRef}>
++              {scopeSection}
++            </div>
++            <span className={cx('scope-only')}>
++              {formatMessage(messages.benchBulkScopeAll, { count: items.length })}
++            </span>
++          </div>
++          <div className={cx('commit-actions')}>
++            <button type="button" className={cx('btn', 'btn-ghost')} onClick={onCancel}>
++              {formatMessage(COMMON_LOCALE_KEYS.CANCEL)}
++            </button>
++            <button
++              type="button"
++              className={cx('btn', 'btn-teal')}
++              disabled={!modalHasChanges}
++              onClick={onApply}
++            >
++              {formatMessage(messages.apply)}
++            </button>
++          </div>
++        </div>
++        {recapText && <div className={cx('vb-recap')}>{recapText}</div>}
++      </div>
++    </div>
++  );
++};
++BulkBench.propTypes = {
++  suggestedItems: PropTypes.array,
++  modalState: PropTypes.object.isRequired,
++  setModalState: PropTypes.func.isRequired,
++  onApply: PropTypes.func.isRequired,
++  onCancel: PropTypes.func.isRequired,
++  modalHasChanges: PropTypes.bool,
++  scopeSection: PropTypes.node,
++  scopeRef: PropTypes.object,
++};
++BulkBench.defaultProps = {
++  suggestedItems: [],
++  modalHasChanges: false,
++  scopeSection: null,
++  scopeRef: null,
++};
++
++// The one honest mixed-type marker for the dark identity bar, computed where the
++// header is built (makeDecisionModal). Exported so the count logic lives once.
++export const distinctSavedTypeCount = (items) =>
++  new Set((items || []).map((i) => i.issue?.issueType).filter(Boolean)).size;
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/index.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/index.js
 new file mode 100644
-index 000000000..9ab15aede
+index 000000000..03681e814
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/index.js
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,18 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -7147,6 +7744,7 @@ index 000000000..9ab15aede
 + */
 +
 +export { Bench } from './bench';
++export { BulkBench, distinctSavedTypeCount } from './bulkBench';
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/executionSection/executionSection.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/executionSection/executionSection.jsx
 index d4d861b56..3cf9bc481 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/executionSection/executionSection.jsx
@@ -7240,7 +7838,7 @@ index d4d861b56..3cf9bc481 100644
 +  benchMode: false,
  };
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
-index f3ff2925b..a9ff0487f 100644
+index f3ff2925b..6559adf6b 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.jsx
 @@ -14,8 +14,9 @@
@@ -7268,7 +7866,7 @@ index f3ff2925b..a9ff0487f 100644
    SHOW_LOGS_BY_DEFAULT,
  } from './constants';
  import { ExecutionSection } from './executionSection';
-+import { Bench } from './bench';
++import { Bench, BulkBench, distinctSavedTypeCount } from './bench';
 +import {
 +  canLlmStillAnswer,
 +  getAnalyzerHealthApiUrl,
@@ -7298,7 +7896,7 @@ index f3ff2925b..a9ff0487f 100644
    const historyItems = useSelector(historyItemsSelector);
    const isAnalyzerAvailable = !!useSelector(analyzerExtensionsSelector).length;
    const isBulkOperation = data.items && data.items.length > 1;
-@@ -94,9 +118,34 @@ const MakeDecision = ({ data }) => {
+@@ -94,9 +118,39 @@ const MakeDecision = ({ data }) => {
    });
    const [activeTab, setActiveTab] = useState(SELECT_DEFECT_MANUALLY);
    const windowSize = useWindowResize();
@@ -7328,12 +7926,17 @@ index f3ff2925b..a9ff0487f 100644
 +  // nothing to say (e.g. a FAILED item with no ERROR logs, so no signature). We show
 +  // the light Bench silent-no-signal empty state instead of the stock dark tabs, so
 +  // the human still gets the light manual-triage surface. Analyzer-off / unreachable
-+  // and bulk keep the stock dark tabs (benchEligible is false there).
++  // keeps the stock dark tabs (benchEligible is false there).
 +  const benchEmpty = benchEligible && mlResolved && modalState.suggestedItems.length === 0;
++  // A multi-select Edit Defects call gets its own light surface: one decision
++  // fanning out over the selection, manual-first, with the analyzer offer shown
++  // when the whole selection shares one cluster. Not gated on the analyzer: the
++  // bulk surface reads nothing per-item, so there is no state it cannot render.
++  const benchBulk = isBulkOperation;
    useEffect(() => {
      let hasChanges;
      const newIssueData = modalState[ACTIVE_TAB_MAP[modalState.decisionType]].issue;
-@@ -113,27 +162,101 @@ const MakeDecision = ({ data }) => {
+@@ -113,27 +167,101 @@ const MakeDecision = ({ data }) => {
      } else {
        hasChanges = !isEqual(itemData.issue, newIssueData);
      }
@@ -7444,7 +8047,7 @@ index f3ff2925b..a9ff0487f 100644
    }, []);
  
    const prepareDataToSend = ({ isIssueAction } = {}) => {
-@@ -181,16 +304,48 @@ const MakeDecision = ({ data }) => {
+@@ -181,16 +309,48 @@ const MakeDecision = ({ data }) => {
        );
      }
  
@@ -7500,7 +8103,7 @@ index f3ff2925b..a9ff0487f 100644
    };
    const sendSuggestResponse = () => {
      const dataToSend = modalState.suggestedItems.map((item) => {
-@@ -357,7 +512,8 @@ const MakeDecision = ({ data }) => {
+@@ -357,7 +517,8 @@ const MakeDecision = ({ data }) => {
          saveDefect();
      } else {
        modalHasChanges &&
@@ -7510,7 +8113,7 @@ index f3ff2925b..a9ff0487f 100644
          saveDefect();
      }
      trackEvent(getOnApplyEvent());
-@@ -389,6 +545,22 @@ const MakeDecision = ({ data }) => {
+@@ -389,6 +550,22 @@ const MakeDecision = ({ data }) => {
      ),
    });
  
@@ -7533,7 +8136,7 @@ index f3ff2925b..a9ff0487f 100644
    const getMakeDecisionTabs = () => {
      const preparedHistoryLineItems = historyItems.filter(
        (item) =>
-@@ -420,14 +592,20 @@ const MakeDecision = ({ data }) => {
+@@ -420,14 +597,20 @@ const MakeDecision = ({ data }) => {
          isOpen: activeTab === MACHINE_LEARNING_SUGGESTIONS,
          title:
            modalState.suggestChoice.suggestRs &&
@@ -7557,7 +8160,7 @@ index f3ff2925b..a9ff0487f 100644
            />
          ),
        },
-@@ -458,43 +636,98 @@ const MakeDecision = ({ data }) => {
+@@ -458,43 +641,139 @@ const MakeDecision = ({ data }) => {
      ctrlEnter: applyChanges,
    };
  
@@ -7575,6 +8178,36 @@ index f3ff2925b..a9ff0487f 100644
 +  // the SAVED issue type from RP entities. The stock branch keeps the plain
 +  // "Select defect" string.
 +  const getBenchHeaderTitle = () => {
++    if (isBulkOperation) {
++      const count = modalState.currentTestItems.length;
++      const typeCount = distinctSavedTypeCount(modalState.currentTestItems);
++      const sharedType =
++        typeCount === 1
++          ? getDefectType(
++              modalState.currentTestItems.find((i) => i.issue?.issueType).issue.issueType,
++            )
++          : null;
++      return (
++        <div className={cx('bench-identity')}>
++          <span className={cx('bi-cap')}>{formatMessage(messages.benchIdentityCap)}</span>
++          <span className={cx('bi-name')}>
++            {formatMessage(messages.benchBulkIdentityName, { count })}
++          </span>
++          {sharedType ? (
++            <span className={cx('bi-issue')}>
++              <span className={cx('bi-dot')} style={{ background: sharedType.color }} />
++              {sharedType.longName}
++            </span>
++          ) : (
++            typeCount > 1 && (
++              <span className={cx('bi-status')}>
++                {formatMessage(messages.benchBulkMixedTypes)}
++              </span>
++            )
++          )}
++        </div>
++      );
++    }
 +    const item = modalState.currentTestItems[0] || itemData;
 +    const savedType = item.issue?.issueType ? getDefectType(item.issue.issueType) : null;
 +    return (
@@ -7594,7 +8227,7 @@ index f3ff2925b..a9ff0487f 100644
 +    );
 +  };
 +
-+  const benchChrome = benchActive || benchPending || benchEmpty;
++  const benchChrome = benchActive || benchPending || benchEmpty || benchBulk;
    return (
      <DarkModalLayout
 -      headerTitle={formatMessage(messages.selectDefect)}
@@ -7618,7 +8251,24 @@ index f3ff2925b..a9ff0487f 100644
 +        )
 +      }
 +    >
-+      {benchPending ? (
++      {benchBulk ? (
++        <BulkBench
++          suggestedItems={modalState.suggestedItems}
+           modalState={modalState}
+           setModalState={setModalState}
+-          isBulkOperation={isBulkOperation}
+-          eventsInfo={data.eventsInfo.editDefectsEvents}
++          onApply={applyChanges}
++          onCancel={() => dispatch(hideModalAction())}
++          modalHasChanges={modalHasChanges}
++          scopeSection={executionSection(true)}
++          scopeRef={scopeRef}
+         />
+-      }
+-      footer={
+-        <MakeDecisionFooter
+-          buttons={getFooterButtons()}
++      ) : benchPending ? (
 +        <div className={cx('bench-pending')}>
 +          <SpinningPreloader />
 +        </div>
@@ -7629,38 +8279,19 @@ index f3ff2925b..a9ff0487f 100644
 +          emptyNoSignal={benchEmpty}
 +          emptyStillWorking={suggestStillWorking}
            modalState={modalState}
+-          isBulkOperation={isBulkOperation}
            setModalState={setModalState}
 +          activeTab={activeTab}
 +          setActiveTab={setActiveTab}
 +          onApply={applyChanges}
 +          onCancel={() => dispatch(hideModalAction())}
-+          modalHasChanges={modalHasChanges}
+           modalHasChanges={modalHasChanges}
 +          onAdoptRubric={acceptSuggestedHypothesis}
 +          scopeSection={executionSection(true)}
 +          scopeRef={scopeRef}
 +          scopeValue={modalState.optionValue}
-           isBulkOperation={isBulkOperation}
-           eventsInfo={data.eventsInfo.editDefectsEvents}
-         />
--      }
--      footer={
--        <MakeDecisionFooter
--          buttons={getFooterButtons()}
-+      ) : (
-+        <MakeDecisionTabs
-+          tabs={getMakeDecisionTabs(windowSize)}
-+          toggleTab={setActiveTab}
-+          suggestedItems={modalState.suggestedItems}
-+          loadingMLSuggest={loadingMLSuggest}
-           modalState={modalState}
--          isBulkOperation={isBulkOperation}
-           setModalState={setModalState}
--          modalHasChanges={modalHasChanges}
--          eventsInfo={data.eventsInfo.editDefectsEvents}
-+          itemData={itemData}
 +          isBulkOperation={isBulkOperation}
-+          isAnalyzerAvailable={isAnalyzerAvailable}
-+          isMLSuggestionsAvailable={isMLSuggestionsAvailable}
+           eventsInfo={data.eventsInfo.editDefectsEvents}
          />
 -      }
 -    >
@@ -7676,6 +8307,19 @@ index f3ff2925b..a9ff0487f 100644
 -        isAnalyzerAvailable={isAnalyzerAvailable}
 -        isMLSuggestionsAvailable={isMLSuggestionsAvailable}
 -      />
++      ) : (
++        <MakeDecisionTabs
++          tabs={getMakeDecisionTabs(windowSize)}
++          toggleTab={setActiveTab}
++          suggestedItems={modalState.suggestedItems}
++          loadingMLSuggest={loadingMLSuggest}
++          modalState={modalState}
++          setModalState={setModalState}
++          itemData={itemData}
++          isBulkOperation={isBulkOperation}
++          isAnalyzerAvailable={isAnalyzerAvailable}
++          isMLSuggestionsAvailable={isMLSuggestionsAvailable}
++        />
 +      )}
      </DarkModalLayout>
    );
@@ -7854,10 +8498,10 @@ index 9c6b6dafa..1f85b26ca 100644
      display: flex;
    }
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-index 34cfec56e..43f2c8a36 100644
+index 34cfec56e..decb1e63a 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-@@ -266,4 +266,1086 @@ export const messages = defineMessages({
+@@ -266,4 +266,1126 @@ export const messages = defineMessages({
      id: 'MakeDecisionModal.defectReplaceWith',
      defaultMessage: 'The defect type will be changed to',
    },
@@ -8942,6 +9586,46 @@ index 34cfec56e..43f2c8a36 100644
 +  benchOverrideCommentReplace: {
 +    id: 'MakeDecisionModal.benchOverrideCommentReplace',
 +    defaultMessage: 'Your comment will replace theirs on the included tests.',
++  },
++  // ---------------------------------------------------------------------------
++  // Bulk Bench: the light surface for a multi-select Edit Defects call. One
++  // decision fans out over every selected test; the per-item anatomy (journey,
++  // story, advisors) does not apply, so the surface is the selection, the
++  // analyzer offer for the shared failure group when there is one, and the
++  // manual verdict bar.
++  // ---------------------------------------------------------------------------
++  benchBulkIdentityName: {
++    id: 'MakeDecisionModal.benchBulkIdentityName',
++    defaultMessage: '{count, plural, one {# test selected} other {# tests selected}}',
++  },
++  benchBulkMixedTypes: {
++    id: 'MakeDecisionModal.benchBulkMixedTypes',
++    defaultMessage: 'Saved defect types differ',
++  },
++  benchBulkListCap: {
++    id: 'MakeDecisionModal.benchBulkListCap',
++    defaultMessage: 'Tests to change',
++  },
++  benchBulkOfferHead: {
++    id: 'MakeDecisionModal.benchBulkOfferHead',
++    defaultMessage: 'The analyzer offer for this failure group',
++  },
++  benchBulkOfferSub: {
++    id: 'MakeDecisionModal.benchBulkOfferSub',
++    defaultMessage: 'From earlier failures with similar logs. Click an offer to use its defect type.',
++  },
++  benchProvFromOffer: {
++    id: 'MakeDecisionModal.benchProvFromOffer',
++    defaultMessage: 'from the analyzer offer',
++  },
++  benchBulkScopeAll: {
++    id: 'MakeDecisionModal.benchBulkScopeAll',
++    defaultMessage:
++      '{count, plural, one {Applies to the # selected test.} other {Applies to all # selected tests.}}',
++  },
++  benchBulkRecap: {
++    id: 'MakeDecisionModal.benchBulkRecap',
++    defaultMessage: 'Will set {defect} on {count, plural, one {# test} other {# tests}}.',
 +  },
  });
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.jsx
