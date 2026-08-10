@@ -1,4 +1,4 @@
-# service-api 5.15.2 — forward near-error WARN context to the analyzer
+# service-api 5.15.3 — forward near-error WARN context to the analyzer
 
 Closes the **S16 / ADV-1 residual**: three confidently-wrong `pb` auto-decisions in the
 mk6 scorecard where one shared `TimeoutException` stack is raised by three different root
@@ -9,8 +9,8 @@ discriminant is a WARN/INFO context line that *precedes* the ERROR (`SLOW QUERY 
 but **RP's service-api never forwards WARN logs**, so the discriminant never arrives in
 production. This patch makes RP forward it.
 
-- Patch: [`service-api-5.15.2-warn-context-forward.patch`](./service-api-5.15.2-warn-context-forward.patch)
-- Target: `github.com/reportportal/service-api` tag **5.15.2**
+- Patch: [`service-api-5.15.3-warn-context-forward.patch`](./service-api-5.15.3-warn-context-forward.patch)
+- Target: `github.com/reportportal/service-api` tag **5.15.3**
 - Companion analyzer hardening (this repo): `src/analyzer_ng/core/ingest.py` `_time_ordered_logs`
   (see [Ordering](#ordering-the-non-obvious-part) below) + proof test
   `tests/unit/test_analysis_fanout.py::test_wire_order_independence_via_logtime`.
@@ -20,7 +20,7 @@ production. This patch makes RP forward it.
 RP loads an item's logs for the analyzer at a **hard-coded `LogLevel.ERROR.toInt()` (40000)**
 at every analyzer log-loading site. It is **not** a project setting and **not** configurable:
 
-| Path | Site (service-api 5.15.2) | Filter |
+| Path | Site (service-api 5.15.3) | Filter |
 |---|---|---|
 | **Index** (standard) | `core/analyzer/auto/impl/preparer/StandardTestItemPreparerService#getLogsMapping` | `…LogLevelGte(…, LogLevel.ERROR.toInt())` |
 | **Index** (legacy) | `…/preparer/TestItemPreparerServiceImpl#getLogsMapping` | same |
@@ -95,9 +95,9 @@ copy `log.getLogTime()` there (or rely on the analyzer-side `logTime` sort, whic
 ## How to apply & build
 
 ```bash
-git clone --branch 5.15.2 https://github.com/reportportal/service-api.git
+git clone --branch 5.15.3 https://github.com/reportportal/service-api.git
 cd service-api
-git apply /path/to/service-api-5.15.2-warn-context-forward.patch   # applies cleanly (verified)
+git apply /path/to/service-api-5.15.3-warn-context-forward.patch   # applies cleanly (verified)
 ./gradlew build            # standard service-api build (JDK 17/21, Gradle wrapper)
 ```
 
@@ -107,8 +107,8 @@ compiled classes inside the jar, so the jar must be rebuilt. On minikube, side-l
 **unique** tag and set the image (mirrors the service-ui rollout):
 
 ```bash
-minikube image load reportportal/service-api:5.15.2-ng1
-kubectl set image deployment/reportportal-api api=reportportal/service-api:5.15.2-ng1
+minikube image load reportportal/service-api:5.15.3-ng1
+kubectl set image deployment/reportportal-api api=reportportal/service-api:5.15.3-ng1
 kubectl rollout status deployment/reportportal-api
 ```
 
@@ -124,7 +124,7 @@ instead.** Rebuilding service-api is far heavier than the service-ui overlay we 
   notes even UI images use thin overlays and full rebuilds risk ENOSPC. A JVM service image is
   larger and cannot use the class-copy overlay trick.
 
-The patch itself is validated by: (1) it **applies cleanly** to the pristine `5.15.2` tag
+The patch itself is validated by: (1) it **applies cleanly** to the pristine `5.15.3` tag
 (`git apply --check` ✓); (2) it is type-checked by inspection against the *actual* upstream
 APIs read from `commons`/`commons-dao` (`IndexLog#getLogTime/#getLogId/#getLogLevel`,
 `LogLevel.WARN_INT`/`ERROR_INT`, the level-parameterised repository queries); (3) the analyzer
@@ -155,7 +155,7 @@ integration skips.
 
 ## Stand verification plan (run once the patched image is deployed)
 
-1. Deploy `reportportal/service-api:5.15.2-ng1`; confirm `reportportal-api` healthy.
+1. Deploy `reportportal/service-api:5.15.3-ng1`; confirm `reportportal-api` healthy.
 2. Pick the S16 family in `migrated-project` (the pool-exhausted `B_pool` items that were
    confidently-wrong `pb` in score-mk6).
 3. Re-index: `PUT /api/v1/project/migrated-project/index`, then trigger analyze per launch

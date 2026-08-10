@@ -106,6 +106,11 @@ class AnalyzerService:
             # DEBUG_MODE (spec 01 §5.1): run handlers inline on the consumer thread
             # (no worker pool) so a debug session gets synchronous, in-order handling.
             inline=config.debug_mode,
+            # 5.15.3+ service-api analyze contract: fire-and-forget requests get
+            # their results published here instead of an RPC reply.
+            result_exchange=config.amqp_result_exchange,
+            result_routing_key=config.amqp_result_routing_key,
+            instance_name=config.amqp_exchange_name,
         )
         self._consumers = [
             Consumer(

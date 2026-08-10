@@ -160,3 +160,85 @@ def test_analyze_item_early_returns_json_array(dispatcher: Dispatcher) -> None:
     # docs/EARLY-ITEM-AA.md: same body and reply shape as analyze.
     reply = dispatcher.process("analyze_item_early", [LAUNCH])
     assert json.loads(reply) == []
+
+
+# --------------------------------------------------------------------------- #
+# Result-queue contract (service-api 5.15.3+): fire-and-forget analyze requests
+# get their results published to the reply exchange; RPC requests keep the RPC
+# reply; nothing else ever reaches the result exchange.
+# --------------------------------------------------------------------------- #
+class _RecordingSink:
+    def __init__(self) -> None:
+        self.replies: list[tuple[str, str, str]] = []
+        self.results: list[tuple[str, str, str, dict]] = []
+        self.dead: list = []
+
+    def reply(self, reply_to: str, correlation_id: str, body: str) -> None:
+        self.replies.append((reply_to, correlation_id, body))
+
+    def publish_result(self, exchange, routing_key, body, headers=None) -> None:
+        self.results.append((exchange, routing_key, body, headers or {}))
+
+    def dead_letter(self, body, headers) -> None:
+        self.dead.append((body, headers))
+
+
+def _pool(sink: _RecordingSink, exchange: str = "analyzer-reply"):
+    from analyzer_ng.amqp.dispatcher import WorkerPool
+
+    return WorkerPool(
+        Dispatcher(),
+        sink,
+        inline=True,
+        result_exchange=exchange,
+        result_routing_key="analysis.matches",
+        instance_name="analyzer",
+    )
+
+
+def _item(routing_key: str, reply_to: str | None):
+    from analyzer_ng.amqp.dispatcher import ProcessingItem
+
+    return ProcessingItem(
+        priority=0, number=1, routing_key=routing_key, reply_to=reply_to, correlation_id="c1"
+    )
+
+
+def test_rpc_request_keeps_rpc_reply() -> None:
+    sink = _RecordingSink()
+    _pool(sink)._publish_reply(_item("analyze", "amq.reply-queue"), '[{"itemId": 1}]')
+    assert sink.replies == [("amq.reply-queue", "c1", '[{"itemId": 1}]')]
+    assert sink.results == []
+
+
+def test_fire_and_forget_analyze_publishes_to_result_exchange() -> None:
+    sink = _RecordingSink()
+    _pool(sink)._publish_reply(_item("analyze", None), '[{"itemId": 1}]')
+    assert sink.replies == []
+    assert sink.results == [
+        ("analyzer-reply", "analysis.matches", '[{"itemId": 1}]', {"analyzer_id": "analyzer"})
+    ]
+
+
+def test_fire_and_forget_early_route_publishes_too() -> None:
+    sink = _RecordingSink()
+    _pool(sink)._publish_reply(_item("analyze_item_early", None), '[{"itemId": 2}]')
+    assert [r[1] for r in sink.results] == ["analysis.matches"]
+
+
+def test_empty_result_list_is_not_published() -> None:
+    sink = _RecordingSink()
+    _pool(sink)._publish_reply(_item("analyze", None), "[]")
+    assert sink.results == []
+
+
+def test_non_analyze_routes_never_reach_the_result_exchange() -> None:
+    sink = _RecordingSink()
+    _pool(sink)._publish_reply(_item("suggest", None), '[{"testItem": 3}]')
+    assert sink.results == []
+
+
+def test_empty_exchange_disables_publishing() -> None:
+    sink = _RecordingSink()
+    _pool(sink, exchange="")._publish_reply(_item("analyze", None), '[{"itemId": 1}]')
+    assert sink.results == []

@@ -83,6 +83,12 @@ class AppConfig(BaseSettings):
     amqp_backoff_factor: int = 2
     amqp_handler_max_retries: int = 3
     amqp_handler_task_timeout: int = 600
+    # service-api 5.15.3+ analyze contract: the analyze request arrives
+    # fire-and-forget (no reply_to) and the results are expected on a reply
+    # exchange the service-api declares and consumes (rp.amqp.analyzerResponse*
+    # properties on its side; defaults match). Empty = never publish results.
+    amqp_result_exchange: str = "analyzer-reply"
+    amqp_result_routing_key: str = "analysis.matches"
     analyzer_priority: int = 1
     analyzer_index: LegacyBool = True
     analyzer_log_search: LegacyBool = True

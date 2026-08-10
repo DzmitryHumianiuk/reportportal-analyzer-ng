@@ -1,5 +1,5 @@
 diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerUtils.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerUtils.java
-index 778e5db..7b62aa5 100644
+index 778e5db7a..7b62aa5e5 100644
 --- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerUtils.java
 +++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerUtils.java
 @@ -31,6 +31,7 @@ import static java.util.Optional.ofNullable;
@@ -114,7 +114,7 @@ index 778e5db..7b62aa5 100644
     * Creates {@link IndexLog} model for log for further sending that into analyzer
     */
 diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/StandardTestItemPreparerService.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/StandardTestItemPreparerService.java
-index 40c31ea..cb6294a 100644
+index 40c31ea4a..cb6294ade 100644
 --- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/StandardTestItemPreparerService.java
 +++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/StandardTestItemPreparerService.java
 @@ -29,7 +29,6 @@ import com.epam.ta.reportportal.entity.enums.LogLevel;
@@ -147,7 +147,7 @@ index 40c31ea..cb6294a 100644
    }
  }
 diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemPreparerServiceImpl.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemPreparerServiceImpl.java
-index 98c0af9..3428e59 100644
+index 98c0af9d5..3428e5983 100644
 --- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemPreparerServiceImpl.java
 +++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemPreparerServiceImpl.java
 @@ -30,7 +30,6 @@ import com.epam.ta.reportportal.jooq.enums.JTestItemTypeEnum;
@@ -180,7 +180,7 @@ index 98c0af9..3428e59 100644
  
  }
 diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemWithRetriesPreparerService.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemWithRetriesPreparerService.java
-index 5a3d11f..810d67e 100644
+index 5a3d11f71..810d67e2c 100644
 --- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemWithRetriesPreparerService.java
 +++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/TestItemWithRetriesPreparerService.java
 @@ -25,7 +25,6 @@ import com.epam.ta.reportportal.entity.item.TestItem;

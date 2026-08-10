@@ -1,12 +1,16 @@
-# service-api 5.15.2 — early per-item auto-analysis trigger
+# service-api 5.15.3 — early per-item auto-analysis trigger
 
-> **Does NOT apply to service-api 5.15.3** (released 2026-08-04). Upstream
-> reworked the analyzer client area: auto-analysis results now flow through an
-> async consumer (`AnalysisResultConsumer` / `AnalysisResultHandler`, ~250 new
-> lines; `AnalyzerServiceImpl` lost ~165). Rebasing this patch means porting
-> the early-item trigger onto that consumer model, not fixing hunks. The
-> sibling `warn-context-forward` patch still applies clean on 5.15.3. The
-> stand stays on patched 5.15.2 until the rebase is done.
+Ported onto the 5.15.3 analyze contract (2026-08-10). Upstream made the
+analyze route fire-and-forget: the request is sent with `convertAndSend`, and
+the results come back through a reply exchange (`analyzer-reply` /
+`analysis.matches`) consumed by `AnalysisResultConsumer` and applied by
+`AnalysisResultHandler` (last-write-wins). The early trigger rides the same
+contract now: `analyzeItemEarly` dispatches to the `analyze_item_early` route
+the same fire-and-forget way, and the results are applied by the same
+consumer. The analyzer must speak the result-queue contract: analyzer-ng
+publishes analyze results to that exchange whenever the request arrives
+without `reply_to` (see the analyzer's `amqp_result_exchange` /
+`amqp_result_routing_key` settings; defaults match the service-api ones).
 
 The ReportPortal half of early per-item auto-analysis (`docs/EARLY-ITEM-AA.md`
 in this repo). With this patch, a test item that finishes as FAILED while its
@@ -18,11 +22,16 @@ The patch also makes the launch-finish analyze request carry
 `launch_fail_fraction` feature gets a live denominator. See
 "launchItemsCount on the analyze route" below.
 
-- Patch: [`service-api-5.15.2-early-item-analysis.patch`](./service-api-5.15.2-early-item-analysis.patch)
-- Applies to: `reportportal/service-api`, tag `5.15.2` (init the `api-registry`
+- Patch: [`service-api-5.15.3-early-item-analysis.patch`](./service-api-5.15.3-early-item-analysis.patch)
+- Applies to: `reportportal/service-api`, tag `5.15.3` (init the `api-registry`
   submodule before building)
-- Needs analyzer-ng with the `analyze_item_early` route and
-  `ANALYZER_EARLY_ITEM_ANALYSIS=true`
+- Needs analyzer-ng with the `analyze_item_early` route AND the result-queue
+  publishing (mk34+); on older analyzers the 5.15.3 service-api applies no
+  analyze results at all, launch-finish included
+- Debugging note: `ProjectConfigDelegatingSubscriber` swallows every handler
+  exception at DEBUG. When the early pass is silent for no visible reason, set
+  `LOGGING_LEVEL_COM_EPAM_TA_REPORTPORTAL_CORE_EVENTS_SUBSCRIBER=DEBUG` on the
+  api deployment and read the "Error while processing event" lines.
 
 ## What it changes
 
@@ -114,10 +123,10 @@ the new constructor and trigger split; the build below skips tests
 ## Build (host build + thin overlay, same trick as the service-ui patch)
 
 ```bash
-git clone --branch 5.15.2 https://github.com/reportportal/service-api.git
+git clone --branch 5.15.3 https://github.com/reportportal/service-api.git
 cd service-api
 git submodule update --init --depth 1
-git apply /path/to/service-api-5.15.2-early-item-analysis.patch
+git apply /path/to/service-api-5.15.3-early-item-analysis.patch
 
 # JDK 21 required
 ./gradlew -x test "-Porg.gradle.java.installations.paths=$JDK21_HOME" bootJar
@@ -125,16 +134,16 @@ git apply /path/to/service-api-5.15.2-early-item-analysis.patch
 # Thin overlay over the stock image (jar swap, no in-image gradle build).
 # The repo's .dockerignore excludes build/, so build from a minimal context.
 mkdir -p /tmp/service-api-ng-ctx
-cp build/libs/service-api-5.15.2-exec.jar /tmp/service-api-ng-ctx/
+cp build/libs/service-api-5.15.3-exec.jar /tmp/service-api-ng-ctx/
 cat > /tmp/service-api-ng-ctx/Dockerfile.ng <<'EOF'
-FROM reportportal/service-api:5.15.2
-COPY service-api-5.15.2-exec.jar /usr/app/
+FROM reportportal/service-api:5.15.3
+COPY service-api-5.15.3-exec.jar /usr/app/
 EOF
-minikube image build -f Dockerfile.ng -t reportportal/service-api:5.15.2-ng3 /tmp/service-api-ng-ctx
-kubectl set image deployment/reportportal-api api=reportportal/service-api:5.15.2-ng3
+minikube image build -f Dockerfile.ng -t reportportal/service-api:5.15.3-ng1 /tmp/service-api-ng-ctx
+kubectl set image deployment/reportportal-api api=reportportal/service-api:5.15.3-ng1
 ```
 
 Note: the stock image starts `java -jar /usr/app/service-api-*exec.jar`; the
 overlay must not leave two jars matching that glob. The stock jar is named
-`service-api-5.15.2-exec.jar`; a locally built jar usually is too, so the copy
+`service-api-5.15.3-exec.jar`; a locally built jar usually is too, so the copy
 replaces it. Check with `kubectl exec <pod> -- ls /usr/app` after rollout.

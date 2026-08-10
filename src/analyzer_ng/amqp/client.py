@@ -192,6 +192,26 @@ class _Reply:
 
 
 @dataclass
+class _ResultPublish:
+    """An analysis result published to the service-api reply exchange.
+
+    The 5.15.3+ service-api sends ``analyze`` fire-and-forget and consumes the
+    results from a queue bound to a direct exchange it declares
+    (``rp.amqp.analyzerResponseExchange`` / ``...Queue``, defaults
+    ``analyzer-reply`` / ``analysis.matches``). The exchange is re-declared here
+    with the same durable-direct shape before every publish, so a result sent
+    while the service-api has not started yet cannot close the channel with a
+    404 (idempotent declare; unroutable results are dropped, matching the
+    at-most-once semantics the stock analyzer has on this path).
+    """
+
+    exchange: str
+    routing_key: str
+    body: str
+    headers: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class _DeadLetter:
     body: bytes
     headers: dict[str, Any] = field(default_factory=dict)
@@ -204,13 +224,18 @@ class ReplyPublisher:
     def __init__(self, connection: AmqpConnection, dlq_name: str) -> None:
         self._conn = connection
         self._dlq_name = dlq_name
-        self._outbox: queue.Queue[_Reply | _DeadLetter | None] = queue.Queue()
+        self._outbox: queue.Queue[_Reply | _ResultPublish | _DeadLetter | None] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
 
     # -- producer API (called from worker/consumer threads) ---------------- #
     def reply(self, reply_to: str, correlation_id: str, body: str) -> None:
         self._outbox.put(_Reply(reply_to, correlation_id, body))
+
+    def publish_result(
+        self, exchange: str, routing_key: str, body: str, headers: dict[str, Any] | None = None
+    ) -> None:
+        self._outbox.put(_ResultPublish(exchange, routing_key, body, headers or {}))
 
     def dead_letter(self, body: bytes, headers: dict[str, Any]) -> None:
         self._outbox.put(_DeadLetter(body, headers))
@@ -251,7 +276,7 @@ class ReplyPublisher:
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Failed to publish outbound AMQP message: %s", exc)
 
-    def _publish(self, message: _Reply | _DeadLetter) -> None:
+    def _publish(self, message: _Reply | _ResultPublish | _DeadLetter) -> None:
         """Publish with one reconnect-and-retry on a transient connection loss."""
         for attempt in (1, 2):
             try:
@@ -264,6 +289,22 @@ class ReplyPublisher:
                             properties=BasicProperties(
                                 correlation_id=message.correlation_id,
                                 content_type="application/json",
+                            ),
+                            mandatory=False,
+                            body=message.body.encode("utf-8"),
+                        )
+                    elif isinstance(message, _ResultPublish):
+                        # Same durable-direct shape the service-api declares; an
+                        # idempotent re-declare so publishing never races its start.
+                        channel.exchange_declare(
+                            exchange=message.exchange, exchange_type="direct", durable=True
+                        )
+                        channel.basic_publish(
+                            exchange=message.exchange,
+                            routing_key=message.routing_key,
+                            properties=BasicProperties(
+                                content_type="application/json",
+                                headers=message.headers,
                             ),
                             mandatory=False,
                             body=message.body.encode("utf-8"),

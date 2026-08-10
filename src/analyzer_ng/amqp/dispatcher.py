@@ -229,7 +229,17 @@ class ReplySink(Protocol):
     """What the worker pool needs from the publisher."""
 
     def reply(self, reply_to: str, correlation_id: str, body: str) -> None: ...
+    def publish_result(
+        self, exchange: str, routing_key: str, body: str, headers: dict[str, Any] | None = None
+    ) -> None: ...
     def dead_letter(self, body: bytes, headers: dict[str, Any]) -> None: ...
+
+
+# Routes whose results the 5.15.3+ service-api consumes from the reply exchange
+# instead of an RPC reply queue. The sender signals which contract it speaks:
+# a request carrying reply_to gets the RPC reply (service-api <= 5.15.2), a
+# fire-and-forget request gets its results published to the reply exchange.
+RESULT_QUEUE_ROUTES = frozenset({"analyze", "analyze_item_early"})
 
 
 class MetricsSink(Protocol):
@@ -271,6 +281,9 @@ class WorkerPool:
         metrics: MetricsSink | None = None,
         task_timeout: float = 600.0,
         inline: bool = False,
+        result_exchange: str = "",
+        result_routing_key: str = "analysis.matches",
+        instance_name: str = "analyzer-ng",
     ) -> None:
         self._dispatcher = dispatcher
         self._publisher = publisher
@@ -285,6 +298,12 @@ class WorkerPool:
         # 1 s / 2 s / 4 s by default (§8.2); overridable so tests stay fast.
         self._retry_delays = retry_delays if retry_delays is not None else [1.0, 2.0, 4.0]
         self._metrics: MetricsSink = metrics or _NullMetrics()
+        # 5.15.3+ result-queue contract (see RESULT_QUEUE_ROUTES). Empty
+        # exchange = feature off; fire-and-forget analyze results are dropped
+        # exactly as they were before the contract existed.
+        self._result_exchange = result_exchange
+        self._result_routing_key = result_routing_key
+        self._instance_name = instance_name
         self._threads: list[threading.Thread] = []
         self._stop = threading.Event()
         self._running_lock = threading.Lock()
@@ -400,12 +419,34 @@ class WorkerPool:
             return
 
     def _publish_reply(self, item: ProcessingItem, reply: str | None) -> None:
-        if reply is None or not item.reply_to:
+        if reply is None:
             return
-        try:
-            self._publisher.reply(item.reply_to, item.correlation_id, reply)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Failed to enqueue reply for '%s': %s", item.routing_key, exc)
+        if item.reply_to:
+            # RPC contract (service-api <= 5.15.2): the sender waits on its
+            # exclusive reply queue.
+            try:
+                self._publisher.reply(item.reply_to, item.correlation_id, reply)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to enqueue reply for '%s': %s", item.routing_key, exc)
+            return
+        # Fire-and-forget analyze contract (service-api 5.15.3+): publish the
+        # results to the reply exchange its AnalysisResultConsumer listens on.
+        # An empty result list is not published: the consumer drops it unread,
+        # and every analyzed launch would otherwise put a blank on the queue.
+        if (
+            item.routing_key in RESULT_QUEUE_ROUTES
+            and self._result_exchange
+            and reply not in ("[]", "")
+        ):
+            try:
+                self._publisher.publish_result(
+                    self._result_exchange,
+                    self._result_routing_key,
+                    reply,
+                    headers={"analyzer_id": self._instance_name},
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to enqueue result for '%s': %s", item.routing_key, exc)
 
     def _fail(self, item: ProcessingItem, exc: Exception, started: float, *, retried: int) -> None:
         logger.error(

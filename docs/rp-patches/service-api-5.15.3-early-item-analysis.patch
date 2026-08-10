@@ -1,5 +1,5 @@
 diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/AnalyzerService.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/AnalyzerService.java
-index 6d2b60c..a5a462f 100644
+index 6d2b60c2f..a5a462fa3 100644
 --- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/AnalyzerService.java
 +++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/AnalyzerService.java
 @@ -37,6 +37,19 @@ public interface AnalyzerService {
@@ -23,31 +23,31 @@ index 6d2b60c..a5a462f 100644
     * Checks if any analyzer is available
     *
 diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/AnalyzerServiceClient.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/AnalyzerServiceClient.java
-index 07ab6f1..d7b33a5 100644
+index 17587b590..2788e98f7 100644
 --- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/AnalyzerServiceClient.java
 +++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/AnalyzerServiceClient.java
-@@ -61,6 +61,16 @@ public interface AnalyzerServiceClient {
+@@ -59,6 +59,16 @@ public interface AnalyzerServiceClient {
     */
-   Map<String, List<AnalyzedItemRs>> analyze(IndexLaunch rq);
+   void analyze(IndexLaunch rq);
  
 +  /**
-+   * Analyze items through the early per-item route (analyzer-ng,
-+   * routing key {@code analyze_item_early}): same request and reply shape as
-+   * {@link #analyze}, but the analyzer applies only deterministic answers.
++   * Dispatches the launch through the early per-item route (analyzer-ng, routing key
++   * {@code analyze_item_early}): same request shape and the same fire-and-forget contract as
++   * {@link #analyze}, but the analyzer applies only deterministic answers and stores the rest as
++   * suggestions. Results are delivered back through the same reply queue.
 +   *
 +   * @param rq Launch
-+   * @return Analyzed Launch
 +   */
-+  Map<String, List<AnalyzedItemRs>> analyzeItemEarly(IndexLaunch rq);
++  void analyzeItemEarly(IndexLaunch rq);
 +
    /**
     * Searches logs with similar log message
     *
 diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/impl/AnalyzerServiceClientImpl.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/impl/AnalyzerServiceClientImpl.java
-index f3d4cd2..96fc02e 100644
+index 954d7aa85..3e0b7b6a1 100644
 --- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/impl/AnalyzerServiceClientImpl.java
 +++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/impl/AnalyzerServiceClientImpl.java
-@@ -54,6 +54,7 @@ import org.springframework.util.CollectionUtils;
+@@ -48,6 +48,7 @@ import org.springframework.stereotype.Service;
  public class AnalyzerServiceClientImpl implements AnalyzerServiceClient {
  
    private static final String ANALYZE_ROUTE = "analyze";
@@ -55,39 +55,24 @@ index f3d4cd2..96fc02e 100644
    private static final String SEARCH_ROUTE = "search";
    private static final String SUGGEST_ROUTE = "suggest";
    private static final String SUGGEST_INFO_ROUTE = "index_suggest_info";
-@@ -84,7 +85,16 @@ public class AnalyzerServiceClientImpl implements AnalyzerServiceClient {
-   public Map<String, List<AnalyzedItemRs>> analyze(IndexLaunch rq) {
-     List<ExchangeInfo> analyzerExchanges = rabbitMqManagementClient.getAnalyzerExchangesInfo();
-     Map<String, List<AnalyzedItemRs>> resultMap = new HashMap<>(analyzerExchanges.size());
--    analyzerExchanges.forEach(exchange -> analyze(rq, resultMap, exchange));
-+    analyzerExchanges.forEach(exchange -> analyze(rq, resultMap, exchange, ANALYZE_ROUTE));
-+    return resultMap;
+@@ -77,6 +78,14 @@ public class AnalyzerServiceClientImpl implements AnalyzerServiceClient {
+             Collections.singletonList(rq)));
+   }
+ 
++  @Override
++  public void analyzeItemEarly(IndexLaunch rq) {
++    rabbitMqManagementClient.getAnalyzerExchangesInfo()
++        .forEach(
++            exchange -> rabbitTemplate.convertAndSend(exchange.getName(), ANALYZE_ITEM_EARLY_ROUTE,
++                Collections.singletonList(rq)));
 +  }
 +
-+  @Override
-+  public Map<String, List<AnalyzedItemRs>> analyzeItemEarly(IndexLaunch rq) {
-+    List<ExchangeInfo> analyzerExchanges = rabbitMqManagementClient.getAnalyzerExchangesInfo();
-+    Map<String, List<AnalyzedItemRs>> resultMap = new HashMap<>(analyzerExchanges.size());
-+    analyzerExchanges.forEach(
-+        exchange -> analyze(rq, resultMap, exchange, ANALYZE_ITEM_EARLY_ROUTE));
-     return resultMap;
-   }
- 
-@@ -148,9 +158,9 @@ public class AnalyzerServiceClientImpl implements AnalyzerServiceClient {
-   }
- 
-   private void analyze(IndexLaunch rq, Map<String, List<AnalyzedItemRs>> resultMap,
--      ExchangeInfo exchangeInfo) {
-+      ExchangeInfo exchangeInfo, String route) {
-     List<AnalyzedItemRs> result =
--        rabbitTemplate.convertSendAndReceiveAsType(exchangeInfo.getName(), ANALYZE_ROUTE,
-+        rabbitTemplate.convertSendAndReceiveAsType(exchangeInfo.getName(), route,
-             Collections.singletonList(rq), new ParameterizedTypeReference<>() {
-             }
-         );
+   @Override
+   public List<SearchRs> searchLogs(SearchRq rq) {
+     String exchangeName =
 diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/model/IndexLaunchNg.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/model/IndexLaunchNg.java
 new file mode 100644
-index 0000000..1465039
+index 000000000..1465039b1
 --- /dev/null
 +++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/client/model/IndexLaunchNg.java
 @@ -0,0 +1,52 @@
@@ -144,35 +129,41 @@ index 0000000..1465039
 +  }
 +}
 diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerServiceImpl.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerServiceImpl.java
-index 5a1ccd5..4052903 100644
+index 7c0a09c99..fa7eb695c 100644
 --- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerServiceImpl.java
 +++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/AnalyzerServiceImpl.java
-@@ -29,11 +29,13 @@ import com.epam.reportportal.rules.exception.ReportPortalException;
- import com.epam.ta.reportportal.core.analytics.DefectUpdateStatisticsService;
+@@ -22,13 +22,17 @@ import com.epam.reportportal.model.analyzer.IndexLaunch;
+ import com.epam.reportportal.model.project.AnalyzerConfig;
  import com.epam.ta.reportportal.core.analyzer.auto.AnalyzerService;
  import com.epam.ta.reportportal.core.analyzer.auto.client.AnalyzerServiceClient;
 +import com.epam.ta.reportportal.core.analyzer.auto.client.model.IndexLaunchNg;
  import com.epam.ta.reportportal.core.analyzer.auto.impl.preparer.LaunchPreparerService;
- import com.epam.ta.reportportal.core.events.MessageBus;
- import com.epam.ta.reportportal.core.events.activity.ItemIssueTypeDefinedEvent;
- import com.epam.ta.reportportal.core.events.activity.LinkTicketEvent;
- import com.epam.ta.reportportal.core.item.impl.IssueTypeHandler;
 +import com.epam.ta.reportportal.core.statistics.StatisticsHelper;
- import com.epam.ta.reportportal.core.statistics.TestItemStatisticsService;
  import com.epam.ta.reportportal.dao.LaunchRepository;
  import com.epam.ta.reportportal.dao.TestItemRepository;
-@@ -133,6 +135,24 @@ public class AnalyzerServiceImpl implements AnalyzerService {
+ import com.epam.ta.reportportal.entity.AnalyzeMode;
+ import com.epam.ta.reportportal.entity.item.TestItem;
+ import com.epam.ta.reportportal.entity.launch.Launch;
+ import com.google.common.collect.Iterables;
++import static java.util.Optional.ofNullable;
++
+ import java.util.List;
+ import java.util.Optional;
+ import org.apache.logging.log4j.LogManager;
+@@ -100,6 +104,26 @@ public class AnalyzerServiceImpl implements AnalyzerService {
      }
    }
  
 +  @Override
 +  public void runEarlyAnalyzers(Launch launch, List<Long> testItemIds,
 +      AnalyzerConfig analyzerConfig) {
-+    // Early per-item pass (analyzer-ng): same prepare/apply machinery as
++    // Early per-item pass (analyzer-ng): same prepare/dispatch machinery as
 +    // runAnalyzers, but the request goes to the analyze_item_early route where
-+    // only deterministic answers are applied. No analyzer status cache entry:
-+    // the pass is a short single-item hop and must not flip the launch's
-+    // "analysis in progress" indicator on every item finish.
++    // only deterministic answers are applied. Results still come back through
++    // the shared reply queue and are applied by AnalysisResultHandler. No
++    // analyzer status cache entry: the pass is a short single-item hop and must
++    // not flip the launch's "analysis in progress" indicator on every item
++    // finish.
 +    try {
 +      Optional<Long> previousLaunchId = findPreviousLaunchId(launch, analyzerConfig);
 +      Iterables.partition(testItemIds, itemsBatchSize)
@@ -184,9 +175,9 @@ index 5a1ccd5..4052903 100644
 +  }
 +
    /**
-    * Prepare and analyze the number of provided test item ids.
+    * Prepare and dispatch the number of provided test item ids to all analyzers asynchronously.
     *
-@@ -142,15 +162,30 @@ public class AnalyzerServiceImpl implements AnalyzerService {
+@@ -109,17 +133,53 @@ public class AnalyzerServiceImpl implements AnalyzerService {
     */
    private void analyzeItemsPartition(Launch launch, List<Long> testItemIds,
        AnalyzerConfig analyzerConfig, Optional<Long> previousLaunchId) {
@@ -212,16 +203,14 @@ index 5a1ccd5..4052903 100644
 +      if (!early && rq instanceof IndexLaunchNg rqNg) {
 +        resolveLaunchItemsCount(launch).ifPresent(rqNg::setLaunchItemsCount);
 +      }
-       int amountToAnalyze = rq.getTestItems().size();
        previousLaunchId.ifPresent(rq::setPreviousLaunchId);
--      Map<String, List<AnalyzedItemRs>> analyzedMap = analyzerServicesClient.analyze(rq);
-+      Map<String, List<AnalyzedItemRs>> analyzedMap =
-+          early ? analyzerServicesClient.analyzeItemEarly(rq) : analyzerServicesClient.analyze(rq);
- 
-       if (!MapUtils.isEmpty(analyzedMap)) {
-         analyzedMap.forEach(
-@@ -269,6 +304,24 @@ public class AnalyzerServiceImpl implements AnalyzerService {
-     return AnalyzerUtils.TO_RELEVANT_ITEM_INFO.apply(relevantItem);
+-      analyzerServicesClient.analyze(rq);
++      if (early) {
++        analyzerServicesClient.analyzeItemEarly(rq);
++      } else {
++        analyzerServicesClient.analyze(rq);
++      }
+     });
    }
  
 +  /**
@@ -246,7 +235,7 @@ index 5a1ccd5..4052903 100644
     * @param launch         Analyzed launch
     * @param analyzerConfig Current analyzer config
 diff --git a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/LaunchPreparerServiceImpl.java b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/LaunchPreparerServiceImpl.java
-index 7a9c39a..80777a5 100644
+index 7a9c39aab..80777a5e8 100644
 --- a/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/LaunchPreparerServiceImpl.java
 +++ b/src/main/java/com/epam/ta/reportportal/core/analyzer/auto/impl/preparer/LaunchPreparerServiceImpl.java
 @@ -18,6 +18,7 @@ package com.epam.ta.reportportal.core.analyzer.auto.impl.preparer;
@@ -268,7 +257,7 @@ index 7a9c39a..80777a5 100644
      rqLaunch.setLaunchName(name);
      rqLaunch.setLaunchStartTime(LocalDateTime.ofInstant(startLaunchTime, ZoneId.systemDefault()));
 diff --git a/src/main/java/com/epam/ta/reportportal/core/events/handler/item/TestItemAutoAnalysisRunner.java b/src/main/java/com/epam/ta/reportportal/core/events/handler/item/TestItemAutoAnalysisRunner.java
-index 2013b6c..3222af9 100644
+index 2013b6ccf..3222af9f8 100644
 --- a/src/main/java/com/epam/ta/reportportal/core/events/handler/item/TestItemAutoAnalysisRunner.java
 +++ b/src/main/java/com/epam/ta/reportportal/core/events/handler/item/TestItemAutoAnalysisRunner.java
 @@ -16,25 +16,63 @@

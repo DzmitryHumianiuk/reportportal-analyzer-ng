@@ -36,6 +36,14 @@ New AMQP routing key **`analyze_item_early`**. Same body as `analyze` (a list of
 inline), same reply shape (a list of `AnalysisResult`). The exchange is a
 fanout, so no broker changes are needed.
 
+How the reply travels depends on the service-api generation, and the analyzer
+follows the sender's signal: a request carrying `reply_to` gets an RPC reply
+(service-api 5.15.2 and older), a fire-and-forget request (service-api 5.15.3+)
+gets its non-empty results published to the reply exchange the service-api
+declares and consumes (`analyzer-reply` / routing key `analysis.matches`,
+analyzer settings `amqp_result_exchange` / `amqp_result_routing_key`). The
+`analyze` route follows the same rule.
+
 For every item in the payload the handler runs the same singleton pipeline the
 `suggest` route already uses (signature, singleton group, `_decide`), then
 applies the policy gate:
