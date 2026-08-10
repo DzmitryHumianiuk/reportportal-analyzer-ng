@@ -1,5 +1,13 @@
 # service-api 5.15.2 — early per-item auto-analysis trigger
 
+> **Does NOT apply to service-api 5.15.3** (released 2026-08-04). Upstream
+> reworked the analyzer client area: auto-analysis results now flow through an
+> async consumer (`AnalysisResultConsumer` / `AnalysisResultHandler`, ~250 new
+> lines; `AnalyzerServiceImpl` lost ~165). Rebasing this patch means porting
+> the early-item trigger onto that consumer model, not fixing hunks. The
+> sibling `warn-context-forward` patch still applies clean on 5.15.3. The
+> stand stays on patched 5.15.2 until the rebase is done.
+
 The ReportPortal half of early per-item auto-analysis (`docs/EARLY-ITEM-AA.md`
 in this repo). With this patch, a test item that finishes as FAILED while its
 launch is still running is auto-analyzed a few seconds later, whenever auto
