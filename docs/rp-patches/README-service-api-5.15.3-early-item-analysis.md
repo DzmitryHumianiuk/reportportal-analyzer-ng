@@ -28,10 +28,18 @@ The patch also makes the launch-finish analyze request carry
 - Needs analyzer-ng with the `analyze_item_early` route AND the result-queue
   publishing (mk34+); on older analyzers the 5.15.3 service-api applies no
   analyze results at all, launch-finish included
-- Debugging note: `ProjectConfigDelegatingSubscriber` swallows every handler
-  exception at DEBUG. When the early pass is silent for no visible reason, set
-  `LOGGING_LEVEL_COM_EPAM_TA_REPORTPORTAL_CORE_EVENTS_SUBSCRIBER=DEBUG` on the
-  api deployment and read the "Error while processing event" lines.
+- The patch also fixes the failure mode it was debugged through: stock
+  `ProjectConfigDelegatingSubscriber` swallows every handler exception at
+  DEBUG with no stack trace, so a failed early pass looks identical to one
+  that never fired. Patched builds log the handler and event names with the
+  stack trace at ERROR (one handler failing still does not stop the others).
+  On stock builds the old workaround is
+  `LOGGING_LEVEL_COM_EPAM_TA_REPORTPORTAL_CORE_EVENTS_SUBSCRIBER=DEBUG`.
+- Operational note (any 5.15.x): the reporting queues are per-instance
+  auto-delete (`q.reporting.<instance>.N`). With a RollingUpdate deployment
+  the new pod can subscribe to the dying pod's queues and lose them when it
+  exits, leaving reporting with no queues until the next restart. Run the api
+  deployment with `strategy: Recreate` (the stand does now).
 
 ## What it changes
 
@@ -77,7 +85,8 @@ The patch makes four changes, all inside that existing shape:
    event can be processed after the launch already finished).
 
 Files touched: `TestItemAutoAnalysisRunner`, `AnalyzerService(+Impl)`,
-`AnalyzerServiceClient(+Impl)`, `LaunchPreparerServiceImpl`, and the new
+`AnalyzerServiceClient(+Impl)`, `LaunchPreparerServiceImpl`,
+`ProjectConfigDelegatingSubscriber` (error visibility), and the new
 `IndexLaunchNg` model class. No schema or API changes; replies reuse the
 stock apply-label path, so early labels look exactly like normal auto-analysis
 labels (`autoAnalyzed=true`) and can be revised by the launch-finish pass.

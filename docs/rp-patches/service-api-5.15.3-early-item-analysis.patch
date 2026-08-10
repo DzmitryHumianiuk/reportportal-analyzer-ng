@@ -463,3 +463,22 @@ index 2013b6ccf..3222af9f8 100644
 +            at.getValue()) && at.isSystem());
    }
  }
+diff --git a/src/main/java/com/epam/ta/reportportal/core/events/subscriber/impl/delegate/ProjectConfigDelegatingSubscriber.java b/src/main/java/com/epam/ta/reportportal/core/events/subscriber/impl/delegate/ProjectConfigDelegatingSubscriber.java
+index fdcdb9687..82343a39d 100644
+--- a/src/main/java/com/epam/ta/reportportal/core/events/subscriber/impl/delegate/ProjectConfigDelegatingSubscriber.java
++++ b/src/main/java/com/epam/ta/reportportal/core/events/subscriber/impl/delegate/ProjectConfigDelegatingSubscriber.java
+@@ -50,7 +50,13 @@ public class ProjectConfigDelegatingSubscriber<T extends ProjectIdAwareEvent> im
+       try {
+         h.handle(event, projectConfig);
+       } catch (Exception e) {
+-        LOGGER.debug("Error while processing event: " + e.getMessage());
++        // analyzer-ng: a failed handler used to disappear at DEBUG with no
++        // stack trace, which hides real failures (an early-analysis pass that
++        // silently does nothing looks identical to one that never fired). One
++        // handler failing must still not stop the others, so the catch stays;
++        // the failure is simply visible now.
++        LOGGER.error("Event handler {} failed for event {}: {}",
++            h.getClass().getSimpleName(), event.getClass().getSimpleName(), e.getMessage(), e);
+       }
+     });
+   }
