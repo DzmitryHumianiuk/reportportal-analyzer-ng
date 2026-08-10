@@ -1,13 +1,13 @@
 diff --git a/app/Dockerfile.ng b/app/Dockerfile.ng
 new file mode 100644
-index 000000000..278a8689a
+index 000000000..ef23dae28
 --- /dev/null
 +++ b/app/Dockerfile.ng
 @@ -0,0 +1,5 @@
 +# Thin overlay: analyzer-ng Make Decision suggestion-card patch on top of the
-+# stock service-ui 5.15.3 image. The host-built `build/` dir is copied over the
-+# nginx docroot; buildInfo.json is preserved from the base (footer stays 5.15.3).
-+FROM reportportal/service-ui:5.15.3
++# stock service-ui 5.15.4 image. The host-built `build/` dir is copied over the
++# nginx docroot; buildInfo.json is preserved from the base (footer stays 5.15.4).
++FROM reportportal/service-ui:5.15.4
 +COPY build/ /usr/share/nginx/html/
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/__fixtures__/quoteMasking.json b/app/src/pages/inside/stepPage/modals/makeDecisionModal/__fixtures__/quoteMasking.json
 new file mode 100644

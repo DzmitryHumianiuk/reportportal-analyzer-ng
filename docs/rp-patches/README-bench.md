@@ -1,4 +1,4 @@
-# service-ui 5.15.3 — the "Bench" Make Decision redesign
+# service-ui 5.15.4 — the "Bench" Make Decision redesign
 
 Reworks ReportPortal's **Make Decision** modal into the **Bench**: a light, plain-English
 triage surface driven by analyzer-ng's live data. It supersedes the suggestions-tab
@@ -9,8 +9,16 @@ parsing intact. This is an **RP-side** change (the user owns the stand).
 > `gpos-*` / `lens-*` deliberation docs and HTML mockups). Those are kept out of
 > the public repo; only the patch and its evidence ship here.
 
-- Patch: [`service-ui-5.15.3-bench.patch`](./service-ui-5.15.3-bench.patch)
-- Built image: `reportportal/service-ui:5.15.3-ng74`
+- Patch: [`service-ui-5.15.4-bench.patch`](./service-ui-5.15.4-bench.patch)
+- Built image: `reportportal/service-ui:5.15.4-ng75`
+
+**ng75 — rebased on the upstream 5.15.4 release.** Upstream 5.15.3..5.15.4
+brings stored-XSS hardening for user HTML (`sanitizeUserHtml` +
+`markdownViewer`, which also covers the comments the Bench renders), an HSTS
+header in nginx, CHC widget Owner grouping, and attribute editor fixes. The
+merge is conflict-free: none of the bench-patched files changed upstream. The
+branch is `analyzer-ng/5.15.4-bench`; the patch applies to a clean `5.15.4`
+checkout and the thin overlay now builds on the stock `5.15.4` image.
 
 **ng73 to ng74 — the group offer comes from the representative, not a dead
 endpoint.** The by-cluster suggest endpoint is a dead letter against
