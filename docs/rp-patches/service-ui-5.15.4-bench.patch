@@ -4899,10 +4899,10 @@ index 000000000..80b38dd53
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 000000000..b4371162a
+index 000000000..a08d2f13b
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2398 @@
+@@ -0,0 +1,2392 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -4918,6 +4918,10 @@ index 000000000..b4371162a
 + * See the License for the specific language governing permissions and
 + * limitations under the License.
 + */
++
++/* stylelint-disable color-no-hex -- The RP Design System 6 token palette below
++   is quoted verbatim from the design source (mockup-bench-rp.html :root); hex
++   is the tokens' native format and every color in this file flows from them. */
 +
 +/*
 + * The Bench — RP Design System 6 (light) re-skin of the Make Decision modal.
@@ -5252,14 +5256,14 @@ index 000000000..b4371162a
 +      font-size: 12.5px;
 +      color: var(--rp-almost-black);
 +      white-space: pre-wrap;
-+      word-break: break-word;
++      overflow-wrap: anywhere;
 +    }
 +    .fp-sub {
 +      font-family: var(--rp-mono);
 +      font-size: 11.5px;
 +      color: var(--rp-e-400);
 +      margin-top: 2px;
-+      word-break: break-word;
++      overflow-wrap: anywhere;
 +    }
 +    .fp-solo {
 +      margin-top: 4px;
@@ -5298,7 +5302,7 @@ index 000000000..b4371162a
 +        line-height: 18px;
 +        color: var(--rp-charcoal);
 +        white-space: pre-wrap;
-+        word-break: break-word;
++        overflow-wrap: anywhere;
 +      }
 +      .logrow.star {
 +        color: var(--rp-yellow-700);
@@ -5488,20 +5492,6 @@ index 000000000..b4371162a
 +    .story-head .defect-pill.mini {
 +      transform: translateY(2px);
 +    }
-+    .ai-body {
-+      .rich-item {
-+        color: var(--rp-topaz);
-+        white-space: nowrap;
-+      }
-+      .rich-pill {
-+        display: inline-flex;
-+        vertical-align: baseline;
-+
-+        .defect-pill.mini {
-+          transform: translateY(2px);
-+        }
-+      }
-+    }
 +    // Provenance tag, reused by both the story caprow and the AI caprow.
 +    .src-tag {
 +      font-size: 10.5px;
@@ -5636,6 +5626,19 @@ index 000000000..b4371162a
 +      -webkit-line-clamp: 3;
 +      -webkit-box-orient: vertical;
 +      overflow: hidden;
++
++      .rich-item {
++        color: var(--rp-topaz);
++        white-space: nowrap;
++      }
++      .rich-pill {
++        display: inline-flex;
++        vertical-align: baseline;
++
++        .defect-pill.mini {
++          transform: translateY(2px);
++        }
++      }
 +    }
 +    .ai-more {
 +      background: none;
@@ -5658,6 +5661,8 @@ index 000000000..b4371162a
 +    padding: 16px 24px;
 +  }
 +  .region-head {
++    // Positioning context for the bulk story banner's corner Inspector link.
++    position: relative;
 +    display: flex;
 +    align-items: center;
 +    gap: 10px;
@@ -5768,10 +5773,6 @@ index 000000000..b4371162a
 +        box-shadow: 0 0 0 2px var(--rp-topaz-focused);
 +      }
 +    }
-+    &.empty {
-+      cursor: default;
-+    }
-+
 +    // Mockup parity: the compare-source card carries a topaz focus ring while
 +    // its compare view is open (mockup-bench-rp.html .check.focus).
 +    &.focus {
@@ -5925,6 +5926,7 @@ index 000000000..b4371162a
 +      }
 +    }
 +    &.empty {
++      cursor: default;
 +      opacity: 0.75;
 +      border-style: dashed;
 +      box-shadow: none;
@@ -6156,7 +6158,6 @@ index 000000000..b4371162a
 +        -webkit-box-orient: vertical;
 +        overflow: hidden;
 +        overflow-wrap: anywhere;
-+        word-break: break-word;
 +      }
 +      .dd {
 +        margin-top: 4px;
@@ -6254,7 +6255,7 @@ index 000000000..b4371162a
 +      line-height: 19px;
 +      color: var(--rp-charcoal);
 +      white-space: pre-wrap;
-+      word-break: break-word;
++      overflow-wrap: anywhere;
 +
 +      &.clamp {
 +        display: -webkit-box;
@@ -6439,7 +6440,7 @@ index 000000000..b4371162a
 +      padding: 1px 4px;
 +      border-radius: 2px;
 +      white-space: pre-wrap;
-+      word-break: break-word;
++      overflow-wrap: anywhere;
 +      position: relative;
 +
 +      &.same {
@@ -7102,33 +7103,10 @@ index 000000000..b4371162a
 +      color: var(--rp-charcoal);
 +    }
 +  }
-+}
 +
-+@keyframes benchScopePulse {
-+  0% {
-+    box-shadow: 0 0 0 0 rgba(0, 176, 209, 0.55);
-+  }
-+  60% {
-+    box-shadow: 0 0 0 6px rgba(0, 176, 209, 0);
-+  }
-+  100% {
-+    box-shadow: 0 0 0 0 rgba(0, 176, 209, 0);
-+  }
-+}
-+
-+@keyframes benchLinePulse {
-+  0% {
-+    background: rgba(0, 176, 209, 0.3);
-+  }
-+  100% {
-+    background: transparent;
-+  }
-+}
-+
-+// ---- bulk Bench: the light surface for a multi-select Edit Defects call ----
-+// Same tokens, same bands; the per-item anatomy is replaced by the selection
-+// list and (single-cluster selections only) the analyzer offer rows.
-+.bench-modal {
++  // ---- bulk Bench: the light surface for a multi-select Edit Defects call ----
++  // Same tokens, same bands; the per-item anatomy is replaced by the selection
++  // list and (single-cluster selections only) the analyzer offer rows.
 +  .bulk-list {
 +    .bl-cap {
 +      font-size: 10px;
@@ -7193,12 +7171,6 @@ index 000000000..b4371162a
 +      overflow: hidden;
 +      text-overflow: ellipsis;
 +    }
-+  }
-+
-+  // The bulk story banner carries an absolutely-positioned corner link; the
-+  // head must be its positioning context or the link escapes to the modal edge.
-+  .region-head {
-+    position: relative;
 +  }
 +
 +  .bl-group-line {
@@ -7301,6 +7273,28 @@ index 000000000..b4371162a
 +    }
 +  }
 +}
++
++@keyframes benchScopePulse {
++  0% {
++    box-shadow: 0 0 0 0 rgba(0, 176, 209, 0.55);
++  }
++  60% {
++    box-shadow: 0 0 0 6px rgba(0, 176, 209, 0);
++  }
++  100% {
++    box-shadow: 0 0 0 0 rgba(0, 176, 209, 0);
++  }
++}
++
++@keyframes benchLinePulse {
++  0% {
++    background: rgba(0, 176, 209, 0.3);
++  }
++  100% {
++    background: transparent;
++  }
++}
++
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bulkBench.jsx
 new file mode 100644
 index 000000000..0188e0199
@@ -8812,10 +8806,10 @@ index f3ff2925b..527764f01 100644
  };
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.scss
 new file mode 100644
-index 000000000..c4edeec0f
+index 000000000..d215688ea
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/makeDecisionModal.scss
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,98 @@
 +/*!
 + * Copyright 2025 EPAM Systems
 + *
@@ -8907,7 +8901,9 @@ index 000000000..c4edeec0f
 +  max-width: 1240px;
 +  min-height: 320px;
 +  margin: 0 auto 10px auto;
++  /* stylelint-disable-next-line color-no-hex -- RP DS6 token --rp-bg-000 (bench palette) */
 +  background: #ffffff;
++  /* stylelint-disable-next-line color-no-hex -- RP DS6 token --rp-e-100 (bench palette) */
 +  border: 1px solid #e3e7ec;
 +  border-radius: 16px;
 +  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.15);
@@ -10267,7 +10263,7 @@ index 11f5ec06c..2d841a5b2 100644
  };
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.scss
 new file mode 100644
-index 000000000..6778c5bcb
+index 000000000..64f61adea
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/tabs/machineLearningSuggestions/machineLearningSuggestions.scss
 @@ -0,0 +1,81 @@
@@ -10345,7 +10341,7 @@ index 000000000..6778c5bcb
 +    font-size: 13px;
 +    line-height: 18px;
 +    white-space: pre-wrap;
-+    word-break: break-word;
++    overflow-wrap: anywhere;
 +  }
 +}
 +
