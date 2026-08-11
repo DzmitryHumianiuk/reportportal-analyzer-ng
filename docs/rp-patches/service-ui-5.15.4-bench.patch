@@ -1988,10 +1988,10 @@ index 000000000..60661c00c
 +});
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
 new file mode 100644
-index 000000000..66b52da69
+index 000000000..ca734df64
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
-@@ -0,0 +1,2935 @@
+@@ -0,0 +1,2971 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -2569,6 +2569,10 @@ index 000000000..66b52da69
 +  // keeps focus, and the first Enter flips Chrome into keyboard mode, painting
 +  // a focus ring on that stale card next to the armed ring on another.
 +  const cardRefs = useRef({});
++  // Counts apply ATTEMPTS made while there is nothing to apply (the armed
++  // verdict equals the saved one). Each attempt re-keys the recap line so its
++  // fading highlight restarts: the answer to the press is the line lighting up.
++  const [savedPulse, setSavedPulse] = useState(0);
 +  const keyCtx = useRef({});
 +  useEffect(() => {
 +    keyCtx.current = {
@@ -2580,6 +2584,9 @@ index 000000000..66b52da69
 +      modalHasChanges,
 +      onApply,
 +      enterLeanRow,
++      alreadySaved:
++        !!(verdictProv && verdictProv.chosen && currentIssue.issueType) && !modalHasChanges,
++      pulseSaved: () => setSavedPulse((n) => n + 1),
 +      armViaEnter: (row) => {
 +        keyupSinceArm.current = false;
 +        adoptClassical(row);
@@ -2647,6 +2654,9 @@ index 000000000..66b52da69
 +        if (c.modalHasChanges && keyupSinceArm.current) {
 +          e.preventDefault();
 +          c.onApply();
++        } else if (c.alreadySaved && keyupSinceArm.current) {
++          e.preventDefault();
++          c.pulseSaved();
 +        }
 +        return;
 +      }
@@ -2663,6 +2673,14 @@ index 000000000..66b52da69
 +          e.preventDefault();
 +          c.onApply();
 +        }
++        return;
++      }
++      if (c.alreadySaved && keyupSinceArm.current) {
++        // The apply step of the two-step Enter, with nothing to apply: the
++        // recap line already says why, this press makes it light up briefly so
++        // the answer is visibly tied to the key.
++        e.preventDefault();
++        c.pulseSaved();
 +        return;
 +      }
 +      if (c.enterLeanRow) {
@@ -4077,6 +4095,7 @@ index 000000000..66b52da69
 +    // This is verdict 6.4's deferred "already saved" no-op case, now spoken.
 +    recap = {
 +      warn: false,
++      saved: true,
 +      text: formatMessage(messages.benchRecapAlreadySaved, {
 +        type: defectName(currentIssue.issueType),
 +      }),
@@ -4878,20 +4897,37 @@ index 000000000..66b52da69
 +            <button type="button" className={cx('btn', 'btn-ghost')} onClick={onCancel}>
 +              {formatMessage(COMMON_LOCALE_KEYS.CANCEL)}
 +            </button>
-+            <button
-+              type="button"
-+              className={cx('btn', 'btn-teal')}
-+              disabled={!modalHasChanges}
-+              onClick={onApply}
++            <span
++              className={cx('apply-wrap')}
++              onClick={() => {
++                if (!modalHasChanges && recap && recap.saved) {
++                  setSavedPulse((n) => n + 1);
++                }
++              }}
 +            >
-+              {formatMessage(
-+                modalState.issueActionType ? messages.applyAndContinue : messages.apply,
-+              )}
-+            </button>
++              <button
++                type="button"
++                className={cx('btn', 'btn-teal')}
++                disabled={!modalHasChanges}
++                onClick={onApply}
++              >
++                {formatMessage(
++                  modalState.issueActionType ? messages.applyAndContinue : messages.apply,
++                )}
++              </button>
++            </span>
 +          </div>
 +        </div>
 +        {recap && (
-+          <div className={cx('vb-recap', { warn: recap.warn, strong: recap.strong })}>
++          <div
++            key={recap.saved ? `saved-${savedPulse}` : 'recap'}
++            className={cx('vb-recap', {
++              warn: recap.warn,
++              strong: recap.strong,
++              saved: recap.saved,
++              pulse: recap.saved && savedPulse > 0,
++            })}
++          >
 +            {recap.text}
 +          </div>
 +        )}
@@ -4929,10 +4965,10 @@ index 000000000..66b52da69
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 000000000..f1e82acef
+index 000000000..aaf6c0094
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2396 @@
+@@ -0,0 +1,2433 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -7048,6 +7084,16 @@ index 000000000..f1e82acef
 +        font-size: 12px;
 +      }
 +    }
++    .apply-wrap {
++      display: inline-flex;
++
++      // A disabled button swallows the click; letting it pass through to the
++      // wrapper is what turns a dead press into the recap flash.
++      .btn:disabled {
++        pointer-events: none;
++      }
++    }
++
 +    .commit-actions {
 +      display: flex;
 +      align-items: center;
@@ -7087,6 +7133,33 @@ index 000000000..f1e82acef
 +      &.strong {
 +        color: #b34700;
 +        font-weight: 600;
++      }
++      // The already-saved no-op line sits under the Apply corner it answers
++      // for, and an apply attempt with nothing to apply relights it once: the
++      // fading highlight ties the press to the explanation. No loop; one beat
++      // per attempt, and none at all for reduced motion.
++      &.saved {
++        text-align: right;
++        border-radius: 6px;
++        padding: 3px 8px;
++        margin-right: -8px;
++      }
++      &.saved.pulse {
++        animation: bench-saved-flash 900ms ease-out 1;
++      }
++      @media (prefers-reduced-motion: reduce) {
++        &.saved.pulse {
++          animation: none;
++        }
++      }
++    }
++
++    @keyframes bench-saved-flash {
++      0% {
++        background: var(--rp-topaz-100);
++      }
++      100% {
++        background: transparent;
 +      }
 +    }
 +    // the footer InfoBlock re-parented as the recap's expandable detail
