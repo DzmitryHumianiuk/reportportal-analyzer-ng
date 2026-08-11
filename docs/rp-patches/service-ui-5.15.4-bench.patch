@@ -1988,10 +1988,10 @@ index 000000000..60661c00c
 +});
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
 new file mode 100644
-index 000000000..80b38dd53
+index 000000000..66b52da69
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.jsx
-@@ -0,0 +1,2905 @@
+@@ -0,0 +1,2935 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -2564,6 +2564,11 @@ index 000000000..80b38dd53
 +  // single gesture (risk R2): the arming press sets it false, the next keyup
 +  // restores it, and only then can the apply step run.
 +  const keyupSinceArm = useRef(true);
++  // DOM nodes of the two classical cards, so an Enter-arm can move the browser
++  // focus onto the card it armed. Without this the card the user last CLICKED
++  // keeps focus, and the first Enter flips Chrome into keyboard mode, painting
++  // a focus ring on that stale card next to the armed ring on another.
++  const cardRefs = useRef({});
 +  const keyCtx = useRef({});
 +  useEffect(() => {
 +    keyCtx.current = {
@@ -2578,6 +2583,12 @@ index 000000000..80b38dd53
 +      armViaEnter: (row) => {
 +        keyupSinceArm.current = false;
 +        adoptClassical(row);
++        // Focus follows arming: the ring and the focus outline land on the
++        // same card, and the card clicked earlier drops its stale outline.
++        const node = cardRefs.current[row.band === BANDS.AUTO ? 'past' : 'similar'];
++        if (node) {
++          node.focus({ preventScroll: true });
++        }
 +      },
 +      closeCompare,
 +      closePicker: () => setPickerOpen(false),
@@ -3395,6 +3406,9 @@ index 000000000..80b38dd53
 +              focus: compare && compare === precedentRow,
 +              armed: armedCard === 'past',
 +            })}
++            ref={(node) => {
++              cardRefs.current.past = node;
++            }}
 +            role="button"
 +            tabIndex={0}
 +            onClick={armOnCardClick(() => adoptClassical(precedentRow))}
@@ -3449,6 +3463,9 @@ index 000000000..80b38dd53
 +              armed: armedCard === 'similar',
 +              'armed-unbacked': armedCard === 'similar' && similarUnbacked,
 +            })}
++            ref={(node) => {
++              cardRefs.current.similar = node;
++            }}
 +            role="button"
 +            tabIndex={0}
 +            onClick={armOnCardClick(() => adoptClassical(topSuggest))}
@@ -4051,6 +4068,19 @@ index 000000000..80b38dd53
 +      warn = Math.max(warn, 1);
 +    }
 +    recap = { warn: warn > 0, strong: warn >= 2, text: frags.join(' ') };
++  } else if (verdictProv && verdictProv.chosen && currentIssue.issueType) {
++    // The armed verdict is identical to what the item already carries (same
++    // type, same comment, no group scope, no issue action), so the commit gate
++    // honestly disables Apply. Without this line the gate reads as a broken
++    // Enter key: on an early-decided item the Past decision card offers exactly
++    // what the early pass already applied, and both Enter steps end in silence.
++    // This is verdict 6.4's deferred "already saved" no-op case, now spoken.
++    recap = {
++      warn: false,
++      text: formatMessage(messages.benchRecapAlreadySaved, {
++        type: defectName(currentIssue.issueType),
++      }),
++    };
 +  }
 +
 +  const toggleTi = () => setTiOn((v) => !v);
@@ -4899,10 +4929,10 @@ index 000000000..80b38dd53
 +};
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
 new file mode 100644
-index 000000000..a08d2f13b
+index 000000000..f1e82acef
 --- /dev/null
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/bench/bench.scss
-@@ -0,0 +1,2392 @@
+@@ -0,0 +1,2396 @@
 +/*
 + * Copyright 2025 EPAM Systems
 + *
@@ -5767,10 +5797,14 @@ index 000000000..a08d2f13b
 +        border-color: var(--rp-e-300);
 +        box-shadow: var(--rp-shadow-hover, 0 1px 3px rgba(9, 30, 66, 0.2));
 +      }
++      // Keyboard focus must read as focus, not as a made choice: the armed
++      // ring is a solid topaz halo, so the focus indicator is a thin dashed
++      // outline held off the card edge. Before this they were identical, and a
++      // card that kept browser focus after a click wore a second "armed" ring
++      // the moment Enter flipped Chrome into keyboard mode.
 +      &:focus-visible {
-+        outline: none;
-+        border-color: var(--rp-topaz);
-+        box-shadow: 0 0 0 2px var(--rp-topaz-focused);
++        outline: 2px dashed var(--rp-topaz);
++        outline-offset: 3px;
 +      }
 +    }
 +    // Mockup parity: the compare-source card carries a topaz focus ring while
@@ -8980,10 +9014,10 @@ index 9c6b6dafa..1f85b26ca 100644
      display: flex;
    }
 diff --git a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-index 34cfec56e..3cf21ca15 100644
+index 34cfec56e..a1c6a417f 100644
 --- a/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
 +++ b/app/src/pages/inside/stepPage/modals/makeDecisionModal/messages.js
-@@ -266,4 +266,1171 @@ export const messages = defineMessages({
+@@ -266,4 +266,1175 @@ export const messages = defineMessages({
      id: 'MakeDecisionModal.defectReplaceWith',
      defaultMessage: 'The defect type will be changed to',
    },
@@ -9927,6 +9961,10 @@ index 34cfec56e..3cf21ca15 100644
 +    defaultMessage: 'comment kept from your edit',
 +  },
 +  // Recap
++  benchRecapAlreadySaved: {
++    id: 'MakeDecisionModal.benchRecapAlreadySaved',
++    defaultMessage: '{type} is already saved on this test. Nothing to apply.',
++  },
 +  benchRecapThisItem: {
 +    id: 'MakeDecisionModal.benchRecapThisItem',
 +    defaultMessage: 'This will be applied to this item.',
