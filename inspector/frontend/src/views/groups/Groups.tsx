@@ -19,6 +19,7 @@ import type { GroupNode, GroupsResponse, Launch, LaunchGroup } from '../../app/t
 import { Card, ChipLink, EChart, EmptyState, Loading, RpIcon } from '../../components';
 import { ACCENT, HAIRLINE, INK, INK2 } from '../../lib/colors';
 import { fmt } from '../../lib/format';
+import { esc, safeUrl } from '../../lib/html';
 import { defectColor, defectInfo, defectName, setDefects } from '../../lib/labels';
 import './groups.css';
 
@@ -38,34 +39,14 @@ function nodeLabelText(n: GroupNode): string {
   return info && info.name ? `${info.name} (${n.issue_type})` : n.issue_type;
 }
 
-const HTML_ESCAPES: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;',
-};
-
-/**
- * An ECharts tooltip formatter result is injected as HTML, so every
- * API-provided string in it must be escaped first (item names and RP URLs are
- * untrusted input).
- */
-function esc(value: unknown): string {
-  return String(value ?? '').replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
-}
-
-/** Only real http(s) or same-origin links become anchors — never `javascript:`. */
-function safeUrl(url?: string | null): string | null {
-  if (!url) return null;
-  const trimmed = String(url).trim();
-  return /^(https?:\/\/|\/|\.{1,2}\/)/i.test(trimmed) ? trimmed : null;
-}
+// An ECharts tooltip formatter result is injected as HTML, so every
+// API-provided value in it is escaped first and only allow-listed links become
+// anchors (item names and RP URLs are untrusted input) — see src/lib/html.ts.
 
 function nodeTip(n: GroupNode): string {
   const url = safeUrl(n.ui_url);
   const id = url
-    ? `<a href="${esc(url)}" target="_blank" rel="noopener" style="color:${INK}">item ${n.item_id} ↗</a>`
+    ? `<a href="${esc(url)}" target="_blank" rel="noopener" style="color:${INK}">item ${esc(n.item_id)} ↗</a>`
     : `item ${esc(n.item_id)}`;
   const lines = [`<b>${id}</b>`];
   if (n.name) lines.push(esc(n.name));

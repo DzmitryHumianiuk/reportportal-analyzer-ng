@@ -16,6 +16,7 @@ import { RpIcon } from '../../components/RpIcon';
 import { HAIRLINE, INK, MUTED } from '../../lib/colors';
 import { echartsBase } from '../../lib/echartsTheme';
 import { fmt, pct } from '../../lib/format';
+import { esc, safeUrl } from '../../lib/html';
 import { defectColor, defectInfo, defectName, setDefects } from '../../lib/labels';
 import './modes.css';
 
@@ -28,26 +29,8 @@ const HEIGHT_FULLSCREEN = 'calc(100vh - 24px)';
 // Tooltip HTML
 // --------------------------------------------------------------------------- //
 
-// ECharts tooltips are rendered as HTML, so every value taken from the API is
-// escaped here. This is the app's XSS boundary for chart hovers: the text a
-// user sees is unchanged, but markup inside a test-item name stays inert.
-const ESCAPES: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;',
-};
-
-function esc(value: unknown): string {
-  return String(value ?? '').replace(/[&<>"']/g, (c) => ESCAPES[c]);
-}
-
-/** Only real web links become anchors; anything else degrades to plain text. */
-function safeUrl(url: unknown): string | null {
-  const s = String(url ?? '');
-  return /^https?:\/\//i.test(s) ? s : null;
-}
+// ECharts tooltips are rendered as HTML, so every value taken from the API goes
+// through esc() and every link through safeUrl() — see src/lib/html.ts.
 
 function labelText(locator?: string | null, group?: string | null): string {
   if (!locator) return defectName(null, group);

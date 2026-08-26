@@ -77,7 +77,26 @@ def test_hashed_assets_are_cached_forever(tmp_path: Path) -> None:
     assert "immutable" in resp.headers["cache-control"]
 
 
-def test_api_still_wins_over_the_spa(tmp_path: Path) -> None:
+def test_hashed_assets_are_cached_forever_behind_the_ingress_prefix(tmp_path: Path) -> None:
+    # Same asset, reached through the /inspector mount the ingress uses. The
+    # middleware must still recognise it, so the prefix cannot cost caching.
+    client = TestClient(create_app(_config(_fake_dist(tmp_path), root_path="/inspector")))
+    resp = client.get(f"/inspector/assets/{ASSET_NAME}")
+    assert resp.status_code == 200
+    assert "immutable" in resp.headers["cache-control"]
+
+
+def test_a_missing_asset_is_not_cached_forever(tmp_path: Path) -> None:
+    # A rolling deploy can send a request for a new chunk to an old pod, which
+    # answers 404. Caching that 404 for a year would break the page for that
+    # browser long after the deploy finished.
+    client = TestClient(create_app(_config(_fake_dist(tmp_path))))
+    resp = client.get("/assets/index-deadbeef.js")
+    assert resp.status_code == 404
+    assert "immutable" not in resp.headers.get("cache-control", "")
+
+
+def test_healthz_is_served_next_to_the_spa(tmp_path: Path) -> None:
     client = TestClient(create_app(_config(_fake_dist(tmp_path))))
     resp = client.get("/healthz")
     assert resp.status_code == 200

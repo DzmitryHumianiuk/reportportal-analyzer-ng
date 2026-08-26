@@ -188,6 +188,35 @@ describe('Learning Loop', () => {
     expect(html).toContain('human_ui');
   });
 
+  it('links the tooltip item only for a real web link', async () => {
+    mockApi({ timeline: timeline(), 'analyzer-health': { configured: false } });
+    const { container } = await renderWithApp(<Loop />, { hash: '#view=loop&project=1' });
+
+    await screen.findByText('No daily metrics');
+    await waitFor(() => {
+      expect(container.querySelectorAll('.chart').length).toBe(1);
+      expect(charts.lastOption()).not.toBeNull();
+    });
+    const format = (charts.lastOption() as CapturedOption).tooltip?.formatter;
+
+    const linked = format?.({ data: { meta: LABEL_EVENTS[0] } }) ?? '';
+    expect(linked).toContain(`href="${LABEL_EVENTS[0].ui_url}"`);
+    expect(linked).toContain('item 11 ↗');
+
+    // A script URL never becomes an anchor — the id degrades to plain text.
+    const script = { ...LABEL_EVENTS[0], item_id: 99, ui_url: 'javascript:alert(1)' };
+    const html = format?.({ data: { meta: script } }) ?? '';
+    expect(html).not.toContain('<a ');
+    expect(html).not.toContain('javascript:');
+    expect(html).toContain('item 99');
+
+    // ...and an injected tag in a text value stays inert.
+    const tagged = { ...LABEL_EVENTS[0], source: '<img src=x onerror=alert(1)>' };
+    const escaped = format?.({ data: { meta: tagged } }) ?? '';
+    expect(escaped).not.toContain('<img');
+    expect(escaped).toContain('&lt;img src=x onerror=alert(1)&gt;');
+  });
+
   it('lists the newest label-event transitions with RP links', async () => {
     mockApi({ timeline: timeline(), 'analyzer-health': { configured: false } });
     const { container } = await renderWithApp(<Loop />, { hash: '#view=loop&project=1' });

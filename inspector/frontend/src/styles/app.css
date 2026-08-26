@@ -48,6 +48,7 @@
   --surface-3:var(--rp-bg-200);
   --hairline:var(--rp-e-100);
   --hairline-2:var(--rp-e-200);
+  --line:var(--hairline);
   --ink:var(--rp-almost-black);
   --ink-2:var(--rp-charcoal);
   --muted:var(--rp-e-400);

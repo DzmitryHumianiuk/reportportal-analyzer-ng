@@ -116,7 +116,9 @@ uvicorn backend.app:app --app-dir inspector --host 0.0.0.0 --port 5005
 # open http://127.0.0.1:5005
 ```
 
-Without `dist/` the API still works, only the page at `/` is missing (404).
+Without `dist/` the API still works, only the page at `/` is missing (404). The
+backend reads `dist/` once, when the process starts, so restart uvicorn after
+every `make ui-build` to serve the new build.
 
 #### Working on the web UI
 

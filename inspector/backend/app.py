@@ -65,10 +65,15 @@ def _build_inner(cfg: Config) -> FastAPI:
     # Every file under /assets carries a content hash in its name, so a redeploy
     # changes the URL. They can be cached forever; index.html (which names them)
     # is the only thing that must stay fresh, and it sets its own no-cache below.
+    #
+    # Only a 200 gets the forever header. During a rolling deploy a browser can
+    # ask an old pod for a chunk that only the new pod has and get a 404; marking
+    # that 404 immutable would freeze it in that browser's cache for a year, so
+    # the page would stay broken after the deploy finished.
     @app.middleware("http")
     async def _cache_assets(request, call_next):  # noqa: ANN001, ANN202
         response = await call_next(request)
-        if "/assets/" in request.url.path:
+        if response.status_code == 200 and "/assets/" in request.url.path:
             response.headers["Cache-Control"] = _ASSET_CACHE_CONTROL
         return response
 

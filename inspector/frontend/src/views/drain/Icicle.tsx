@@ -12,6 +12,7 @@ import type { Template } from '../../app/types';
 import { EChart } from '../../components';
 import { INK } from '../../lib/colors';
 import { echartsBase } from '../../lib/echartsTheme';
+import { esc } from '../../lib/html';
 
 /** Fixed tree depth: Drain's own tree keys on the leading tokens too. */
 const MAX_TOKENS = 4;
@@ -219,14 +220,6 @@ export function layout(root: SumNode): IcicleCell[] {
 function truncate(s: string, n: number): string {
   const text = String(s);
   return text.length > n ? `${text.slice(0, Math.max(1, n - 1))}…` : text;
-}
-
-function esc(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 /** The slice of the ECharts custom-series render API this chart uses. */

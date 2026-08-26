@@ -18,9 +18,11 @@ LICENSE
 # NOT ignored — the overlay image copies that host-built folder.
 inspector/frontend/node_modules
 
-# Python / tooling cruft
-__pycache__/
-*.py[cod]
+# Python / tooling cruft. Patterns here are matched against the whole path from
+# the context root, not per directory the way .gitignore works, so the `**/`
+# prefix is what keeps nested caches (inspector/backend/__pycache__) out.
+**/__pycache__/
+**/*.py[cod]
 *.egg-info/
 .eggs/
 build/

@@ -91,14 +91,20 @@ export function Gauge({ confidence, tauSuggest, tauAuto, marker }: GaugeProps): 
     );
   }
 
-  const thresholds = [tauSuggest, tauAuto].filter((t): t is number => t != null);
+  // Keyed by role, not by value: a project can set tau_suggest === tau_auto, and
+  // a value key would then be a duplicate and drop one of the two chips.
+  const thresholds: Array<[string, number]> = [];
+  if (tauSuggest != null) thresholds.push(['suggest', tauSuggest]);
+  if (tauAuto != null) thresholds.push(['auto', tauAuto]);
 
   return (
     <div className="gauge-wrap">
       <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
-        {bands.map(([a, b, col]) => (
+        {/* Same reason as the chips below: with tau_suggest === tau_auto === 0
+            two bands share the same start and end, so the key is the slot. */}
+        {bands.map(([a, b, col], i) => (
           <path
-            key={`${a}-${b}`}
+            key={i}
             d={gaugeArc(CX, CY, R, a, b)}
             fill="none"
             stroke={col}
@@ -124,11 +130,11 @@ export function Gauge({ confidence, tauSuggest, tauAuto, marker }: GaugeProps): 
           confidence
         </text>
       </svg>
-      {thresholds.map((t) => {
+      {thresholds.map(([role, t]) => {
         const p = gaugePolar(CX, CY, R + 15, gaugeAngle(t));
         return (
           <span
-            key={t}
+            key={role}
             className="thresh-chip mono"
             style={{ left: `${p.x}px`, top: `${p.y}px` }}
           >

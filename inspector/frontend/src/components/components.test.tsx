@@ -259,6 +259,34 @@ describe('ViewErrorBoundary', () => {
     expect(screen.getByText('404 item not found')).toBeTruthy();
     spy.mockRestore();
   });
+
+  // App passes "view:project:refreshTick", so a project switch or a refresh
+  // gives a failed view a fresh try instead of trapping the user on the error.
+  it('clears a previous failure when the reset key changes', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let broken = true;
+    function Maybe(): JSX.Element {
+      if (broken) throw new Error('404 item not found');
+      return <div>view body</div>;
+    }
+    const { rerender } = render(
+      <ViewErrorBoundary resetKey="journey:1:0">
+        <Maybe />
+      </ViewErrorBoundary>,
+    );
+    expect(screen.getByText('Failed to load view')).toBeTruthy();
+
+    broken = false;
+    rerender(
+      <ViewErrorBoundary resetKey="journey:2:1">
+        <Maybe />
+      </ViewErrorBoundary>,
+    );
+
+    expect(screen.getByText('view body')).toBeTruthy();
+    expect(screen.queryByText('Failed to load view')).toBeNull();
+    spy.mockRestore();
+  });
 });
 
 describe('renderWithApp', () => {

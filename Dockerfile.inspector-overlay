@@ -22,6 +22,15 @@
 ARG BASE=analyzer-inspector:ins47
 FROM ${BASE}
 
+# Wipe the two folders the COPYs below replace. COPY *merges* into an existing
+# directory, it does not replace it, so without this every overlay generation
+# keeps the previous one's leftovers: old content-hashed chunks under dist/, and
+# backend .py files that were renamed or deleted in the source tree. A stale
+# module left behind can still be imported and win. Removing them here makes the
+# folders match the repo exactly. Safe as the image's `inspector` user: the base
+# image chowns all of /app to it (see inspector/Dockerfile).
+RUN rm -rf /app/frontend/dist /app/backend
+
 COPY --chown=inspector:inspector inspector/backend /app/backend
 # The SPA is built on the HOST (`make ui-build`) — npm needs DNS, which the
 # minikube VM does not have. Build through `make inspector-overlay` so the copy

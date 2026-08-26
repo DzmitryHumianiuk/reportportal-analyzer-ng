@@ -323,6 +323,19 @@ export default function Signatures() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // The pager belongs to one project. Offset 120 in a big project points past
+  // the end of a small one, so after a project switch the list would come back
+  // empty and read as "this project has no failure_signature rows yet", with no
+  // way back: the pager only renders when there are rows. Reset while
+  // rendering, so the fetch below never runs with the old project's offset.
+  // The open row needs no reset here — a project switch already drops
+  // link.hash, which collapses the expansion.
+  const [pagedProject, setPagedProject] = useState(project);
+  if (project !== pagedProject) {
+    setPagedProject(project);
+    setOffset(0);
+  }
+
   // A hash edit / back-navigation changes q under us: follow it, unless a
   // debounce is still pending (the user is typing — their draft wins).
   useEffect(() => {
@@ -402,7 +415,9 @@ export default function Signatures() {
     return () => {
       cancelled = true;
     };
-  }, [project, expanded]);
+    // refreshTick: an auto-refresh tick reloads the list, so the row opened
+    // under it has to reload too — otherwise the detail drifts from the row.
+  }, [project, expanded, refreshTick]);
 
   const toggleRow = useCallback(
     (hash: string) => {

@@ -1,9 +1,9 @@
 // IMPORTANT: test/utils must be imported first — it installs the echarts double.
 import { mockApi, mockECharts, renderWithApp } from '../../test/utils';
 
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import Drain from './Drain';
 
@@ -124,6 +124,55 @@ describe('Drain3 Explorer', () => {
     expect(screen.getByText('Nothing to tree')).toBeTruthy();
     expect(screen.getByText('No patterns to build a parse tree from.')).toBeTruthy();
     expect(screen.getByText('0 template(s)')).toBeTruthy();
+  });
+
+  it('drops the previous project from both cards while the new one loads', async () => {
+    mockECharts();
+    mockApi({
+      projects: {
+        projects: [
+          { project_id: 1, project_name: 'demo', item_count: 12, launch_count: 3 },
+          { project_id: 2, project_name: 'other', item_count: 4, launch_count: 1 },
+        ],
+        rp_status: { configured: false, reachable: false, note: 'RP names: —' },
+      },
+      templates: TEMPLATES,
+    });
+    const { container } = await renderWithApp(<Drain />, { hash: '#view=drain&project=1' });
+    await screen.findByText('3 template(s)');
+    expect(container.querySelector('.chart')).toBeTruthy();
+
+    // Hold the next templates answer open, so the loading state is observable.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const booted = fetch as unknown as (input: unknown) => Promise<unknown>;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        if (String(input).includes('api/templates')) await held;
+        return booted(input);
+      }),
+    );
+
+    act(() => {
+      window.location.hash = '#view=drain&project=2';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+
+    // Neither the icicle nor the count may keep showing project 1.
+    await waitFor(() => {
+      expect(screen.queryByText('3 template(s)')).toBeNull();
+    });
+    expect(screen.getByText('log_template mirror')).toBeTruthy();
+    expect(container.querySelector('.chart')).toBeNull();
+
+    await act(async () => {
+      release();
+      await held;
+    });
+    await screen.findByText('3 template(s)');
   });
 
   // Runs last: the filter text is module state in the original app too, so it

@@ -28,6 +28,7 @@ import {
 import { BAND, HAIRLINE, INK, INK2, MUTED, WARNING } from '../../lib/colors';
 import { echartsBase } from '../../lib/echartsTheme';
 import { fmt, pct, shortTime } from '../../lib/format';
+import { esc, safeUrl } from '../../lib/html';
 import { defectColor, defectInfo, defectName, setDefects } from '../../lib/labels';
 import './loop.css';
 
@@ -99,13 +100,6 @@ export default function Loop() {
 
 const CATS = ['pb', 'ab', 'si', 'nd', 'ti', 'none'];
 
-/** HTML-escape a value interpolated into an ECharts tooltip string. */
-const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
-
-function esc(s: string): string {
-  return String(s).replace(/[&<>"]/g, (c) => ESCAPES[c]);
-}
-
 function transitionText(locator?: string | null): string {
   if (!locator) return '';
   const info = defectInfo(locator);
@@ -115,9 +109,11 @@ function transitionText(locator?: string | null): string {
 function eventTooltip(params: unknown): string {
   const e = (params as { data?: { meta?: LabelEvent } }).data?.meta;
   if (!e) return '';
-  const id = e.ui_url
-    ? `<a href="${esc(e.ui_url)}" target="_blank" rel="noopener" style="color:${INK}">item ${esc(String(e.item_id))} ↗</a>`
-    : `item ${esc(String(e.item_id))}`;
+  // Only a real web link becomes an anchor; anything else stays plain text.
+  const url = safeUrl(e.ui_url);
+  const id = url
+    ? `<a href="${esc(url)}" target="_blank" rel="noopener" style="color:${INK}">item ${esc(e.item_id)} ↗</a>`
+    : `item ${esc(e.item_id)}`;
   const from = esc(transitionText(e.old_label)) || '(new)';
   const to = esc(transitionText(e.new_label));
   const foot = `${esc(String(e.source ?? ''))} · ${esc(shortTime(e.ts))}`;

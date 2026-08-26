@@ -21,7 +21,7 @@ const VIEWS: Record<ViewName, LazyExoticComponent<ComponentType>> = {
 };
 
 function ViewArea() {
-  const { boot, view } = useApp();
+  const { boot, view, project, refreshTick } = useApp();
 
   if (boot.status === 'loading') return <Loading />;
 
@@ -48,8 +48,10 @@ function ViewArea() {
   }
 
   const View = VIEWS[view];
+  // A failed view must get a fresh try on a view switch, a project switch and
+  // every refresh — otherwise the error state is a dead end.
   return (
-    <ViewErrorBoundary resetKey={view}>
+    <ViewErrorBoundary resetKey={`${view}:${project}:${refreshTick}`}>
       <Suspense fallback={<Loading />}>
         <View />
       </Suspense>

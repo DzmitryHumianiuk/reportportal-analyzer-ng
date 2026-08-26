@@ -41,9 +41,6 @@ function JourneyDetail({
   onNavigate: (itemId: number) => void;
 }) {
   const [active, setActive] = useState(0);
-  // The journey payload carries its own RP name map; install it before the
-  // badges below resolve their names.
-  if (d.rp) setDefects(d.rp.defects);
 
   const it = d.item;
   const stages: Array<[string, string]> = [
@@ -154,6 +151,20 @@ export default function Journey() {
   const [journeyError, setJourneyError] = useState<string | null>(null);
   const [journeyLoading, setJourneyLoading] = useState(false);
 
+  // Launch and item ids belong to one project. A project switch nulls
+  // link.launch / link.item, but the local copies still name rows of the
+  // project we just left. Retire them while rendering: an effect would be too
+  // late — the fetch effects below run in the same pass and would ask the new
+  // project for the old project's launch and item, which reads as a 404.
+  const [idProject, setIdProject] = useState(project);
+  if (project !== idProject) {
+    setIdProject(project);
+    setLaunchId(null);
+    setItemId(null);
+    setMissingItem(null);
+    pendingItem.current = null;
+  }
+
   const selectItem = useCallback(
     (id: number) => {
       setMissingItem(null);
@@ -171,12 +182,41 @@ export default function Journey() {
     [patchLink],
   );
 
+  // Picking a launch from the list starts a fresh selection. An item id armed by
+  // a permalink names an item in the launch it was seeded under, so it must not
+  // be tested against another launch's list: that turned a plain launch switch
+  // into a false "item X is not in the analyzer's index".
+  const pickLaunch = useCallback(
+    (id: number) => {
+      pendingItem.current = null;
+      setMissingItem(null);
+      selectLaunch(id);
+    },
+    [selectLaunch],
+  );
+
+  // What the link last asked for. The re-seed below must react to a real link
+  // change and nothing else; comparing against the local ids instead would
+  // re-arm an item this view has already retired.
+  const seenLink = useRef<{ launch: number | null; item: number | null }>({
+    launch: link.launch ?? null,
+    item: link.item ?? null,
+  });
+
   // A real hashchange (browser back/forward, edited URL) re-seeds the selection.
+  // A project switch sets both to null: the local ids name rows of the project
+  // we just left, so they go too. Holding on to them would fetch api/items and
+  // api/journey for ids the new project does not have and paint a 404 on the
+  // way.
   useEffect(() => {
-    if (link.launch != null && link.launch !== launchId) setLaunchId(link.launch);
-    if (link.item != null && link.item !== itemId) {
-      pendingItem.current = link.item;
-      setItemId(link.item);
+    const next = { launch: link.launch ?? null, item: link.item ?? null };
+    const prev = seenLink.current;
+    seenLink.current = next;
+    if (next.launch !== prev.launch) setLaunchId(next.launch);
+    if (next.item !== prev.item) {
+      pendingItem.current = next.item;
+      setItemId(next.item);
+      setMissingItem(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [link.launch, link.item]);
@@ -211,7 +251,12 @@ export default function Journey() {
 
   // ---- items --------------------------------------------------------------
   useEffect(() => {
-    if (project == null || launchId == null) return undefined;
+    // No launch means no item list. Clearing keeps the previous project's items
+    // from sitting under the new project's launches while they load.
+    if (project == null || launchId == null) {
+      setItems(null);
+      return undefined;
+    }
     let cancelled = false;
     setItems(null);
     setItemsError(null);
@@ -263,6 +308,9 @@ export default function Journey() {
       try {
         const data = await api.journey(project, itemId);
         if (cancelled) return;
+        // The journey payload carries its own RP name map; install it before
+        // the detail renders, so the defect badges resolve real names.
+        if (data.rp) setDefects(data.rp.defects);
         setJourney(data);
         setJourneyLoading(false);
       } catch (e) {
@@ -339,7 +387,7 @@ export default function Journey() {
                 <div
                   key={l.launch_id}
                   className={`list-item${l.launch_id === launchId ? ' active' : ''}`}
-                  onClick={() => selectLaunch(l.launch_id)}
+                  onClick={() => pickLaunch(l.launch_id)}
                 >
                   <div className="li-main">
                     <div className="li-title">{l.launch_name || `launch ${l.launch_id}`}</div>

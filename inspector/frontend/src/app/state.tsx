@@ -120,33 +120,59 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const stateRef = useRef({ view, project, link, projects });
   stateRef.current = { view, project, link, projects };
 
+  // Pending "restart the alert" timer. Kept so a fast second toast and unmount
+  // both cancel it instead of leaving a stray callback behind.
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const toast = useCallback((msg: string) => {
     // Re-toasting the same text must restart the alert, so clear first.
+    if (toastTimer.current != null) clearTimeout(toastTimer.current);
     setToastMessage(null);
-    setTimeout(() => setToastMessage(msg), 0);
+    toastTimer.current = setTimeout(() => {
+      toastTimer.current = null;
+      setToastMessage(msg);
+    }, 0);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (toastTimer.current != null) clearTimeout(toastTimer.current);
+      toastTimer.current = null;
+    },
+    [],
+  );
 
   const dismissToast = useCallback(() => setToastMessage(null), []);
 
   const refreshCounters = useCallback(async (id: number | null) => {
     if (id == null) return;
     try {
-      setCounters(await api.summary(id));
+      const payload = await api.summary(id);
+      // The user may have switched project while this was in flight.
+      if (stateRef.current.project !== id) return;
+      setCounters(payload);
     } catch {
       /* counters are best-effort */
     }
   }, []);
 
+  // Monotonic token: a slow api/rp answer for a project the user already left
+  // must never overwrite the name map of the project now on screen.
+  const rpToken = useRef(0);
+
   // Per-project ReportPortal name map (real project/defect names + colors) plus
   // an honest resolution status. Best-effort: any failure degrades to raw
   // locators and an "unavailable" note.
   const loadRp = useCallback(async (id: number) => {
+    const token = (rpToken.current += 1);
     try {
       const payload = await api.rp(id);
+      if (token !== rpToken.current) return;
       setDefects(payload.defects || {});
       setRp(payload);
       setRpStatus(payload.status || DEFAULT_RP_STATUS);
     } catch {
+      if (token !== rpToken.current) return;
       setDefects({});
       setRp(null);
       setRpStatus(UNAVAILABLE_RP_STATUS);
@@ -172,20 +198,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       stateRef.current = { view: nextView, project: projId, link: nextLink, projects: list };
 
       if (projectChanged || initial) await loadRp(projId);
+      // A newer project may have been picked while api/rp was in flight.
+      if (stateRef.current.project !== projId) return;
       writeHash(nextView, projId, nextLink);
       if (projectChanged || initial) {
         setRefreshTick((t) => t + 1);
-        await refreshCounters(projId);
+        // Counters are a topbar detail: never hold the first view paint on them.
+        void refreshCounters(projId);
       }
     },
     [loadRp, refreshCounters],
   );
 
   // ---- boot ---------------------------------------------------------------
-  const booted = useRef(false);
+  // The effect must be safely re-runnable: React StrictMode mounts, cleans up
+  // and mounts again in dev, so a "run once" guard would leave the app stuck on
+  // Loading (the first run is cancelled, the second one never starts). The only
+  // cancellation is this run's own `cancelled` flag, and the hashchange
+  // listener is attached here so the cleanup + second run re-attach it.
   useEffect(() => {
-    if (booted.current) return undefined;
-    booted.current = true;
     let cancelled = false;
 
     const onHashChange = () => {
@@ -193,6 +224,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!list.length) return;
       void applyHash(readHashParams(), list, false);
     };
+
+    // Browser back/forward + manual hash edits re-apply (replaceState never
+    // fires this). It no-ops until the project list has loaded.
+    window.addEventListener('hashchange', onHashChange);
 
     void (async () => {
       try {
@@ -207,9 +242,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await applyHash(readHashParams(), list, true);
         if (cancelled) return;
         setBoot({ status: 'ready' });
-        // Browser back/forward + manual hash edits re-apply (replaceState
-        // never fires this).
-        window.addEventListener('hashchange', onHashChange);
       } catch (e) {
         if (!cancelled) setBoot({ status: 'error', message: String((e as Error)?.message || e) });
       }
@@ -270,9 +302,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLink(next);
       void (async () => {
         await loadRp(id);
+        // Slow api/rp (the RP-unreachable case) means the user can pick another
+        // project first. Only the project still on screen may write the hash,
+        // bump the refresh tick and pull counters.
+        if (stateRef.current.project !== id) return;
         writeHash(stateRef.current.view, id, next);
         setRefreshTick((t) => t + 1);
-        await refreshCounters(id);
+        void refreshCounters(id);
       })();
     },
     [loadRp, refreshCounters],

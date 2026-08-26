@@ -5,7 +5,7 @@ import { FieldText, SearchIcon, Table } from '@reportportal/ui-kit';
 // The row/column types are only published on the per-component entry, not on
 // the package root. Type-only import, so no second module instance is pulled in.
 import type { RowData } from '@reportportal/ui-kit/table';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { api } from '../../app/api';
 import { useApp } from '../../app/state';
@@ -31,6 +31,13 @@ export default function Drain(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<Error | null>(null);
 
+  // Which project / refresh the data on screen belongs to. Switching project or
+  // hitting refresh must drop it, the way the original view did: the shell
+  // rebuilt the whole tab from scratch on both. Typing in the search box does
+  // not, also as before — the tree and the count stay put while the table
+  // reloads.
+  const shownFor = useRef('');
+
   // Debounced hand-off from the input to the request.
   useEffect(() => {
     if (text === query) return undefined;
@@ -44,6 +51,11 @@ export default function Drain(): JSX.Element {
   useEffect(() => {
     if (project == null) return undefined;
     let cancelled = false;
+    const scope = `${project}:${refreshTick}`;
+    if (shownFor.current !== scope) {
+      shownFor.current = scope;
+      setData(null);
+    }
     setLoading(true);
     api
       .templates(project, query || null)

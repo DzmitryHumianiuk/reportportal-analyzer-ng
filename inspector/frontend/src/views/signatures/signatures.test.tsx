@@ -1,10 +1,26 @@
 // IMPORTANT: test/utils must be imported first (it installs the module doubles).
 import { mockApi, renderWithApp } from '../../test/utils';
 
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { useApp } from '../../app/state';
 import Signatures from './Signatures';
+
+/** Drives the shell controls the view does not own (project pick, auto-refresh). */
+function Controls() {
+  const { setProject, setAutorefresh } = useApp();
+  return (
+    <>
+      <button type="button" onClick={() => setProject(2)}>
+        switch project
+      </button>
+      <button type="button" onClick={() => setAutorefresh(true)}>
+        auto on
+      </button>
+    </>
+  );
+}
 
 const RP = {
   project_id: 1,
@@ -256,5 +272,61 @@ describe('Signatures view', () => {
 
     fireEvent.click(next);
     await waitFor(() => expect(fetchUrls().some((u) => u.includes('offset=2'))).toBe(true));
+  });
+
+  it('starts the pager over when the project changes', async () => {
+    mockApi({ signatures: { ...SIGNATURES, count: 2, limit: 2 } });
+    const { container } = await renderWithApp(
+      <>
+        <Controls />
+        <Signatures />
+      </>,
+      { hash: '#view=signatures&project=1' },
+    );
+    await waitFor(() => expect(container.querySelectorAll('tr.sig-row').length).toBe(2));
+
+    fireEvent.click(screen.getByRole('button', { name: 'next →' }));
+    await waitFor(() => expect(fetchUrls().some((u) => u.includes('offset=2'))).toBe(true));
+
+    fireEvent.click(screen.getByText('switch project'));
+
+    // page 2 of the old project must not be asked for in the new one
+    await waitFor(() =>
+      expect(
+        fetchUrls().some((u) => u.includes('api/signatures') && u.includes('project=2')),
+      ).toBe(true),
+    );
+    const asked = fetchUrls().filter(
+      (u) => u.includes('api/signatures') && u.includes('project=2'),
+    );
+    expect(asked.every((u) => u.includes('offset=0'))).toBe(true);
+  });
+
+  it('reloads the open row on an auto-refresh tick', async () => {
+    mockApi({ signatures: SIGNATURES, 'signature-hash': DETAIL });
+    const { container } = await renderWithApp(
+      <>
+        <Controls />
+        <Signatures />
+      </>,
+      { hash: `#view=signatures&project=1&hash=${LONG_HASH}` },
+    );
+    await waitFor(() => expect(container.querySelector('tr.sig-detail')).toBeTruthy());
+    await screen.findByText('Member items (2 of 4)');
+
+    const detailCalls = () => fetchUrls().filter((u) => u.includes('signature-hash')).length;
+    const before = detailCalls();
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByText('auto on'));
+      await act(async () => {
+        vi.advanceTimersByTime(10000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await waitFor(() => expect(detailCalls()).toBeGreaterThan(before));
   });
 });

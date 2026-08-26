@@ -1,10 +1,27 @@
 import { mockApi, renderWithApp } from '../../test/utils';
 
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useApp } from '../../app/state';
 import { setDefects } from '../../lib/labels';
 import Journey from './Journey';
+
+/** Every URL the fetch double was asked for, in call order. */
+function fetchUrls(): string[] {
+  const mock = globalThis.fetch as unknown as { mock: { calls: unknown[][] } };
+  return mock.mock.calls.map((c) => String(c[0]));
+}
+
+/** Drives the shell controls the view itself does not own (topbar project pick). */
+function Controls() {
+  const { setProject } = useApp();
+  return (
+    <button type="button" onClick={() => setProject(2)}>
+      switch project
+    </button>
+  );
+}
 
 const RP = {
   project_id: 1,
@@ -530,6 +547,110 @@ describe('Item Journey', () => {
     expect(container.querySelector('.llm-tiles')).toBeNull();
 
     expect(screen.getByText('No label events')).toBeTruthy();
+  });
+
+  it('opens the first item of a launch the user picks, even after a back step', async () => {
+    // Repro: open item 8, step back to item 7 (the link arms item 7 again, but
+    // the item list is not refetched so nothing consumes it), then pick another
+    // launch. Item 7 is not in launch 6 — but it IS in the index, so claiming
+    // otherwise would be a lie.
+    bootFixtures({
+      'items?project=1&launch=6': {
+        items: [
+          {
+            item_id: 9,
+            item_name: 'search returns hits',
+            exc_text: 'AssertionError',
+            issue_type: 'ab001',
+            label_group: 'ab',
+            is_auto_analyzed: false,
+            ui_url: null,
+          },
+        ],
+      },
+      'item/1/9': {
+        ...JOURNEY,
+        item: { ...JOURNEY.item, item_id: 9, item_name: 'search returns hits', launch_id: 6 },
+      },
+    });
+    await renderJourney('#view=journey&project=1&launch=5&item=8');
+
+    // browser Back to item 7 — same launch, so the item list stays put
+    await act(async () => {
+      window.location.hash = '#view=journey&project=1&launch=5&item=7';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await waitFor(() => expect(window.location.hash).toContain('item=7'));
+
+    fireEvent.click(screen.getByText('launch 6'));
+
+    await screen.findByText('search returns hits');
+    expect(screen.queryByText("Item 7 is not in the analyzer's index")).toBeNull();
+    await waitFor(() => expect(window.location.hash).toContain('item=9'));
+  });
+
+  it('drops the old project ids when the project changes', async () => {
+    bootFixtures({ 'launches?project=2': { launches: [] } });
+    await renderWithApp(
+      <>
+        <Controls />
+        <Journey />
+      </>,
+      { hash: '#view=journey&project=1&launch=5&item=7' },
+    );
+    await screen.findByText('Signature');
+
+    fireEvent.click(screen.getByText('switch project'));
+    await screen.findByText('No launches');
+
+    // launch 5 and item 7 belong to project 1: no request may carry them into 2
+    await waitFor(() => expect(screen.getByText('Pick a launch, then an item')).toBeTruthy());
+    const urls = fetchUrls();
+    expect(urls.some((u) => u.includes('items?project=2'))).toBe(false);
+    expect(urls.some((u) => u.includes('item/2/'))).toBe(false);
+  });
+
+  it('keeps both threshold chips when the two thresholds are equal', async () => {
+    // Equal thresholds used to give the two chips the same React key. React
+    // keeps both on the first paint but warns, and drops one the next time the
+    // gauge re-renders — so the warning is the thing to assert on.
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      errors.push(args.map(String).join(' '));
+    });
+    try {
+      bootFixtures({
+        'item/': {
+          ...JOURNEY,
+          decision: { ...JOURNEY.decision, tau_suggest: 0.5, tau_auto: 0.5 },
+        },
+      });
+      const { container } = await renderJourney();
+
+      expect([...container.querySelectorAll('.thresh-chip')].map((c) => c.textContent)).toEqual([
+        '.50',
+        '.50',
+      ]);
+      expect(container.querySelectorAll('.gauge-wrap svg path')).toHaveLength(3);
+      expect(errors.filter((e) => e.includes('same key'))).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('installs the RP defect names the journey payload carries', async () => {
+    bootFixtures({
+      'item/': {
+        ...JOURNEY,
+        rp: {
+          ...RP,
+          defects: { pb001: { name: 'Product Bug', short_name: 'PB', color: '#ec3900' } },
+        },
+      },
+    });
+    const { container } = await renderJourney();
+
+    expect(container.querySelector('h2 .badge.defect')?.textContent).toContain('Product Bug');
   });
 
   it('remembers the drawer open state per key', async () => {
