@@ -1,0 +1,52 @@
+/* Launch Groups — view-only styles. Everything else comes from styles/app.css.
+   minmax(0, 1fr): without it the chart canvas and the chips can force the
+   column (and the whole page) wider than the viewport. */
+.groups-grid {
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: start;
+}
+
+.groups-legend {
+  align-items: center;
+}
+
+.groups-legend-item {
+  font-size: 12px;
+}
+
+.groups-legend-hint {
+  margin-left: auto;
+}
+
+.groups-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.groups-graph-wrap {
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.groups-list {
+  display: grid;
+  gap: 8px;
+}
+
+.group-mini {
+  padding: 9px 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+}
+
+.group-mini-burst {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+}
+
+.group-mini-si,
+.group-mini-meta {
+  font-size: 11px;
+}

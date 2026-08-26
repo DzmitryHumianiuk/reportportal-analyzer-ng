@@ -1,0 +1,47 @@
+/* Learning Loop — view-only styling. The stepper, stage cards, stat row,
+   honesty block and meter all reuse the shared classes in styles/app.css; only
+   the label-event list, the artifact cards and a few type sizes live here
+   (they were inline styles in the original view). */
+
+.loop-block { margin-top: 16px; }
+
+.loop-ev-list { display: grid; gap: 6px; }
+.loop-ev {
+  padding: 7px 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+}
+.loop-ev-id { font-size: 11px; color: var(--muted); }
+.loop-ev-time { font-size: 11px; }
+
+.loop-art-list { display: grid; gap: 8px; }
+.loop-art {
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+}
+.loop-art.active { border-color: var(--accent); }
+.loop-ev .chip,
+.loop-art .chip { font-size: 11px; }
+.loop-art-when { font-size: 11px; }
+.loop-art-ver { font-size: 12px; }
+.loop-art-scope { font-size: 11px; }
+.loop-art-foot { font-size: 11px; }
+.loop-badge-active { background: var(--accent-soft); color: var(--accent); }
+
+.loop-meter { margin-bottom: 18px; }
+.loop-meter .si-meter { max-width: none; }
+
+.loop-stat-sub { font-size: 10.5px; margin-top: 2px; }
+
+.loop-cols { margin-bottom: 16px; }
+.loop-stats { margin-bottom: 14px; }
+.loop-note { margin-top: 4px; }
+
+.loop-health { white-space: pre-wrap; }
+
+/* The drawer body is a definition list; drop the browser's default dl margin so
+   it sits exactly where the original div did. */
+.loop-block .kv { margin: 0; }

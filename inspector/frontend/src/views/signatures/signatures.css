@@ -1,0 +1,46 @@
+/* Signatures Explorer — view-only styles.
+   The shared table / chip / badge / sig-row / sig-detail rules live in
+   styles/app.css; these classes only replace the inline styles the original
+   view carried, with the same values. */
+
+.sig-search { min-width: 300px; }
+
+/* --- table cells --- */
+.sig-label-chip { display: flex; align-items: center; gap: 3px; }
+.sig-label-count { font-size: 10.5px; }
+.sig-exc { font-size: 11.5px; }
+.sig-seen { font-size: 11px; }
+
+/* --- detail panel --- */
+.sig-bleed-badge {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.sig-bleed-note { margin-bottom: 12px; }
+.sig-section { margin-top: 16px; }
+.sig-fields { display: grid; gap: 8px; }
+.sig-field-row { display: flex; gap: 8px; align-items: baseline; }
+.sig-field-val { font-size: 12.5px; color: var(--ink-2); word-break: break-word; }
+
+.sig-tpl {
+  padding: 8px 10px; background: var(--surface-2);
+  border: 1px solid var(--hairline); border-radius: 8px; margin-bottom: 6px;
+}
+.sig-tpl-meta { font-size: 11px; }
+
+.sig-members { display: grid; gap: 6px; }
+.sig-member {
+  padding: 8px 11px; background: var(--surface-2);
+  border: 1px solid var(--hairline); border-radius: 8px; gap: 10px;
+}
+.sig-member-main { min-width: 0; }
+.sig-member-name {
+  font-size: 12.5px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 360px;
+}
+.sig-auto-badge { background: var(--accent-soft); color: var(--accent); }
+.sig-indexed { font-size: 11px; }
+
+/* --- pager --- */
+.sig-pager-note { font-size: 12px; }

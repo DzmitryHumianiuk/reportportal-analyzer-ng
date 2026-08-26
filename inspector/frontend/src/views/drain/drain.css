@@ -1,0 +1,26 @@
+/* Drain3 Explorer — view-only styles. Shared classes (.picker-row, .grid-2,
+   .pattern, .tok-*, .mono, .muted) come from styles/app.css. */
+
+.drain-search {
+  min-width: 280px;
+}
+
+/* The template list can be long; the original capped the scroll box at 520px. */
+.drain-table-wrap {
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.drain-pattern {
+  max-width: 420px;
+  white-space: normal;
+}
+
+.drain-lastseen {
+  font-size: 11px;
+}
+
+/* The icicle is a plain canvas block, no card padding tricks. */
+.drain-icicle {
+  width: 100%;
+}

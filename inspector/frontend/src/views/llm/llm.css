@@ -1,0 +1,11 @@
+/* LLM view styles.
+ *
+ * Every class this view uses (.role-grid, .role-panel, .oc-chip, .ocbar,
+ * .lat-*, .filter-row, .fchip, .llm-tl, .out-drawer, .honesty, .stat-row,
+ * .row-negative, .tag-negative, table.data) is part of the shared stylesheet
+ * ported in styles/app.css, because the journey view renders the same LLM
+ * strip. Keeping the rules in one place means the two views cannot drift.
+ *
+ * This file stays as the seam for LLM-tab-only rules; it is intentionally
+ * empty today.
+ */

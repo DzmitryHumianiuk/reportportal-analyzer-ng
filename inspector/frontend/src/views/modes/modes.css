@@ -1,0 +1,39 @@
+/* Modes Map — the only view that breaks out of the .view 1440px cap: a
+   near-viewport-wide card centered inside the narrower container (100% below
+   is the container width, as in the original inline style). */
+.modes-card {
+  --modes-bleed: min(100vw - 48px, 1800px);
+  width: var(--modes-bleed);
+  margin-left: calc((100% - var(--modes-bleed)) / 2);
+}
+
+/* Diagnostics chips under the unavailable empty state. */
+.modes-diag {
+  justify-content: center;
+  margin-top: 4px;
+}
+
+/* Legend: one colored dot per defect group. */
+.modes-legend-item {
+  font-size: 12px;
+}
+
+.modes-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.modes-legend-key {
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+/* Fullscreen toggle sits at the right end of the legend row. */
+.modes-fs-btn {
+  margin-left: auto;
+}
+
+.modes-note {
+  margin-top: 8px;
+}

@@ -137,6 +137,7 @@ export interface JourneySignature {
   exc_text?: string | null;
   msg_text?: string | null;
   top_frames?: string[] | null;
+  frames_text?: string | null;
   template_ids?: number[] | null;
   status_codes?: string[] | null;
   exception_fp?: string | null;
@@ -206,7 +207,7 @@ export interface JourneyReconstruction {
   hybrid_retrieval_version?: number | string | null;
   note?: string | null;
   query?: {
-    salient_terms?: string[] | null;
+    salient_terms?: string | null;
     template_ids?: number[] | null;
     emb_model_ver?: string | null;
     dense_active?: boolean | null;
