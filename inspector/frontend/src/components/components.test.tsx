@@ -193,7 +193,10 @@ describe('Microbar / SiMeter', () => {
     expect((container.querySelector('.si-fill') as HTMLElement).style.width).toBe('60%');
     expect((container.querySelector('.si-tick') as HTMLElement).style.left).toBe('50%');
     expect(container.querySelector('.si-scale')?.textContent).toBe('00.600.9 max');
-    expect(container.querySelector('.note')?.textContent).toContain('not a verdict');
+    // the note carries its own class, so a wrapper can widen it (see .loop-meter)
+    expect(container.querySelector('.note.si-meter-note')?.textContent).toContain(
+      'not a verdict',
+    );
   });
 });
 

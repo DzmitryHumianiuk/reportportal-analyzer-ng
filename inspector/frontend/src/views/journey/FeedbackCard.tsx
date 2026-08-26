@@ -168,7 +168,10 @@ export function FeedbackCard({ d }: { d: JourneyResponse }) {
                       (first label)
                     </span>
                   )}
-                  <span title="old_label → new_label as stored on the event; the log is append-only, current label = newest event.">
+                  <span
+                    className="muted"
+                    title="old_label → new_label as stored on the event; the log is append-only, current label = newest event."
+                  >
                     →
                   </span>
                   <DefectBadge locator={e.new_label} group={e.new_group} />

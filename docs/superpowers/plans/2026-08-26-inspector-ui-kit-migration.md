@@ -386,5 +386,5 @@ export function renderWithApp(ui: ReactNode, opts?: { hash?: string }): RenderRe
 ## Self-review notes (Fable5)
 
 - Spec coverage: Tasks 1–12 cover inventory §1 (Task 3), §2.1–2.8 (Tasks 4–11), §3 (Task 2/3), §4 (Task 3 CSS), §5 (Task 12), §6 (Tasks 6/7/8 + Gauge in Task 4).
-- Known accepted fidelity deltas (approved direction, echo in reviews): groups force-graph gravity wells approximated by categories/seeded positions; in-node RP links move to tooltip; auto-fit-until-touched simplified to a fit button; signature/drain/llm-cache/rubric tables adopt ui-kit Table look (RP consistency is the goal of this migration).
+- Known accepted fidelity deltas (approved direction, echo in reviews): groups force-graph gravity wells approximated by categories/seeded positions; in-node RP links move to tooltip; auto-fit-until-touched simplified to a fit button; signature/drain/llm-cache/rubric tables adopt ui-kit Table look (RP consistency is the goal of this migration). The drain templates table also shows pattern before id, because the ui-kit Table draws the primary (width-flexing) column first and the pattern is the column that needs the room.
 - Type consistency: all cross-task names are pinned in "Shared contracts"; view tasks import only from `app/`, `lib/`, `components/`, ui-kit, echarts.

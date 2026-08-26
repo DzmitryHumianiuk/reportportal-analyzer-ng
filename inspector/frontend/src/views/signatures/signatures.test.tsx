@@ -274,6 +274,28 @@ describe('Signatures view', () => {
     await waitFor(() => expect(fetchUrls().some((u) => u.includes('offset=2'))).toBe(true));
   });
 
+  it('keeps the page when the tab is left and re-entered', async () => {
+    mockApi({ signatures: { ...SIGNATURES, count: 2, limit: 2 } });
+    const first = await renderWithApp(<Signatures />, {
+      hash: '#view=signatures&project=1',
+    });
+    await waitFor(() => expect(first.container.querySelectorAll('tr.sig-row').length).toBe(2));
+
+    fireEvent.click(screen.getByRole('button', { name: 'next →' }));
+    await waitFor(() => expect(fetchUrls().some((u) => u.includes('offset=2'))).toBe(true));
+
+    // leaving the tab unmounts the view; coming back must not send the user
+    // to page 1 again
+    first.unmount();
+    const again = await renderWithApp(<Signatures />, {
+      hash: '#view=signatures&project=1',
+    });
+    await waitFor(() => expect(again.container.querySelectorAll('tr.sig-row').length).toBe(2));
+
+    const asked = fetchUrls().filter((u) => u.includes('api/signatures'));
+    expect(asked[asked.length - 1]).toContain('offset=2');
+  });
+
   it('starts the pager over when the project changes', async () => {
     mockApi({ signatures: { ...SIGNATURES, count: 2, limit: 2 } });
     const { container } = await renderWithApp(

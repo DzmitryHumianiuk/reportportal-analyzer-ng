@@ -35,6 +35,31 @@ import './signatures.css';
 
 const SEARCH_DEBOUNCE_MS = 250;
 
+// The pager offset is module state, exactly as in the original view: it is not
+// part of the permalink, but it does survive leaving and re-entering the tab.
+// It belongs to one project, so it is dropped when the project changes — even
+// when that happens while another tab is on screen.
+let savedOffset = 0;
+let savedOffsetProject: number | null = null;
+
+/** Offset this project's pager is on; 0 for a project the pager has not seen. */
+function readSavedOffset(project: number | null): number {
+  // No project yet (the shell is still booting): nothing is fetched, and the
+  // saved offset must survive to be picked up once the project arrives.
+  if (project == null) return 0;
+  if (savedOffsetProject !== project) {
+    savedOffsetProject = project;
+    savedOffset = 0;
+  }
+  return savedOffset;
+}
+
+function writeSavedOffset(project: number | null, next: number): void {
+  if (project == null) return;
+  savedOffsetProject = project;
+  savedOffset = next;
+}
+
 const COLUMNS = [
   'error_hash',
   'members',
@@ -315,7 +340,7 @@ export default function Signatures() {
   const expanded = link.hash || null;
 
   const [draft, setDraft] = useState(appliedQ);
-  const [offset, setOffset] = useState(0);
+  const [offset, setOffsetState] = useState(() => readSavedOffset(project));
   const [data, setData] = useState<SignaturesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -323,17 +348,27 @@ export default function Signatures() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Every offset change writes through to the module value, so the pager is
+  // where the user left it when the tab is re-entered.
+  const setOffset = useCallback(
+    (next: number) => {
+      writeSavedOffset(project, next);
+      setOffsetState(next);
+    },
+    [project],
+  );
+
   // The pager belongs to one project. Offset 120 in a big project points past
   // the end of a small one, so after a project switch the list would come back
   // empty and read as "this project has no failure_signature rows yet", with no
-  // way back: the pager only renders when there are rows. Reset while
-  // rendering, so the fetch below never runs with the old project's offset.
-  // The open row needs no reset here — a project switch already drops
+  // way back: the pager only renders when there are rows. Re-point the pager
+  // while rendering, so the fetch below never runs with the old project's
+  // offset. The open row needs no reset here — a project switch already drops
   // link.hash, which collapses the expansion.
   const [pagedProject, setPagedProject] = useState(project);
   if (project !== pagedProject) {
     setPagedProject(project);
-    setOffset(0);
+    setOffset(readSavedOffset(project));
   }
 
   // A hash edit / back-navigation changes q under us: follow it, unless a
@@ -354,7 +389,7 @@ export default function Signatures() {
       setOffset(0);
       patchLink({ q: value, hash: null });
     },
-    [patchLink],
+    [patchLink, setOffset],
   );
 
   const onSearchInput = useCallback(
@@ -393,8 +428,15 @@ export default function Signatures() {
   }, [project, appliedQ, conflicts, offset, refreshTick]);
 
   // ---- expanded row detail ------------------------------------------------
+  // Only a hash that is on the page in front of the user has somewhere to
+  // expand. A hash left over from a permalink or an older page is not on this
+  // list, so fetching its detail would be work nobody can see.
+  const openRowOnPage =
+    expanded != null &&
+    (data?.rows || []).some((r) => String(r.error_hash) === String(expanded));
+
   useEffect(() => {
-    if (project == null || expanded == null) {
+    if (project == null || expanded == null || !openRowOnPage) {
       setDetail(null);
       return undefined;
     }
@@ -417,7 +459,7 @@ export default function Signatures() {
     };
     // refreshTick: an auto-refresh tick reloads the list, so the row opened
     // under it has to reload too — otherwise the detail drifts from the row.
-  }, [project, expanded, refreshTick]);
+  }, [project, expanded, openRowOnPage, refreshTick]);
 
   const toggleRow = useCallback(
     (hash: string) => {

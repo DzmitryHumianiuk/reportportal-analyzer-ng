@@ -206,7 +206,7 @@ export function GroupingCard({
               value=""
               ratio={si / 0.9}
               tickRatio={0.5}
-              scale={['0', fmt(si, 2), '0.9 max']}
+              scale={['0', <span className="si-val mono">{fmt(si, 2)}</span>, '0.9 max']}
               note="Prior evidence input for si, capped at 0.9 — one decision signal, not a verdict."
             />
           </div>

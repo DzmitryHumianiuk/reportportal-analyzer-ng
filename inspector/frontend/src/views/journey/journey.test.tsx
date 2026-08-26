@@ -373,6 +373,10 @@ describe('Item Journey', () => {
     expect(grouping?.classList.contains('burst-accent')).toBe(true);
     expect(grouping?.querySelector('.card-title')?.textContent).toContain('burst');
 
+    // si_prior meter: the middle scale caption is the bold mono read-out
+    const siVal = grouping?.querySelector('.si-scale .si-val.mono');
+    expect(siVal?.textContent).toBe('0.60');
+
     // gauge: banded arcs + the confidence read-out
     const gauge = container.querySelector('.gauge-wrap svg');
     expect(gauge?.querySelectorAll('path')).toHaveLength(3);

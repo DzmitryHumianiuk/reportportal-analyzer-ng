@@ -155,6 +155,14 @@ export default function Drain(): JSX.Element {
             />
           ) : (
             <div className="drain-table-wrap">
+              {/*
+                Column order differs from the original table on purpose: it read
+                `id | pattern | tok | matches | last seen`, this one reads
+                `pattern | id | …`. The ui-kit Table always draws the primary
+                column first, and only that column takes the leftover width. The
+                pattern is the one value that needs room to grow, so it takes the
+                primary slot and the id moves in behind it.
+              */}
               <Table
                 data={rows}
                 primaryColumn={{ key: 'pattern', header: 'pattern' }}

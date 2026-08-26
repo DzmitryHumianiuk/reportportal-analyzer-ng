@@ -432,6 +432,9 @@ details.eng .eng-body { margin-top: 10px; }
 .si-tick { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--hairline-2); }
 .si-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-top: 3px; }
 .si-val { color: var(--ink-2); font-weight: 600; }
+/* Caption under the meter. Capped so the line length matches the original
+   journey meter; a wrapper (see .loop-meter) can widen it again. */
+.si-meter-note { margin-top: 6px; max-width: 320px; }
 .si-note { font-size: 11px; color: var(--muted); line-height: 1.55; min-width: 200px; flex: 1 1 200px; max-width: 340px; }
 
 /* Burst alarm treatment */

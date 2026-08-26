@@ -9,8 +9,11 @@ export interface SiMeterProps {
   color?: string;
   /** 0..1 position of the midpoint tick. Omitted → no tick. */
   tickRatio?: number;
-  /** Left / middle / right scale captions under the track. */
-  scale?: [string, string, string];
+  /**
+   * Left / middle / right scale captions under the track. Nodes, not plain
+   * text: the journey meter styles its middle caption (bold mono read-out).
+   */
+  scale?: [ReactNode, ReactNode, ReactNode];
   note?: ReactNode;
 }
 
@@ -39,11 +42,7 @@ export function SiMeter({ label, value, ratio, color, tickRatio, scale, note }: 
           <span>{scale[2]}</span>
         </div>
       ) : null}
-      {note ? (
-        <p className="note" style={{ marginTop: '6px' }}>
-          {note}
-        </p>
-      ) : null}
+      {note ? <p className="note si-meter-note">{note}</p> : null}
     </div>
   );
 }

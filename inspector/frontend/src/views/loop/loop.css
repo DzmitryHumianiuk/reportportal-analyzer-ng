@@ -32,7 +32,9 @@
 .loop-badge-active { background: var(--accent-soft); color: var(--accent); }
 
 .loop-meter { margin-bottom: 18px; }
+/* The training-frame meter spans the whole card here, unlike the journey one. */
 .loop-meter .si-meter { max-width: none; }
+.loop-meter .si-meter-note { max-width: none; }
 
 .loop-stat-sub { font-size: 10.5px; margin-top: 2px; }
 
