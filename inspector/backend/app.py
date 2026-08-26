@@ -1,15 +1,14 @@
-"""FastAPI application: read-only API + static SPA for the analyzer-ng inspector.
+"""FastAPI application: read-only API + built SPA for the analyzer-ng inspector.
 
-The SPA is served from ``inspector/static``; the API lives under ``/api``. When
-deployed behind the ingress at ``/inspector`` (which does **not** strip the
-prefix), the whole app is *mounted* under that prefix so requests the pod
-receives as ``/inspector/...`` match — no path rewriting at the proxy. The
+The SPA is the Vite build in ``inspector/frontend/dist``; the API lives under
+``/api``. When deployed behind the ingress at ``/inspector`` (which does **not**
+strip the prefix), the whole app is *mounted* under that prefix so requests the
+pod receives as ``/inspector/...`` match — no path rewriting at the proxy. The
 injected ``<base href>`` makes every relative SPA URL resolve under the prefix.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
@@ -25,7 +24,8 @@ from .db import Database
 from .rp_names import RPNameResolver
 from .rubric_loader import rubric_rows
 
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+# One year, the longest value browsers honour for a fingerprinted file.
+_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 
 def create_app(config: Config | None = None) -> Starlette | FastAPI:
@@ -62,15 +62,14 @@ def _build_inner(cfg: Config) -> FastAPI:
     app.state.db = db
     app.state.rp = rp
 
-    # Static assets are ES modules; without revalidation a redeploy can leave a
-    # browser running a stale module tree (query-busting the HTML never busts the
-    # module URLs). `no-cache` forces a conditional request each load, so a
-    # changed ETag serves fresh code immediately.
+    # Every file under /assets carries a content hash in its name, so a redeploy
+    # changes the URL. They can be cached forever; index.html (which names them)
+    # is the only thing that must stay fresh, and it sets its own no-cache below.
     @app.middleware("http")
-    async def _revalidate_static(request, call_next):  # noqa: ANN001, ANN202
+    async def _cache_assets(request, call_next):  # noqa: ANN001, ANN202
         response = await call_next(request)
-        if "/static/" in request.url.path:
-            response.headers["Cache-Control"] = "no-cache"
+        if "/assets/" in request.url.path:
+            response.headers["Cache-Control"] = _ASSET_CACHE_CONTROL
         return response
 
     # ---- Health ----
@@ -201,11 +200,17 @@ def _build_inner(cfg: Config) -> FastAPI:
         except Exception as exc:  # pragma: no cover - network dependent
             return {"configured": True, "reachable": False, "error": str(exc)}
 
-    # ---- Static SPA (mounted last so /api wins) ----
-    if STATIC_DIR.exists():
-        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    # ---- Built SPA (mounted last so /api wins) ----
+    # dist/ is a build artifact: gitignored, and absent on a fresh clone or in
+    # CI. Without it the API still serves; only the web UI is missing.
+    dist = cfg.static_dist
+    index_file = dist / "index.html"
+    if index_file.exists():
+        assets = dist / "assets"
+        if assets.exists():
+            app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
 
-        index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        index_html = index_file.read_text(encoding="utf-8")
         # Inject <base> so every relative URL (script src, fetch) resolves under
         # the ingress mount point without any path rewriting at the proxy.
         base = (cfg.root_path + "/") if cfg.root_path else "/"
@@ -215,7 +220,9 @@ def _build_inner(cfg: Config) -> FastAPI:
 
         @app.get("/", response_class=HTMLResponse)
         def index() -> HTMLResponse:
-            return HTMLResponse(index_rendered)
+            # Never cache the index: it names hashed asset files that a redeploy
+            # deletes, so a cached copy would ask for chunks that are gone.
+            return HTMLResponse(index_rendered, headers={"Cache-Control": "no-cache"})
 
     return app
 

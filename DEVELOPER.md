@@ -90,10 +90,19 @@ lives in `src/analyzer_ng/config.py`.
 
 ### 3. Run the inspector
 
-The inspector is a read-only FastAPI app over the analyzer database. Run it from
-a venv or as its own image.
+The inspector is a read-only FastAPI app over the analyzer database, plus a web
+UI: a React + TypeScript app (Vite, `@reportportal/ui-kit`) in
+`inspector/frontend`. Node 22 (`inspector/frontend/.nvmrc`).
 
-From a venv:
+The backend serves the built UI from `inspector/frontend/dist`. That folder is a
+build artifact and is **not** in git, so build it once before you start:
+
+```bash
+make ui-install     # npm ci, first time only
+make ui-build       # writes inspector/frontend/dist
+```
+
+Backend from a venv:
 
 ```bash
 python -m venv .venv-inspector && source .venv-inspector/bin/activate
@@ -107,14 +116,48 @@ uvicorn backend.app:app --app-dir inspector --host 0.0.0.0 --port 5005
 # open http://127.0.0.1:5005
 ```
 
+Without `dist/` the API still works, only the page at `/` is missing (404).
+
+#### Working on the web UI
+
+Two terminals. Terminal 1 runs the backend as above (no `INSPECTOR_ROOT_PATH`).
+Terminal 2 runs the dev server with hot reload:
+
+```bash
+make ui-dev         # http://127.0.0.1:5173
+```
+
+The dev server proxies `/api` and `/healthz` to port 5005, so there is no CORS
+setup and no rebuild between edits. Frontend checks:
+
+```bash
+cd inspector/frontend
+npm test            # vitest
+npm run typecheck   # tsc --noEmit
+npm run build       # typecheck + production build
+```
+
 As an image (build context is the repo root, on purpose):
 
 ```bash
-docker build -f inspector/Dockerfile -t analyzer-inspector:dev .
+make inspector-image INSPECTOR_TAG=dev       # needs a docker daemon with network
 docker run --rm -p 5005:5005 \
   -e INSPECTOR_PG_DSN="postgresql://analyzer:analyzer@host.docker.internal:5432/analyzer" \
   analyzer-inspector:dev
 ```
+
+For minikube, use the overlay image: the VM has no outbound DNS, so `npm ci`
+and `pip install` cannot run there. It copies the SPA you built on the host.
+Always build it through make, never `docker build` by hand, so the image can
+never ship a stale `dist/`:
+
+```bash
+make inspector-overlay INSPECTOR_BASE=analyzer-inspector:ins47 INSPECTOR_TAG=ins48
+kubectl set image deployment/analyzer-inspector inspector=analyzer-inspector:ins48
+```
+
+Pass the tag the cluster runs today as `INSPECTOR_BASE`. Building on an older
+base silently drops everything that landed after it.
 
 Optional: set `INSPECTOR_RP_PG_DSN` to ReportPortal's own Postgres so the
 inspector shows real project names and defect-type names instead of raw

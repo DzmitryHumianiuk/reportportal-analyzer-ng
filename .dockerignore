@@ -14,6 +14,10 @@ LICENSE
 *.md
 !README.md
 
+# Node tooling: the inspector frontend's deps stay on the host. Its `dist/` is
+# NOT ignored — the overlay image copies that host-built folder.
+inspector/frontend/node_modules
+
 # Python / tooling cruft
 __pycache__/
 *.py[cod]

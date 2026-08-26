@@ -7,7 +7,12 @@ in local dev, docker-compose and minikube. No secrets are baked in.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
+
+# The built frontend (Vite output). Gitignored and absent on a fresh clone, so
+# every reader of this path guards with ``exists()``.
+DEFAULT_STATIC_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 @dataclass(frozen=True)
@@ -21,6 +26,9 @@ class Config:
     queries_path: str | None
     query_limit: int
     rp_pg_dsn: str | None
+    # Directory holding the built SPA (index.html + assets/). A field rather
+    # than a module constant so tests can point the app at a temporary build.
+    static_dist: Path = field(default=DEFAULT_STATIC_DIST)
 
     @staticmethod
     def from_env() -> Config:
@@ -39,6 +47,8 @@ class Config:
         health = os.environ.get("ANALYZER_HEALTH_URL") or None
         queries_path = os.environ.get("INSPECTOR_QUERIES_PATH") or None
         limit = int(os.environ.get("INSPECTOR_QUERY_LIMIT", "500"))
+        dist_env = os.environ.get("INSPECTOR_STATIC_DIST") or None
+        dist = Path(dist_env) if dist_env else DEFAULT_STATIC_DIST
         return Config(
             pg_dsn=dsn,
             http_port=port,
@@ -47,4 +57,5 @@ class Config:
             queries_path=queries_path,
             query_limit=limit,
             rp_pg_dsn=rp_dsn,
+            static_dist=dist,
         )

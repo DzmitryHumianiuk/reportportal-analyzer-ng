@@ -1,6 +1,20 @@
-# analyzer-ng inspector — read-only companion (FastAPI + static SPA) in one image.
+# analyzer-ng inspector — read-only companion (FastAPI + built SPA) in one image.
 # Build context is the REPO ROOT so we can vendor the analyzer's versioned SQL:
 #   docker build -f inspector/Dockerfile -t analyzer-inspector:<tag> .
+#
+# This build compiles the frontend itself, so it needs a docker daemon with
+# network (npm + pip both download). The minikube VM has no outbound DNS — use
+# Dockerfile.inspector-overlay there (see that file, or `make inspector-overlay`).
+
+# ---- Stage 1: build the Vite + React SPA ----
+FROM node:22-alpine AS ui
+WORKDIR /ui
+COPY inspector/frontend/package.json inspector/frontend/package-lock.json ./
+RUN npm ci
+COPY inspector/frontend/ ./
+RUN npm run build
+
+# ---- Stage 2: the service ----
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -15,18 +29,20 @@ WORKDIR /app
 COPY inspector/requirements.txt /app/requirements.txt
 RUN pip install -r /app/requirements.txt
 
-# App: backend + static SPA (vendored ECharts/d3 committed under static/vendor).
-COPY inspector/backend /app/backend
-COPY inspector/static /app/static
+# The non-root user is created before the COPY steps: `COPY --chown=inspector`
+# (here and in the overlay) fails when the name does not resolve yet.
+RUN useradd --system --uid 10001 inspector
+
+# App: backend + the built SPA.
+COPY --chown=inspector:inspector inspector/backend /app/backend
+COPY --from=ui --chown=inspector:inspector /ui/dist /app/frontend/dist
 
 # Vendor the analyzer's *versioned* hybrid-retrieval SQL, byte-for-byte. It only
 # imports the stdlib, so the loader executes it standalone (no analyzer_ng deps).
-COPY src/analyzer_ng/db/repositories/queries.py /app/analyzer_sql/queries.py
+COPY --chown=inspector:inspector src/analyzer_ng/db/repositories/queries.py /app/analyzer_sql/queries.py
 COPY --chown=inspector:inspector src/analyzer_ng/llm/rubric.py /app/analyzer_sql/rubric.py
 
-# Non-root.
-RUN useradd --system --uid 10001 inspector \
-    && chown -R inspector:inspector /app
+RUN chown -R inspector:inspector /app
 USER inspector
 
 EXPOSE 5005

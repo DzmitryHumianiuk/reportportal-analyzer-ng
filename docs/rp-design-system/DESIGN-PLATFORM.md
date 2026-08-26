@@ -446,9 +446,10 @@ Execution statuses: passed `#3aa76d`, failed `#c33c3d` (button context) /
 
 ## 7. Mapping: Inspector's current dark system → RP language
 
-Current source: `analyzer-ng/inspector/static/css/app.css` (`:root`, lines
-6-50). The Inspector is dark (`color-scheme: dark`); the RP language is
-light. Token-by-token replacement:
+The dark values below come from the Inspector before the ui-kit migration
+(`inspector/static/css/app.css`, now removed). The replacements are live in
+`analyzer-ng/inspector/frontend/src/styles/app.css` (`:root`). Token-by-token
+replacement:
 
 | Inspector token (dark) | Current value | RP replacement | Value |
 |---|---|---|---|

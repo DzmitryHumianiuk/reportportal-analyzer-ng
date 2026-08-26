@@ -23,7 +23,10 @@ ARG BASE=analyzer-inspector:ins47
 FROM ${BASE}
 
 COPY --chown=inspector:inspector inspector/backend /app/backend
-COPY --chown=inspector:inspector inspector/static /app/static
+# The SPA is built on the HOST (`make ui-build`) — npm needs DNS, which the
+# minikube VM does not have. Build through `make inspector-overlay` so the copy
+# below can never be a stale dist from an earlier session.
+COPY --chown=inspector:inspector inspector/frontend/dist /app/frontend/dist
 COPY --chown=inspector:inspector src/analyzer_ng/db/repositories/queries.py /app/analyzer_sql/queries.py
 # The cold-start rubric, so the Inspector shows the same rules the analyzer
 # applied instead of keeping a copy that could drift.
