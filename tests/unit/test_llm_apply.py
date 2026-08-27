@@ -143,7 +143,48 @@ def test_coldstart_inserts_suggest_band_ai_suggestion() -> None:
         "rule": "R6",
         "rule_name": "Could not reach the service",
         "confidence": "high",
+        "model_confidence": "high",
     }
+
+
+def test_coldstart_confidence_follows_the_rule_not_the_model() -> None:
+    # R2 is canonically "med" in the rubric. A 4B model saturates at "high" (live:
+    # 28 of 28 R2 matches came back "high", overriding the "-> ab, med" hint in its
+    # own prompt), so the stored score follows the rule; the model's bucket is kept
+    # in features for drift telemetry only.
+    ops = FakeOps()
+    out = {"label": "ab", "confidence": "high", "rubric_rule_matched": "R2", "reason": "fixture"}
+    apply_coldstart(ops, 1, 10, 500, output=out, group_locator="ab001", model_tag="m")
+    ins = ops.coldstart_inserts[-1]
+    assert ins["confidence"] == CONFIDENCE_SCORE["med"]
+    assert ins["features"]["coldstart"]["confidence"] == "med"
+    assert ins["features"]["coldstart"]["model_confidence"] == "high"
+
+
+def test_coldstart_every_rule_maps_to_its_canonical_score() -> None:
+    from analyzer_ng.llm.rubric import RUBRIC
+
+    for rid, rule in RUBRIC.items():
+        ops = FakeOps()
+        out = {"label": rule.label, "confidence": "low", "rubric_rule_matched": rid, "reason": "r"}
+        apply_coldstart(
+            ops, 1, 10, 500, output=out, group_locator=f"{rule.label}001", model_tag="m"
+        )
+        ins = ops.coldstart_inserts[-1]
+        assert ins["confidence"] == CONFIDENCE_SCORE[rule.confidence], rid
+        assert ins["confidence"] < 0.75  # always below τ_auto
+
+
+def test_coldstart_without_a_rule_falls_back_to_the_model_bucket() -> None:
+    # rubric_rule_matched == "none" has no table row to inherit from; the model's
+    # own bucket is the only signal left (its prompt mandates "low" for that path).
+    ops = FakeOps()
+    out = {"label": "nd", "confidence": "low", "rubric_rule_matched": "none", "reason": "retry"}
+    apply_coldstart(ops, 1, 10, 500, output=out, group_locator="nd001", model_tag="m")
+    ins = ops.coldstart_inserts[-1]
+    assert ins["confidence"] == CONFIDENCE_SCORE["low"]
+    assert ins["features"]["coldstart"]["confidence"] == "low"
+    assert ins["features"]["coldstart"]["model_confidence"] == "low"
 
 
 def test_coldstart_copies_rubric_reason_into_explanation() -> None:

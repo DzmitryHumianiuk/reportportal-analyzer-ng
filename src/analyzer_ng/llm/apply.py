@@ -17,6 +17,7 @@ from typing import Any, Protocol
 
 from analyzer_ng.llm.roles.coldstart import (
     CONFIDENCE_SCORE,
+    RUBRIC,
     rubric_rule_name,
     strip_rule_ids,
 )
@@ -107,16 +108,26 @@ def apply_coldstart(
     the inserted suggestion's ``explanation`` — no second LLM call, provenance stays
     ``rubric+<model>``. Cheap and deterministic: the sentence already exists.
     """
-    confidence = CONFIDENCE_SCORE[output["confidence"]]
+    # The stored confidence is the RULE's canonical bucket, not the model's. The
+    # Cold-start Rules table promises "Always produces: <label>, <confidence>", and
+    # a 4B model's self-rating saturates at "high" regardless (live: 28/28 R2
+    # matches said "high" against the "-> ab, med" hint in their own prompt). The
+    # model's bucket stays in features (and verbatim in llm_event.output) as drift
+    # telemetry. "none" has no table row, so the model's bucket is all there is.
+    rule = output["rubric_rule_matched"]
+    model_bucket = output["confidence"]
+    bucket = RUBRIC[rule].confidence if rule in RUBRIC else model_bucket
+    confidence = CONFIDENCE_SCORE[bucket]
     features = {
         "coldstart": {
-            "rule": output["rubric_rule_matched"],
+            "rule": rule,
             # The rule's reader-facing name travels with the id, so a UI can show
             # "Could not reach the service" instead of "R6" without keeping its own
             # copy of the rubric. The id stays for audit and for arguing with the
             # rule itself.
-            "rule_name": rubric_rule_name(output["rubric_rule_matched"]),
-            "confidence": output["confidence"],
+            "rule_name": rubric_rule_name(rule),
+            "confidence": bucket,
+            "model_confidence": model_bucket,
         }
     }
     suggestion_id = ops.insert_coldstart(
